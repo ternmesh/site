@@ -1,0 +1,96 @@
+---
+import "../styles/global.css";
+
+interface Props {
+    title?: string;
+    description?: string;
+}
+
+const {
+    title,
+    description = "Tern is an open LoRa mesh protocol that treats airtime as a shared, metered resource.",
+} = Astro.props;
+const fullTitle = title ? `${title} · Tern` : "Tern — an open LoRa mesh protocol";
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const org = "https://github.com/ternmesh";
+---
+
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{fullTitle}</title>
+        <meta name="description" content={description} />
+        <link rel="canonical" href={canonical} />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <meta property="og:title" content={fullTitle} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:type" content="website" />
+    </head>
+    <body>
+        <header class="site-header">
+            <nav class="wrap">
+                <a class="brand" href="/">
+                    <img src="/favicon.svg" alt="" width="28" height="28" />
+                    Tern
+                </a>
+                <div class="links">
+                    <a href={`${org}/spec`}>Spec</a>
+                    <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>Governance</a>
+                    <a href={org}>GitHub</a>
+                </div>
+            </nav>
+        </header>
+        <main>
+            <slot />
+        </main>
+        <footer class="site-footer">
+            <div class="wrap muted">
+                Site under the Apache License 2.0 · <a href={`${org}/site`}>Source</a>
+                <br />
+                Tern is an independent project, not affiliated with any other mesh project.
+            </div>
+        </footer>
+    </body>
+</html>
+
+<style>
+    .site-header {
+        border-bottom: 1px solid var(--border);
+    }
+    .site-header nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        min-height: 60px;
+        flex-wrap: wrap;
+    }
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        color: var(--text);
+        text-decoration: none;
+    }
+    .links {
+        display: flex;
+        gap: 1.25rem;
+    }
+    .links a {
+        color: var(--muted);
+        text-decoration: none;
+    }
+    .links a:hover {
+        color: var(--text);
+    }
+    .site-footer {
+        margin-top: 4rem;
+        padding: 2rem 0;
+        border-top: 1px solid var(--border);
+        font-size: 0.875rem;
+    }
+</style>

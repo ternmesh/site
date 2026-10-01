@@ -1,0 +1,158 @@
+---
+import Base from "../layouts/Base.astro";
+
+const org = "https://github.com/ternmesh";
+
+const ideas = [
+    {
+        title: "Airtime is budgeted",
+        body: "Every node has an airtime budget, and the network accounts for what it spends. A busy channel degrades fairly instead of collapsing.",
+    },
+    {
+        title: "Addresses are public keys",
+        body: "A node is named by its key, so who you are talking to is something you can check, not something you are told.",
+    },
+    {
+        title: "Each link picks its own speed",
+        body: "Close neighbours talk fast and distant ones talk slow, inside a loosely synchronised schedule, so one slow link does not slow the whole mesh.",
+    },
+    {
+        title: "Infrastructure and leaves",
+        body: "Fixed relays carry the routing. Handhelds and sensors are leaves that can sleep on a schedule and still receive their messages.",
+    },
+    {
+        title: "Private by default",
+        body: "What goes over the air is meant to reveal as little as possible about who is talking to whom.",
+    },
+    {
+        title: "Gateways are peers",
+        body: "Bridges to the internet or to other meshes sit at the application layer, not inside the routing.",
+    },
+];
+
+const repos = [
+    { name: "spec", body: "The specification and conformance test vectors. This is the protocol." },
+    { name: "sim", body: "A simulator, calibrated on real SX1262 radios, that decides the routing design." },
+    { name: "firmware", body: "The reference implementation, one of any number that can exist." },
+];
+---
+
+<Base>
+    <section class="hero wrap">
+        <p class="status">Pre-draft · nothing to install yet</p>
+        <h1>Tern</h1>
+        <p class="lede">
+            An open LoRa mesh protocol that treats airtime as a shared, metered resource.
+        </p>
+    </section>
+
+    <section class="wrap">
+        <h2>What it is built around</h2>
+        <p class="muted">
+            These are design goals. Each one is being tested in simulation and on real radios
+            before it becomes part of the specification.
+        </p>
+        <ul class="grid">
+            {
+                ideas.map((idea) => (
+                    <li class="card">
+                        <h3>{idea.title}</h3>
+                        <p>{idea.body}</p>
+                    </li>
+                ))
+            }
+        </ul>
+    </section>
+
+    <section class="wrap">
+        <h2>How it is being built</h2>
+        <p>
+            Specification first. Routing is decided by simulation before any of it is written
+            down, and the simulator is calibrated against bench measurements of real radios.
+            An implementation is Tern-compatible if it passes the published conformance tests;
+            nobody's permission is needed.
+        </p>
+        <ul class="grid repos">
+            {
+                repos.map((repo) => (
+                    <li class="card">
+                        <h3>
+                            <a href={`${org}/${repo.name}`}>ternmesh/{repo.name}</a>
+                        </h3>
+                        <p>{repo.body}</p>
+                    </li>
+                ))
+            }
+        </ul>
+    </section>
+
+    <section class="wrap">
+        <h2>Open for good</h2>
+        <ul class="plain">
+            <li>The specification is CC-BY-4.0, the test vectors CC0, the code Apache-2.0.</li>
+            <li>Contributions are signed off under the DCO. There is no CLA.</li>
+            <li>The specification will never need a fee, membership or certification to implement.</li>
+            <li>The name, this domain and the GitHub organisation are held for the project, not for a company.</li>
+        </ul>
+        <p>
+            The commitments are in full in <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>GOVERNANCE.md</a>.
+        </p>
+    </section>
+</Base>
+
+<style>
+    .hero {
+        padding-top: 4rem;
+        padding-bottom: 2rem;
+    }
+    .status {
+        display: inline-block;
+        margin: 0;
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    h1 {
+        font-size: clamp(2.6rem, 8vw, 4rem);
+        margin: 0.75rem 0 0.25rem;
+    }
+    .lede {
+        font-size: clamp(1.15rem, 3vw, 1.4rem);
+        color: var(--muted);
+        max-width: 36rem;
+        margin: 0;
+    }
+    section + section {
+        margin-top: 3rem;
+    }
+    .grid {
+        list-style: none;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+        gap: 1rem;
+    }
+    .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem 1.25rem;
+    }
+    .card h3 {
+        margin: 0 0 0.4rem;
+        font-size: 1.05rem;
+    }
+    .card p {
+        margin: 0;
+        color: var(--muted);
+    }
+    .repos h3 a {
+        text-decoration: none;
+    }
+    .plain {
+        padding-left: 1.2rem;
+    }
+</style>
