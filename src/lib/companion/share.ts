@@ -79,6 +79,11 @@ export function addressLink(address: string): string {
  * whatever keeps it as a contact.
  */
 export function readAddress(text: string): string | null {
+    // ASCII only: toUpperCase() makes ASCII of some other letters (a dotless i becomes I, a long
+    // s becomes S), and those are neither base32 nor the link.
+    if (!/^[\x00-\x7f]*$/.test(text)) {
+        return null;
+    }
     if (text.slice(0, LINK.length).toUpperCase() === LINK) {
         const a = unbase32(text.slice(LINK.length));
         return a ? hex(a) : null;
