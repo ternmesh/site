@@ -45,6 +45,16 @@ test("messages at rest are kept across a node that forgets them", () => {
     assert.equal(again.kept.length, 3);
 });
 
+test("two messages that say the same thing in the same second are two", () => {
+    const s = store();
+    const h = new History("node", s);
+    const live = [msg(4, A, 100, 2, "OK"), msg(5, A, 100, 2, "OK")];
+    h.absorb(live);
+    assert.equal(h.kept.length, 2);
+    assert.deepEqual(h.earlier(A, live), []);
+    assert.equal(new History("node", s).earlier(A, [live[1]!]).length, 1);
+});
+
 test("a message's last state is the one kept", () => {
     const h = new History("node", store());
     h.absorb([msg(1, A, 100, 2, "x")]);
@@ -68,7 +78,10 @@ test("storage that is off, or holds rubbish, is not fatal", () => {
     const s = store();
     s.data.set("tern.history.node", '{"not":"a list"}');
     assert.equal(new History("node", s).kept.length, 0);
-    s.data.set("tern.history.node", '[{"contact":1},{"contact":"c","time":1,"incoming":true,"state":4,"text":"ok"}]');
+    s.data.set(
+        "tern.history.node",
+        '[{"contact":1},{"id":1,"contact":"c","time":1,"incoming":true,"state":4,"text":"ok"}]',
+    );
     assert.equal(new History("node", s).kept.length, 1);
     s.data.set("tern.history.node", "not json");
     assert.equal(new History("node", s).kept.length, 0);

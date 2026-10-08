@@ -6,6 +6,9 @@ import { STATE } from "../companion/protocol.ts";
 import type { Message } from "../companion/client.ts";
 
 export interface Kept {
+    /** The node's id for it. With the time, it tells apart two messages that say the same thing
+     * in the same second; alone it does not name one, since a node that restarts counts again. */
+    id: number;
     contact: string;
     time: number;
     incoming: boolean;
@@ -16,11 +19,12 @@ export interface Kept {
 const LIMIT = 2000;
 
 function sameMessage(a: Kept, b: Kept): boolean {
-    return a.contact === b.contact && a.time === b.time && a.incoming === b.incoming && a.text === b.text;
+    return a.id === b.id && a.contact === b.contact && a.time === b.time && a.incoming === b.incoming && a.text === b.text;
 }
 
 export function keptFrom(m: Message): Kept {
     return {
+        id: m.id,
         contact: m.contact,
         time: m.time,
         incoming: m.state === STATE.received,
@@ -48,6 +52,7 @@ export class History {
             if (Array.isArray(saved)) {
                 for (const k of saved as Partial<Kept>[]) {
                     if (
+                        typeof k.id === "number" &&
                         typeof k.contact === "string" &&
                         typeof k.time === "number" &&
                         typeof k.incoming === "boolean" &&
@@ -55,6 +60,7 @@ export class History {
                         typeof k.text === "string"
                     ) {
                         this.kept.push({
+                            id: k.id,
                             contact: k.contact,
                             time: k.time,
                             incoming: k.incoming,
@@ -92,7 +98,7 @@ export class History {
         if (!changed) {
             return;
         }
-        this.kept.sort((a, b) => a.time - b.time);
+        this.kept.sort((a, b) => a.time - b.time || a.id - b.id);
         this.kept.splice(0, Math.max(0, this.kept.length - LIMIT));
         try {
             this.storage?.setItem(this.key, JSON.stringify(this.kept));

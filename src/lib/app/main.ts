@@ -53,6 +53,8 @@ let history: History | null = null;
 let selected: string | null = null;
 let demo = false;
 let drawing = false;
+/** A READ is on its way: another is not sent until it is answered. */
+let reading = false;
 /** Routing ids of the addresses the page knows, to put names to neighbours. */
 const ids = new Map<string, number>();
 
@@ -296,12 +298,21 @@ function drawTalk(): void {
     }
     compose.hidden = false;
 
-    // Seen, since it is on the screen: the node, and any other client, is told.
+    // Seen, since it is on the screen: the node is told, and says so to every client, this one
+    // included, which is when the badge goes. Not marked here: a request that fails would
+    // otherwise leave them read on this page and unread everywhere else, and never asked again.
     const unread = live.filter((m) => m.state === STATE.received && !m.read);
-    if (unread.length > 0 && document.visibilityState === "visible") {
-        const through = Math.max(...unread.map((m) => m.id));
-        unread.forEach((m) => (m.read = true));
-        client?.read(through).catch(() => {});
+    if (unread.length > 0 && !reading && document.visibilityState === "visible") {
+        reading = true;
+        const asked = client;
+        asked
+            ?.read(Math.max(...unread.map((m) => m.id)))
+            .catch(() => {})
+            .finally(() => {
+                reading = false;
+                // Tried again in a while if it failed, and at once for any that came meanwhile.
+                setTimeout(draw, asked.closed ? 0 : 3000);
+            });
     }
 }
 

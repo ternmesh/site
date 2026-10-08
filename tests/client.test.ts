@@ -165,6 +165,65 @@ test("news missed is asked for again, from before the oldest message still on it
     await c.close();
 });
 
+test("news missed before a message is asked for from the last the client is sure of", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const message = { contact: BOB, time: 0, flags: 0, state: 4, reason: 0, wait: 0, text: "x" };
+    await bringUp(wire, c, [["MESSAGE", { id: 3, ...message }]]);
+    wire.say("MESSAGE", 1, { id: 4, ...message }); // in step
+    wire.say("MESSAGE", 3, { id: 6, ...message }); // 5 was lost on the way
+    const sync = decode(await wire.next())!;
+    assert.deepEqual(sync.fields, { after: 4 }); // not 6, the last it holds
+    wire.say("MESSAGE", 4, { id: 5, ...message });
+    wire.say("MESSAGE", 5, { id: 6, ...message });
+    wire.say("SYNCED", sync.seq);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual([...c.messages.keys()].sort(), [3, 4, 5, 6]);
+    await c.close();
+});
+
+test("a sync with a gap in it is asked for again", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const up = c.start();
+    wire.say("INFO", decode(await wire.next())!.seq, { version: 0, firmware: "test" });
+    wire.say("OK", decode(await wire.next())!.seq);
+    const first = decode(await wire.next())!;
+    wire.say("CONTACT", 0, { address: BOB, session: 1, name: "Bob" });
+    wire.say("NEIGHBOUR", 2, { routing_id: 7, role: 1, snr_quarter_db: 0, heard: 1 }); // 1 was lost
+    wire.say("SYNCED", first.seq);
+    const second = decode(await wire.next())!;
+    assert.equal(second.type, "SYNC");
+    assert.deepEqual(second.fields, first.fields);
+    assert.equal(c.ready, false); // not up on half a list
+    wire.say("CONTACT", 3, { address: BOB, session: 1, name: "Bob" });
+    wire.say("CONTACT", 4, { address: CAROL, session: 0, name: "Carol" });
+    wire.say("NEIGHBOUR", 5, { routing_id: 7, role: 1, snr_quarter_db: 0, heard: 1 });
+    wire.say("SYNCED", second.seq);
+    await up;
+    assert.equal(c.contacts.size, 2);
+    await c.close();
+});
+
+test("a node that has started again is asked for all it holds, and its old messages are not kept", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const message = { contact: BOB, time: 0, flags: 0, state: 4, reason: 0, wait: 0, text: "old" };
+    await bringUp(wire, c, [["MESSAGE", { id: 40, ...message }]]);
+    const read = c.read(40);
+    wire.say("ERROR", decode(await wire.next())!.seq, { code: 6 });
+    await assert.rejects(read);
+    wire.say("INFO", decode(await wire.next())!.seq, { version: 0, firmware: "test" });
+    wire.say("OK", decode(await wire.next())!.seq);
+    const sync = decode(await wire.next())!;
+    assert.deepEqual(sync.fields, { after: 0 }); // not 40: its ids have begun again
+    wire.say("MESSAGE", 0, { id: 1, ...message, text: "new" });
+    wire.say("SYNCED", sync.seq);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual([...c.messages.values()].map((m) => m.text), ["new"]);
+    await c.close();
+});
+
 test("a refusal carries the node's code, and an answer to another request is ignored", async () => {
     const wire = new Wire(true);
     const c = new Client(wire, quick);

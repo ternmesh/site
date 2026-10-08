@@ -42,20 +42,29 @@ export async function openSerial(): Promise<Transport> {
     const writer = port.writable.getWriter();
     let closing = false;
 
+    // A port will not close while either of its streams is locked, and closing a writer does not
+    // unlock it: both locks are let go first, the reader's by the loop below once its read ends.
+    const shut = async () => {
+        await writer.close().catch(() => {});
+        writer.releaseLock();
+        await port.close().catch(() => {});
+    };
+    let reading: Promise<void> = Promise.resolve();
+
     const transport: Transport = {
         framed: false,
         write: (data) => writer.write(data),
         close: async () => {
             closing = true;
             await reader.cancel().catch(() => {});
-            await writer.close().catch(() => {});
-            await port.close().catch(() => {});
+            await reading;
+            await shut();
         },
         onData: () => {},
         onClose: () => {},
     };
 
-    void (async () => {
+    reading = (async () => {
         let why = "the port closed";
         try {
             for (;;) {
@@ -73,8 +82,7 @@ export async function openSerial(): Promise<Transport> {
         }
         reader.releaseLock();
         if (!closing) {
-            await writer.close().catch(() => {});
-            await port.close().catch(() => {});
+            await shut();
             transport.onClose(why);
         }
     })();

@@ -129,6 +129,8 @@ export class Client {
     private queue: Promise<unknown> = Promise.resolve();
     private newsSeq = 0;
     private missed = false;
+    /** The greatest message id this client is sure it holds everything up to. */
+    private through = 0;
     private starting: Promise<void> | null = null;
     /** During a sync: the contacts and neighbours it has sent, to forget the rest when it ends. */
     private syncSeen: { contacts: Set<string>; neighbours: Set<number> } | null = null;
@@ -157,6 +159,11 @@ export class Client {
         const info = await this.request("HELLO", { version: VERSION });
         this.newsSeq = 0;
         this.missed = false;
+        // A node that has restarted counts its messages from the start again, and one that only
+        // took this client for gone still holds them: either way, what it holds now is asked for
+        // whole, and nothing held from before is taken to be the node's.
+        this.messages.clear();
+        this.through = 0;
         this.version = Number(info.fields.version);
         this.firmware = String(info.fields.firmware);
         await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
@@ -165,26 +172,44 @@ export class Client {
         this.onChange();
     }
 
-    /** Asks for everything that may have changed unseen. */
+    /**
+     * Asks for everything that may have changed unseen, and again if news went missing while it
+     * was answered: a sync with a gap in it is not the whole of anything.
+     */
     async sync(): Promise<void> {
-        // Messages still on their way are the ones whose state may have changed; with none, only
-        // those after the last this client holds are new to it.
-        let after = 0;
-        let moving = Infinity;
+        // Messages still on their way are the ones whose state may have changed. Otherwise only
+        // those after the last this client is sure of are new to it: not after the last it
+        // holds, since when news has been missed there may be one before that it never saw.
+        let after = this.through;
         for (const m of this.messages.values()) {
-            after = Math.max(after, m.id);
             if (m.state === STATE.waiting || m.state === STATE.sent) {
-                moving = Math.min(moving, m.id);
+                after = Math.min(after, m.id - 1);
             }
         }
-        if (moving !== Infinity) {
-            after = moving - 1;
+        for (let tries = 0; ; tries++) {
+            if (await this.syncFrom(after)) {
+                break;
+            }
+            if (tries === 2) {
+                throw new Refused(0, "news kept going missing while the node synced");
+            }
         }
+        for (const m of this.messages.values()) {
+            this.through = Math.max(this.through, m.id);
+        }
+        this.onChange();
+    }
+
+    /** One SYNC. False if news was missed during it. */
+    private async syncFrom(after: number): Promise<boolean> {
         this.missed = false;
         const seen = { contacts: new Set<string>(), neighbours: new Set<number>() };
         this.syncSeen = seen;
         try {
             await this.request("SYNC", { after });
+            if (this.missed) {
+                return false;
+            }
             for (const address of [...this.contacts.keys()]) {
                 if (!seen.contacts.has(address)) {
                     this.contacts.delete(address);
@@ -198,7 +223,7 @@ export class Client {
         } finally {
             this.syncSeen = null;
         }
-        this.onChange();
+        return true;
     }
 
     /**
@@ -333,6 +358,10 @@ export class Client {
             }
             this.newsSeq = (f.seq + 1) & 0xff;
             this.news(f);
+            if (f.type === "MESSAGE" && !this.missed && !this.syncSeen) {
+                // In step, so nothing before it was missed.
+                this.through = Math.max(this.through, Number(f.fields.id));
+            }
             // The wait for a sync's answer starts again with each news frame.
             const w = this.waiting;
             if (w?.type === "SYNC") {
