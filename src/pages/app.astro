@@ -83,6 +83,18 @@ import Base from "../layouts/Base.astro";
                     <input id="add-name" type="text" autocomplete="off" maxlength="31" placeholder="for you; never sent by radio" />
                     <button type="submit">Add</button>
                 </form>
+                <h2>Groups</h2>
+                <ul id="groups" class="list"></ul>
+                <p id="groups-old" class="muted small-print" hidden>
+                    This node's firmware is from before groups. <a href="/flash">Update it</a> to
+                    make and join them.
+                </p>
+                <p id="groups-demo" class="muted small-print" hidden>The demo has no groups.</p>
+                <form id="group-add" class="card">
+                    <label for="group-name">Make a group</label>
+                    <input id="group-name" type="text" autocomplete="off" maxlength="31" placeholder="a name, for you; never sent by radio" required />
+                    <button type="submit">Make</button>
+                </form>
                 <h2>Neighbours</h2>
                 <ul id="neighbours" class="list plain"></ul>
             </aside>
@@ -396,6 +408,15 @@ import Base from "../layouts/Base.astro";
         margin: 0;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
+    }
+    .app #messages .who {
+        margin: 0 0 2px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        opacity: 0.8;
+    }
+    .app #messages .actions {
+        margin: 6px 0 0;
     }
     .app #messages .meta {
         margin: 2px 0 0;

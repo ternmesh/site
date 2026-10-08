@@ -37,6 +37,11 @@ Serial, which Chrome and Edge on a computer have, and over Web Bluetooth, which 
 computer and on an Android phone. Nothing is sent anywhere but to the board, and nothing runs on
 a server.
 
+It speaks version 2 of the protocol, which has groups: making one, inviting a contact to it over
+their session, joining one from an invite, and writing to it. A node whose firmware is from
+before groups is asked for none. A group's secret never reaches the page: the node draws it and
+keeps it, and the page knows a group by an id.
+
 | | |
 |---|---|
 | `src/lib/companion/protocol.ts` | The protocol's frames: built, read, wrapped for a byte stream and found in one. |

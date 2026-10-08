@@ -14,7 +14,7 @@ interface Vectors {
     rejected: { why: string; frame: string; answer: number | null }[];
     streams: { why: string; stream: string; items: ({ frame: string } | { text: string })[]; pending: string }[];
     exchange: { from: string; type: string; seq: number; frame: string }[];
-    older: { from: string; type: string; seq: number; frame: string }[];
+    older: { version: number; frames: { from: string; type: string; seq: number; frame: string }[] }[];
 }
 
 const v: Vectors = JSON.parse(readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"));
@@ -76,7 +76,7 @@ test("streams: all at once, and a byte at a time", () => {
 });
 
 test("exchange: every frame of it reads, and builds back to the same bytes", () => {
-    for (const c of [...v.exchange, ...v.older]) {
+    for (const c of [...v.exchange, ...v.older.flatMap((o) => o.frames)]) {
         const f = decode(bytes(c.frame));
         assert.ok(f, c.type);
         assert.equal(f.type, c.type);

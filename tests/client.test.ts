@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Client, Refused } from "../src/lib/companion/client.ts";
+import { routingId } from "../src/lib/companion/ids.ts";
 import type { Transport } from "../src/lib/companion/client.ts";
 import { STATE, decode, encode, hex, unhex, wrap } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
@@ -118,6 +119,48 @@ for (const framed of [false, true]) {
         await saved;
         assert.equal(c.contacts.get(CAROL)?.session, false);
 
+        // A group is made, Bob is invited to it, and a message is written to it.
+        const made = c.makeGroup("Hut");
+        await expect();
+        const hut = await made;
+        assert.equal(c.groups.get(hut)?.name, "Hut");
+        const invited = c.invite(hut, BOB);
+        await expect();
+        assert.equal(await invited, 19);
+        assert.deepEqual(
+            [c.messages.get(19)?.invite, c.messages.get(19)?.contact, c.messages.get(19)?.state],
+            [true, BOB, STATE.delivered],
+        );
+        const wrote = c.sendGroup(hut, "Anyone at the hut?", 0xc0ffee02);
+        await expect();
+        assert.equal(await wrote, 20);
+        assert.deepEqual([c.messages.get(20)?.contact, c.messages.get(20)?.state], [hut, STATE.sent]);
+
+        // Bob answered in the group, and invited this node to another: his message is with the
+        // group, under the routing id its frame gave, and his invite is with him.
+        const two = c.messages.get(21)!;
+        assert.deepEqual([two.contact, two.group, two.text, two.read], [hut, hut, "Two of us", false]);
+        assert.equal(two.from, await routingId(BOB));
+        const asked = c.messages.get(22)!;
+        assert.deepEqual([asked.invite, asked.contact, asked.text, asked.state], [true, BOB, "Ridge", STATE.received]);
+        assert.equal(c.groups.has(asked.group), false);
+        const joined = c.join(22);
+        await expect();
+        await joined;
+        assert.equal(c.groups.get(asked.group)?.name, "Ridge");
+        const named = c.nameGroup(asked.group, "Ridge walkers");
+        await expect();
+        await named;
+        assert.equal(c.groups.get(asked.group)?.name, "Ridge walkers");
+        const seen = c.read(22);
+        await expect();
+        await seen;
+        assert.deepEqual([c.messages.get(21)?.read, c.messages.get(22)?.read], [true, true]);
+        const left = c.leaveGroup(hut);
+        await expect();
+        await left;
+        assert.deepEqual([...c.groups.keys()], [asked.group]);
+
         assert.equal(c.contacts.get(BOB)?.session, true);
         const ended = c.endSession(BOB);
         await expect();
@@ -127,6 +170,31 @@ for (const framed of [false, true]) {
         await c.close();
     });
 }
+
+test("a node from before groups is asked for none, and a sync is the whole list of them", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, []);
+    await assert.rejects(c.makeGroup("Hut"), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.sendGroup("0011223344556677", "hi"), Refused);
+    await assert.rejects(c.join(3), Refused);
+    assert.equal(wire.wrote.length, 0, "nothing was asked of it");
+
+    // A group the node held, and holds no longer when it is next asked, is forgotten.
+    wire.say("GROUP", 0, { group: "0011223344556677", name: "Hut" });
+    wire.say("GROUP", 1, { group: "8899aabbccddeeff", name: "Ridge" });
+    assert.equal(c.groups.size, 2);
+    const again = c.sync();
+    const sync = decode(await wire.next())!;
+    wire.say("SELF", 2, { address: BOB, role: 0, region: "", power: 0, time: 0 });
+    wire.say("GROUP", 3, { group: "8899aabbccddeeff", name: "Ridge" });
+    wire.say("SYNCED", sync.seq);
+    await again;
+    assert.deepEqual([...c.groups.keys()], ["8899aabbccddeeff"]);
+    wire.say("GROUP_GONE", 4, { group: "8899aabbccddeeff" });
+    assert.equal(c.groups.size, 0);
+    await c.close();
+});
 
 test("who asked is kept until let go of, or let in", async () => {
     const wire = new Wire(true);

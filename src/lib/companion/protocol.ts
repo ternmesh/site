@@ -1,23 +1,27 @@
-// The companion protocol's frames: version 1 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 2 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 1;
+export const VERSION = 2;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
 export const GAP_MS = 500;
 export const ADDRESS_LEN = 32;
+export const GROUP_LEN = 8;
 export const TEXT_MAX = 128;
 export const NAME_MAX = 31;
 
-type Kind = "u8" | "i8" | "u16" | "u32" | "addr" | "str";
+type Kind = "u8" | "i8" | "u16" | "u32" | "addr" | "gid" | "str";
+/** How many bytes a field of bytes is: an address, or a group's id. */
+const BYTES: Readonly<Partial<Record<Kind, number>>> = { addr: ADDRESS_LEN, gid: GROUP_LEN };
 type Field = readonly [name: string, kind: Kind, longest?: number];
 
-// Every frame of version 1, by type: its name and its fields in order. END_SESSION and ASKED are
-// what version 1 added.
+// Every frame of version 2, by type: its name and its fields in order. END_SESSION and ASKED are
+// what version 1 added; the requests from 0x20, MADE, and the news from 0x8a are version 2's, for
+// groups.
 const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x01: ["HELLO", [["version", "u8"]]],
     0x02: ["SYNC", [["after", "u32"]]],
@@ -29,11 +33,18 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]]],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]]],
     0x1a: ["END_SESSION", [["address", "addr"]]],
+    0x20: ["MAKE_GROUP", [["name", "str", NAME_MAX]]],
+    0x21: ["LEAVE_GROUP", [["group", "gid"]]],
+    0x22: ["NAME_GROUP", [["group", "gid"], ["name", "str", NAME_MAX]]],
+    0x23: ["SEND_GROUP", [["ref", "u32"], ["group", "gid"], ["text", "str", TEXT_MAX]]],
+    0x24: ["SEND_INVITE", [["group", "gid"], ["to", "addr"]]],
+    0x25: ["JOIN", [["id", "u32"]]],
     0x40: ["OK", []],
     0x41: ["ERROR", [["code", "u8"]]],
     0x42: ["INFO", [["version", "u8"], ["firmware", "str", 31]]],
     0x43: ["SYNCED", []],
     0x44: ["QUEUED", [["id", "u32"]]],
+    0x45: ["MADE", [["group", "gid"]]],
     0x80: ["SELF", [["address", "addr"], ["role", "u8"], ["region", "str", 15], ["power", "i8"], ["time", "u32"]]],
     0x81: ["CONTACT", [["address", "addr"], ["session", "u8"], ["name", "str", NAME_MAX]]],
     0x82: ["CONTACT_GONE", [["address", "addr"]]],
@@ -56,6 +67,36 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x87: ["AIRTIME", [["period", "u32"], ["allowed", "u32"], ["used", "u32"], ["wait", "u32"]]],
     0x88: ["POWER", [["millivolts", "u16"], ["percent", "u8"], ["flags", "u8"]]],
     0x89: ["ASKED", [["address", "addr"], ["why", "u8"]]],
+    0x8a: ["GROUP", [["group", "gid"], ["name", "str", NAME_MAX]]],
+    0x8b: ["GROUP_GONE", [["group", "gid"]]],
+    0x8c: [
+        "GROUP_MESSAGE",
+        [
+            ["id", "u32"],
+            ["group", "gid"],
+            ["from", "u32"],
+            ["time", "u32"],
+            ["flags", "u8"],
+            ["state", "u8"],
+            ["reason", "u8"],
+            ["wait", "u16"],
+            ["text", "str", TEXT_MAX],
+        ],
+    ],
+    0x8d: [
+        "INVITE",
+        [
+            ["id", "u32"],
+            ["contact", "addr"],
+            ["group", "gid"],
+            ["time", "u32"],
+            ["flags", "u8"],
+            ["state", "u8"],
+            ["reason", "u8"],
+            ["wait", "u16"],
+            ["name", "str", NAME_MAX],
+        ],
+    ],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -76,7 +117,7 @@ export const ASKED = { notContact: 1, noRoom: 2 } as const;
 
 export const STATE = { waiting: 0, sent: 1, delivered: 2, notDelivered: 3, received: 4 } as const;
 
-/** A field's value: a number, text, or an address as lower-case hex. */
+/** A field's value: a number, text, or an address or a group's id as lower-case hex. */
 export type Value = number | string;
 export type Fields = Record<string, Value>;
 
@@ -154,10 +195,11 @@ export function encode(type: string, seq: number, fields: Fields = {}): Uint8Arr
     const out: number[] = [t, seq & 0xff];
     for (const [name, kind, longest] of list) {
         const v = fields[name];
-        if (kind === "addr") {
+        const width = BYTES[kind];
+        if (width !== undefined) {
             const bytes = typeof v === "string" ? unhex(v) : null;
-            if (!bytes || bytes.length !== ADDRESS_LEN) {
-                throw new Error(`${type}.${name} is not an address`);
+            if (!bytes || bytes.length !== width) {
+                throw new Error(`${type}.${name} is not ${kind === "addr" ? "an address" : "a group's id"}`);
             }
             out.push(...bytes);
         } else if (kind === "str") {
@@ -203,12 +245,13 @@ export function decode(frame: Uint8Array): Frame | null {
     let list: readonly Field[] = def[1];
     for (let i = 0; i < list.length; i++) {
         const [name, kind, longest] = list[i]!;
-        if (kind === "addr") {
-            if (at + ADDRESS_LEN > frame.length) {
+        const width = BYTES[kind];
+        if (width !== undefined) {
+            if (at + width > frame.length) {
                 return null;
             }
-            fields[name] = hex(frame.subarray(at, at + ADDRESS_LEN));
-            at += ADDRESS_LEN;
+            fields[name] = hex(frame.subarray(at, at + width));
+            at += width;
         } else if (kind === "str") {
             const n = frame[at];
             if (n === undefined || n > (longest ?? 255) || at + 1 + n > frame.length) {

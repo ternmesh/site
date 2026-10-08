@@ -9,11 +9,16 @@ export interface Kept {
     /** The node's id for it. With the time, it tells apart two messages that say the same thing
      * in the same second; alone it does not name one, since a node that restarts counts again. */
     id: number;
+    /** Whom it is with: an address, or a group's id. */
     contact: string;
     time: number;
     incoming: boolean;
     state: number;
     text: string;
+    /** A group message's writer, as its frame gave it; an invite, and the group it is to. */
+    from?: number;
+    invite?: boolean;
+    group?: string;
 }
 
 const LIMIT = 2000;
@@ -30,7 +35,14 @@ export function keptFrom(m: Message): Kept {
         incoming: m.state === STATE.received,
         state: m.state,
         text: m.text,
+        ...(m.from ? { from: m.from } : {}),
+        ...(m.invite ? { invite: true, group: m.group } : {}),
     };
+}
+
+/** Whether a message is where it will stay. A group message is, once sent: nothing answers it. */
+function atRest(m: Message): boolean {
+    return settled(m.state) || (m.state === STATE.sent && m.group !== "" && !m.invite);
 }
 
 /** Whether a message has come to rest: delivered, given up, or received. */
@@ -66,6 +78,10 @@ export class History {
                             incoming: k.incoming,
                             state: k.state,
                             text: k.text,
+                            ...(typeof k.from === "number" ? { from: k.from } : {}),
+                            ...(k.invite === true && typeof k.group === "string"
+                                ? { invite: true, group: k.group }
+                                : {}),
                         });
                     }
                 }
@@ -82,7 +98,7 @@ export class History {
     absorb(messages: Iterable<Message>): void {
         let changed = false;
         for (const m of messages) {
-            if (!settled(m.state) || m.time === 0) {
+            if (!atRest(m) || m.time === 0) {
                 continue;
             }
             const k = keptFrom(m);
