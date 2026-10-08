@@ -593,8 +593,11 @@ async function applySettings(c: Client): Promise<void> {
         say("Nothing to change.");
         return;
     }
-    const button = $<HTMLButtonElement>("settings-apply");
-    button.disabled = true;
+    // Nothing else is asked of a board that is about to restart: a request it took just before
+    // would be lost with it, and one it never answered would hold up the HELLO after.
+    const live = $("live");
+    live.inert = true;
+    live.classList.add("busy");
     try {
         for (const [setting, value] of changes) {
             await c.set(setting, value);
@@ -609,9 +612,19 @@ async function applySettings(c: Client): Promise<void> {
         }
         say("Applied.");
     } catch (e) {
-        say(explain(e), true);
+        if (e instanceof Refused && e.code !== 0) {
+            say(explain(e), true); // refused, and still there
+        } else {
+            // It did not come back: the page goes back to where a board is connected from.
+            await c.close();
+            if (client === c) {
+                client = null;
+            }
+            say(`${explain(e)} The board did not come back after the change: connect to it again.`, true);
+        }
     } finally {
-        button.disabled = false;
+        live.inert = false;
+        live.classList.remove("busy");
         // Whatever the node now has is what the form shows.
         settingsShown = "";
         draw();
