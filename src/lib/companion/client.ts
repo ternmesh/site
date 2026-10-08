@@ -1,12 +1,23 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Specification draft 0, draft/companion.md in ternmesh/spec.
+// has been told. Version 1 of draft/companion.md in ternmesh/spec.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
 // says something every so often so the node does not take it for gone, and starts over when the
 // node says it has. It knows nothing of the page or of how the bytes travel: a Transport carries
 // them, and onChange says when what it holds has changed.
 
-import { ANSWER_WAIT_MS, GAP_MS, IDLE_MS, STATE, StreamReader, VERSION, decode, encode, wrap } from "./protocol.ts";
+import {
+    ANSWER_WAIT_MS,
+    GAP_MS,
+    IDLE_MS,
+    SETTING,
+    STATE,
+    StreamReader,
+    VERSION,
+    decode,
+    encode,
+    wrap,
+} from "./protocol.ts";
 import type { Fields, Frame } from "./protocol.ts";
 
 export interface Transport {
@@ -104,6 +115,12 @@ export class Client {
     readonly contacts = new Map<string, Contact>();
     readonly messages = new Map<number, Message>();
     readonly neighbours = new Map<number, Neighbour>();
+    /**
+     * Addresses the node refused first contact from since this client connected, each with the
+     * latest reason (ASKED). The node does not keep them, so neither does a sync: they go when
+     * the page lets go of them, or the node gains a session with the address.
+     */
+    readonly asked = new Map<string, number>();
     airtime: Airtime | null = null;
     power: Power | null = null;
     /** Up: the node has answered HELLO and a sync has finished. */
@@ -251,6 +268,26 @@ export class Client {
     }
     async removeContact(address: string): Promise<void> {
         await this.request("REMOVE_CONTACT", { address });
+    }
+    /** Ends the node's session with an address. Only a node of version 1 knows how. */
+    async endSession(address: string): Promise<void> {
+        if (this.version < 1) {
+            throw new Refused(1, "the node's firmware is too old to end a session from here");
+        }
+        await this.request("END_SESSION", { address });
+    }
+    /**
+     * Changes a setting. A node may restart to apply it once it has answered: the caller starts
+     * the connection again.
+     */
+    async set(setting: keyof typeof SETTING, value: number | string): Promise<void> {
+        await this.request("SET", { setting: SETTING[setting], value });
+    }
+    /** Lets go of an address the node said had asked. */
+    forgetAsked(address: string): void {
+        if (this.asked.delete(address)) {
+            this.onChange();
+        }
     }
 
     /** Text for the node's console, as if typed there. Only a byte stream has one. */
@@ -416,6 +453,9 @@ export class Client {
                     session: x.session === 1,
                 });
                 this.syncSeen?.contacts.add(String(x.address));
+                if (x.session === 1) {
+                    this.asked.delete(String(x.address)); // it is in
+                }
                 break;
             case "CONTACT_GONE":
                 this.contacts.delete(String(x.address));
@@ -460,6 +500,9 @@ export class Client {
                     used: Number(x.used),
                     wait: Number(x.wait),
                 };
+                break;
+            case "ASKED":
+                this.asked.set(String(x.address), Number(x.why));
                 break;
             case "POWER":
                 this.power = {

@@ -109,11 +109,72 @@ for (const framed of [false, true]) {
         const sent = c.send(BOB, "On the ridge by six", 0xc0ffee01);
         await expect();
         assert.equal(await sent, 18);
-        assert.equal(at, steps.length);
         assert.equal(c.messages.get(18)?.state, STATE.delivered);
+
+        // Carol asked, and was refused: saving her lets her in the next time.
+        assert.equal(c.asked.get(CAROL), 1);
+        const saved = c.saveContact(CAROL, "Carol");
+        await expect();
+        await saved;
+        assert.equal(c.contacts.get(CAROL)?.session, false);
+
+        assert.equal(c.contacts.get(BOB)?.session, true);
+        const ended = c.endSession(BOB);
+        await expect();
+        await ended;
+        assert.equal(c.contacts.get(BOB)?.session, false);
+        assert.equal(at, steps.length);
         await c.close();
     });
 }
+
+test("who asked is kept until let go of, or let in", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [["CONTACT", { address: BOB, session: 0, name: "Bob" }]]);
+    wire.say("ASKED", 1, { address: CAROL, why: 1 });
+    wire.say("ASKED", 2, { address: BOB, why: 2 });
+    wire.say("ASKED", 3, { address: CAROL, why: 2 });
+    assert.deepEqual([...c.asked], [
+        [CAROL, 2],
+        [BOB, 2],
+    ]);
+    let changes = 0;
+    c.onChange = () => changes++;
+    c.forgetAsked(CAROL);
+    c.forgetAsked(CAROL);
+    assert.equal(changes, 1);
+    // A session with it is the answer to its asking.
+    wire.say("CONTACT", 4, { address: BOB, session: 1, name: "Bob" });
+    assert.equal(c.asked.size, 0);
+    await c.close();
+});
+
+test("settings are SET, and a session is not ended on a node too old to know how", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, []); // a node of version 0
+    assert.equal(c.version, 0);
+    await assert.rejects(c.endSession(BOB), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0);
+
+    for (const [setting, value, n] of [
+        ["region", "EU868", 1],
+        ["role", 0, 2],
+        ["power", -9, 3],
+    ] as const) {
+        const set = c.set(setting, value);
+        const f = decode(await wire.next())!;
+        assert.equal(f.type, "SET");
+        assert.deepEqual(f.fields, { setting: n, value });
+        wire.say("OK", f.seq);
+        await set;
+    }
+    const refused = c.set("power", 30);
+    wire.say("ERROR", decode(await wire.next())!.seq, { code: 3 });
+    await assert.rejects(refused, (e: unknown) => e instanceof Refused && e.code === 3);
+    await c.close();
+});
 
 test("a sync is the whole list of contacts and neighbours, and not of messages", async () => {
     const wire = new Wire(true);
