@@ -86,9 +86,24 @@ function short(address: string): string {
     return `${address.slice(0, 8)}…${address.slice(-4)}`;
 }
 
-function nameOf(address: string): string {
-    const c = client?.contacts.get(address);
-    return c && c.name !== "" ? c.name : short(address);
+/** Whether a conversation's key is a group's id, 16 hex digits, and not an address, which is 64. */
+function isGroup(key: string): boolean {
+    return key.length === 16;
+}
+
+function nameOf(key: string): string {
+    if (isGroup(key)) {
+        const g = client?.groups.get(key);
+        return g && g.name !== "" ? g.name : `Group ${key.slice(0, 8)}`;
+    }
+    const c = client?.contacts.get(key);
+    return c && c.name !== "" ? c.name : short(key);
+}
+
+/** Who a routing id is, as far as the page can tell: a name it knows by that id, or the id. */
+function writer(id: number): string {
+    const who = [...ids].find(([, known]) => known === id)?.[0];
+    return who ? nameOf(who) : routingIdText(id);
 }
 
 function when(time: number): string {
@@ -125,6 +140,17 @@ function liveWith(address: string): Message[] {
 
 /** Every address there is something to show for, most recent first. */
 function people(): string[] {
+    return talks().filter((key) => !isGroup(key));
+}
+
+/** Every group the node holds, or the page has kept something of, most recent first. */
+function groups(): string[] {
+    const held = [...(client?.groups.keys() ?? [])];
+    return [...new Set([...talks().filter(isGroup), ...held])];
+}
+
+/** Every conversation there is something to show for, most recent first. */
+function talks(): string[] {
     const last = new Map<string, number>();
     const seen = (address: string, at: number) => last.set(address, Math.max(last.get(address) ?? 0, at));
     for (const c of client?.contacts.keys() ?? []) {
@@ -274,18 +300,54 @@ function drawPeople(): void {
         list.append(el("li", { class: "muted empty" }, "Nobody yet. Add someone by their address, below."));
     }
     for (const address of all) {
-        const live = liveWith(address);
-        const unread = live.filter((m) => m.state === STATE.received && !m.read).length;
         const session = client?.contacts.get(address)?.session;
-        const button = el(
-            "button",
-            { type: "button", class: address === selected ? "person on" : "person" },
-            el("span", { class: "name" }, nameOf(address)),
-            unread > 0 && el("span", { class: "badge" }, String(unread)),
-            session && el("span", { class: "muted session", title: "This node has a session with it" }, "●"),
+        list.append(
+            el(
+                "li",
+                {},
+                talkButton(
+                    address,
+                    session && el("span", { class: "muted session", title: "This node has a session with it" }, "●"),
+                ),
+            ),
         );
-        button.addEventListener("click", () => select(address));
-        list.append(el("li", {}, button));
+    }
+}
+
+/** A conversation in a list: its name, how many of its messages are unread, and a mark. */
+function talkButton(key: string, mark: Child): HTMLButtonElement {
+    const unread = liveWith(key).filter((m) => m.state === STATE.received && !m.read).length;
+    const button = el(
+        "button",
+        { type: "button", class: key === selected ? "person on" : "person" },
+        el("span", { class: "name" }, nameOf(key)),
+        unread > 0 && el("span", { class: "badge" }, String(unread)),
+        mark,
+    );
+    button.addEventListener("click", () => select(key));
+    return button;
+}
+
+function drawGroups(): void {
+    const able = (client?.version ?? 0) >= 2;
+    $("groups-old").hidden = able || demo;
+    $("groups-demo").hidden = !demo;
+    $("group-add").hidden = !able;
+    const list = $("groups");
+    list.replaceChildren();
+    const all = groups();
+    if (all.length === 0 && able) {
+        list.append(el("li", { class: "muted empty" }, "None yet. Make one below, or be invited to one."));
+    }
+    for (const id of all) {
+        const held = client?.groups.has(id);
+        list.append(
+            el(
+                "li",
+                {},
+                talkButton(id, !held && el("span", { class: "muted session", title: "This node has left it" }, "left")),
+            ),
+        );
     }
 }
 
@@ -314,13 +376,71 @@ function drawNeighbours(): void {
     }
 }
 
-function bubble(m: { incoming: boolean; text: string; time: number; note: string; failed?: boolean }): HTMLElement {
+function bubble(m: {
+    incoming: boolean;
+    text: string;
+    time: number;
+    note: string;
+    failed?: boolean;
+    who?: string;
+    action?: Child;
+}): HTMLElement {
     return el(
         "li",
         { class: m.incoming ? "in" : m.failed ? "out failed" : "out" },
+        m.who !== undefined && el("p", { class: "who" }, m.who),
         el("p", { class: "text" }, m.text),
         el("p", { class: "meta" }, [when(m.time), m.note].filter((x) => x !== "").join(" · ")),
+        m.action,
     );
+}
+
+/**
+ * A message as the page shows it. A group message received says who its frame gave as its writer;
+ * an invite says what it is, and one received to a group not held can be taken.
+ */
+function shown(m: {
+    incoming: boolean;
+    text: string;
+    time: number;
+    state: number;
+    reason?: number;
+    wait?: number;
+    from?: number;
+    invite?: boolean;
+    group?: string;
+    id?: number;
+}): HTMLElement {
+    let text = m.text;
+    let action: Child = null;
+    if (m.invite) {
+        const name = m.text === "" ? "a group" : `the group “${m.text}”`;
+        text = m.incoming ? `Invited you to ${name}.` : `You invited them to ${name}.`;
+        const id = m.id;
+        if (m.incoming && id !== undefined && m.group && client && !client.groups.has(m.group)) {
+            const join = el("button", { type: "button", class: "small" }, "Join");
+            const group = m.group;
+            join.addEventListener("click", () => {
+                client?.join(id).then(
+                    () => {
+                        say("");
+                        select(group);
+                    },
+                    (e: unknown) => say(explain(e), true),
+                );
+            });
+            action = el("p", { class: "actions" }, join);
+        }
+    }
+    return bubble({
+        incoming: m.incoming,
+        text,
+        time: m.time,
+        note: m.incoming ? "" : stateText(m),
+        failed: m.state === STATE.notDelivered,
+        ...(m.incoming && m.from ? { who: writer(m.from) } : {}),
+        action,
+    });
 }
 
 function drawTalk(): void {
@@ -336,6 +456,73 @@ function drawTalk(): void {
         return;
     }
     const address = selected;
+    if (isGroup(address)) {
+        groupHead(address);
+    } else {
+        personHead(address);
+    }
+    drawMessages(address);
+}
+
+/** The head of a group's conversation: what it is, what to know of it, and what can be done. */
+function groupHead(id: string): void {
+    const head = $("talk-head");
+    const held = client?.groups.get(id);
+    if (!held) {
+        head.append(
+            el("h2", {}, nameOf(id)),
+            el("p", { class: "muted" }, "This node is not in this group now. What was said is kept in this browser."),
+        );
+        return;
+    }
+    const rename = el("button", { type: "button", class: "small" }, "Rename");
+    rename.addEventListener("click", () => {
+        const name = window.prompt("A name for this group, kept on the node and not sent:", held.name);
+        if (name !== null) {
+            act(() => client!.nameGroup(id, clip(name.trim(), NAME_MAX)));
+        }
+    });
+    const leave = el("button", { type: "button", class: "small" }, "Leave");
+    leave.addEventListener("click", () => {
+        const sure = window.confirm(
+            `Leave ${nameOf(id)}? This node forgets the group's secret and can no longer read it. ` +
+                "The others are not told, and only an invite brings it back.",
+        );
+        if (sure) {
+            act(() => client!.leaveGroup(id));
+        }
+    });
+    // Whom to invite: any contact. An invite goes over a session, and to one there is none with
+    // yet the node makes first contact first, as for a first message.
+    const whom = el("select", { "aria-label": "A contact to invite" });
+    for (const c of client?.contacts.values() ?? []) {
+        whom.append(el("option", { value: c.address }, nameOf(c.address)));
+    }
+    const invite = el("button", { type: "button", class: "small" }, "Invite");
+    invite.addEventListener("click", () => {
+        const to = whom.value;
+        if (to !== "") {
+            client?.invite(id, to).then(
+                () => say(`Invited ${nameOf(to)}. Their conversation shows when it arrives.`),
+                (e: unknown) => say(explain(e), true),
+            );
+        }
+    });
+    head.append(
+        el("h2", {}, nameOf(id)),
+        el(
+            "p",
+            { class: "muted" },
+            "Everyone in a group holds the same key. Any of them can write under another's name, " +
+                "whoever is given the key can read all that was said, and nobody can be put out. " +
+                "Nothing says a message arrived.",
+        ),
+        el("p", { class: "actions" }, rename, leave, whom.options.length > 0 && whom, whom.options.length > 0 && invite),
+    );
+}
+
+function personHead(address: string): void {
+    const head = $("talk-head");
     const contact = client?.contacts.get(address);
     const rename = el("button", { type: "button", class: "small" }, contact ? "Rename" : "Save as a contact");
     rename.addEventListener("click", () => {
@@ -380,29 +567,18 @@ function drawTalk(): void {
         ),
         el("p", { class: "actions" }, rename, remove ?? null, end || null),
     );
+}
 
+function drawMessages(address: string): void {
+    const list = $<HTMLOListElement>("messages");
+    const compose = $<HTMLFormElement>("compose");
     const live = liveWith(address);
     const earlier: Kept[] = history?.earlier(address, live) ?? [];
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
     list.replaceChildren(
-        ...earlier.map((k) =>
-            bubble({
-                incoming: k.incoming,
-                text: k.text,
-                time: k.time,
-                note: k.incoming ? "" : stateText(k),
-                failed: k.state === STATE.notDelivered,
-            }),
-        ),
-        ...live.map((m) =>
-            bubble({
-                incoming: m.state === STATE.received,
-                text: m.text,
-                time: m.time,
-                note: stateText(m),
-                failed: m.state === STATE.notDelivered,
-            }),
-        ),
+        // An invite kept from before is not one to take: the node no longer holds it.
+        ...earlier.map((k) => shown(k)),
+        ...live.map((m) => shown({ ...m, incoming: m.state === STATE.received })),
     );
     if (earlier.length + live.length === 0) {
         list.append(el("li", { class: "muted empty" }, "Nothing said yet."));
@@ -410,7 +586,8 @@ function drawTalk(): void {
     if (atBottom) {
         list.scrollTop = list.scrollHeight;
     }
-    compose.hidden = false;
+    // A group this node has left cannot be written to.
+    compose.hidden = isGroup(address) && !client?.groups.has(address);
 
     // Seen, since it is on the screen: the node is told, and says so to every client, this one
     // included, which is when the badge goes. Not marked here: a request that fails would
@@ -455,6 +632,7 @@ function draw(): void {
         drawSettings();
         drawAsked();
         drawPeople();
+        drawGroups();
         drawNeighbours();
         drawTalk();
     });
@@ -688,7 +866,7 @@ function start(): void {
         }
         text.value = "";
         count();
-        act(() => client!.send(to, words));
+        act(() => (isGroup(to) ? client!.sendGroup(to, words) : client!.send(to, words)));
     });
 
     $<HTMLFormElement>("add").addEventListener("submit", (e) => {
@@ -707,6 +885,19 @@ function start(): void {
                 $<HTMLFormElement>("add").reset();
                 say("");
                 select(address);
+            },
+            (err: unknown) => say(explain(err), true),
+        );
+    });
+
+    $<HTMLFormElement>("group-add").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const name = clip($<HTMLInputElement>("group-name").value.trim(), NAME_MAX);
+        client?.makeGroup(name).then(
+            (id) => {
+                $<HTMLFormElement>("group-add").reset();
+                say("Made. Invite someone to it from its page.");
+                select(id);
             },
             (err: unknown) => say(explain(err), true),
         );

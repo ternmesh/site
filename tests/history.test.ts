@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { STATE } from "../src/lib/companion/protocol.ts";
+
 import { History } from "../src/lib/app/history.ts";
 import type { Message } from "../src/lib/companion/client.ts";
 
 const A = "aa".repeat(32);
 const B = "bb".repeat(32);
+
+const BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 
 function store() {
     const data = new Map<string, string>();
@@ -14,6 +18,9 @@ function store() {
 const msg = (id: number, contact: string, time: number, state: number, text: string): Message => ({
     id,
     contact,
+    group: "",
+    from: 0,
+    invite: false,
     time,
     read: false,
     state,
@@ -85,4 +92,23 @@ test("storage that is off, or holds rubbish, is not fatal", () => {
     assert.equal(new History("node", s).kept.length, 1);
     s.data.set("tern.history.node", "not json");
     assert.equal(new History("node", s).kept.length, 0);
+});
+
+test("a group message rests once sent, and an invite is kept as one", () => {
+    const s = store();
+    const h = new History("node", s);
+    const hut = "0011223344556677";
+    h.absorb([
+        { ...msg(1, hut, 100, STATE.sent, "anyone?"), group: hut },
+        { ...msg(2, hut, 110, STATE.received, "two of us"), group: hut, from: 0x1d2e3f40 },
+        { ...msg(3, BOB, 120, STATE.sent, "on its way"), group: "" },
+        { ...msg(4, BOB, 130, STATE.received, "Ridge"), group: "8899aabbccddeeff", invite: true },
+    ]);
+    // A message to an address that is only sent may yet be delivered or given up: not kept yet.
+    assert.deepEqual(h.kept.map((k) => k.id), [1, 2, 4]);
+    const again = new History("node", s);
+    assert.equal(again.kept[1]?.from, 0x1d2e3f40);
+    assert.deepEqual([again.kept[2]?.invite, again.kept[2]?.group], [true, "8899aabbccddeeff"]);
+    assert.equal(again.kept[0]?.invite, undefined);
+    assert.deepEqual([...again.contacts()].sort(), [hut, BOB].sort());
 });

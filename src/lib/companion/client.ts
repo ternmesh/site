@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 1 of draft/companion.md in ternmesh/spec.
+// has been told. Version 2 of draft/companion.md in ternmesh/spec.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
 // says something every so often so the node does not take it for gone, and starts over when the
@@ -42,9 +42,24 @@ export interface Contact {
     name: string;
     session: boolean;
 }
+/** A group the node holds: its id, as lower-case hex, and the user's name for it. */
+export interface Group {
+    id: string;
+    name: string;
+}
+/**
+ * A message, a group message or an invite: all three are counted together by the node.
+ * `contact` is whom it is with: an address, or for a group message its group's id. `group` is
+ * the group a group message is in or an invite is to, and empty for anything else. `from` is the
+ * routing id a received group message gave for its writer, which is that writer's claim and no
+ * proof; 0 otherwise. An invite's `text` is the name its inviter gave the group.
+ */
 export interface Message {
     id: number;
     contact: string;
+    group: string;
+    from: number;
+    invite: boolean;
     time: number;
     read: boolean;
     state: number;
@@ -90,6 +105,7 @@ const ERRORS: Readonly<Record<number, string>> = {
     6: "the node wants a HELLO first",
     7: "the Bluetooth link's MTU is too small",
     8: "the node cannot do that just now",
+    9: "the node is not in that group, or no longer holds that invite",
 };
 
 export interface Options {
@@ -113,6 +129,7 @@ export class Client {
     version = 0;
     self: Self | null = null;
     readonly contacts = new Map<string, Contact>();
+    readonly groups = new Map<string, Group>();
     readonly messages = new Map<number, Message>();
     readonly neighbours = new Map<number, Neighbour>();
     /**
@@ -150,7 +167,7 @@ export class Client {
     private through = 0;
     private starting: Promise<void> | null = null;
     /** During a sync: the contacts and neighbours it has sent, to forget the rest when it ends. */
-    private syncSeen: { contacts: Set<string>; neighbours: Set<number> } | null = null;
+    private syncSeen: { contacts: Set<string>; groups: Set<string>; neighbours: Set<number> } | null = null;
 
     constructor(transport: Transport, options: Options = {}) {
         this.transport = transport;
@@ -199,7 +216,10 @@ export class Client {
         // holds, since when news has been missed there may be one before that it never saw.
         let after = this.through;
         for (const m of this.messages.values()) {
-            if (m.state === STATE.waiting || m.state === STATE.sent) {
+            // A group message that is sent is at rest: nothing answers it, so nothing more
+            // becomes of it.
+            const groupMessage = m.group !== "" && !m.invite;
+            if (m.state === STATE.waiting || (m.state === STATE.sent && !groupMessage)) {
                 after = Math.min(after, m.id - 1);
             }
         }
@@ -220,7 +240,7 @@ export class Client {
     /** One SYNC. False if news was missed during it. */
     private async syncFrom(after: number): Promise<boolean> {
         this.missed = false;
-        const seen = { contacts: new Set<string>(), neighbours: new Set<number>() };
+        const seen = { contacts: new Set<string>(), groups: new Set<string>(), neighbours: new Set<number>() };
         this.syncSeen = seen;
         try {
             await this.request("SYNC", { after });
@@ -230,6 +250,11 @@ export class Client {
             for (const address of [...this.contacts.keys()]) {
                 if (!seen.contacts.has(address)) {
                     this.contacts.delete(address);
+                }
+            }
+            for (const id of [...this.groups.keys()]) {
+                if (!seen.groups.has(id)) {
+                    this.groups.delete(id);
                 }
             }
             for (const id of [...this.neighbours.keys()]) {
@@ -258,6 +283,50 @@ export class Client {
             }
             throw e;
         }
+    }
+
+    private needsGroups(): void {
+        if (this.version < 2) {
+            throw new Refused(1, "the node's firmware is from before groups");
+        }
+    }
+
+    /** Makes a group on the node, which draws its secret, and returns its id. */
+    async makeGroup(name: string): Promise<string> {
+        this.needsGroups();
+        return String((await this.request("MAKE_GROUP", { name })).fields.group);
+    }
+    /** Leaves a group: the node forgets its secret. The other members are not told. */
+    async leaveGroup(group: string): Promise<void> {
+        this.needsGroups();
+        await this.request("LEAVE_GROUP", { group });
+    }
+    async nameGroup(group: string, name: string): Promise<void> {
+        this.needsGroups();
+        await this.request("NAME_GROUP", { group, name });
+    }
+    /** Writes to a group, and returns the node's id for the message: as send(), once for a ref. */
+    async sendGroup(group: string, text: string, ref: number = this.random()): Promise<number> {
+        this.needsGroups();
+        const fields = { ref, group, text };
+        try {
+            return Number((await this.request("SEND_GROUP", fields)).fields.id);
+        } catch (e) {
+            if (e instanceof Refused && e.code === 0 && !this.closed) {
+                return Number((await this.request("SEND_GROUP", fields)).fields.id);
+            }
+            throw e;
+        }
+    }
+    /** Sends an address an invite to a group, over this node's session with it. */
+    async invite(group: string, to: string): Promise<number> {
+        this.needsGroups();
+        return Number((await this.request("SEND_INVITE", { group, to })).fields.id);
+    }
+    /** Takes the group a received invite was to. */
+    async join(id: number): Promise<void> {
+        this.needsGroups();
+        await this.request("JOIN", { id });
     }
 
     async read(through: number): Promise<void> {
@@ -395,7 +464,8 @@ export class Client {
             }
             this.newsSeq = (f.seq + 1) & 0xff;
             this.news(f);
-            if (f.type === "MESSAGE" && !this.missed && !this.syncSeen) {
+            const counted = f.type === "MESSAGE" || f.type === "GROUP_MESSAGE" || f.type === "INVITE";
+            if (counted && !this.missed && !this.syncSeen) {
                 // In step, so nothing before it was missed.
                 this.through = Math.max(this.through, Number(f.fields.id));
             }
@@ -461,16 +531,30 @@ export class Client {
                 this.contacts.delete(String(x.address));
                 break;
             case "MESSAGE":
+            case "GROUP_MESSAGE":
+            case "INVITE": {
+                const group = f.type === "MESSAGE" ? "" : String(x.group);
                 this.messages.set(Number(x.id), {
                     id: Number(x.id),
-                    contact: String(x.contact),
+                    contact: f.type === "GROUP_MESSAGE" ? group : String(x.contact),
+                    group,
+                    from: f.type === "GROUP_MESSAGE" ? Number(x.from) : 0,
+                    invite: f.type === "INVITE",
                     time: Number(x.time),
                     read: (Number(x.flags) & 1) !== 0,
                     state: Number(x.state),
                     reason: Number(x.reason),
                     wait: Number(x.wait),
-                    text: String(x.text),
+                    text: String(f.type === "INVITE" ? x.name : x.text),
                 });
+                break;
+            }
+            case "GROUP":
+                this.groups.set(String(x.group), { id: String(x.group), name: String(x.name) });
+                this.syncSeen?.groups.add(String(x.group));
+                break;
+            case "GROUP_GONE":
+                this.groups.delete(String(x.group));
                 break;
             case "STATE": {
                 const m = this.messages.get(Number(x.id));
