@@ -10,13 +10,13 @@ the specification in [ternmesh/spec](https://github.com/ternmesh/spec).
 
 ```bash
 npm ci
-npm run dev       # http://localhost:4321, reloads on save
+npm run dev       # fetch the firmware release, then http://localhost:4321, reloads on save
 npm run build     # fetch the firmware release, astro check (types), the static build into dist/
 npm run preview   # build, then serve dist/ the way Cloudflare will (wrangler dev)
 npm test          # the companion client against the specification's vectors
 ```
 
-Node 22.12 or later to build; the tests run TypeScript as it is, which needs Node 22.18 or later.
+Node 22.18 or later: the build's own tools and the tests are TypeScript, run as it is.
 
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off
 * [Governance](https://github.com/ternmesh/spec/blob/main/GOVERNANCE.md)
@@ -66,7 +66,7 @@ release's SHA-256 checksums, and writes it with Espressif's
 
 A page cannot read a GitHub release's files itself, so the site carries a copy.
 `src/data/firmware.json` names the [firmware release](https://github.com/ternmesh/firmware/releases)
-the site offers, and `tools/firmware.ts`, which `npm run build` runs first, fetches its images
+the site offers, and `tools/firmware.ts`, which `npm run build` and `npm run dev` run first, fetches its images
 into `public/firmware/` (not kept in git) and refuses any that the release's `SHA256SUMS` does
 not match. **To offer a new release, change the version there**; the build fails if no such
 release exists.
