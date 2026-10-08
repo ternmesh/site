@@ -4,28 +4,32 @@ import Base from "../layouts/Base.astro";
 
 <Base
     title="App"
-    description="Message through a Tern node from your browser, over USB. Nothing leaves your computer but what the node sends by radio."
+    description="Message through a Tern node from your browser, over USB or Bluetooth. Nothing leaves your device but what the node sends by radio."
 >
     <section class="app wrap">
         <div id="gate">
             <h1>Tern, in your browser</h1>
             <p class="lede">
-                Plug a Tern node into this computer and write to other nodes through it. The page
-                talks to the board over USB and to nothing else: there is no account and no server,
-                and what you write leaves your computer only by the node's radio.
+                Write to other nodes through a Tern node of your own: one plugged into this computer,
+                or one in Bluetooth's reach of it or of an Android phone. The page talks to the node
+                and to nothing else: there is no account and no server, and what you write leaves
+                this device only by the node's radio.
             </p>
             <p class="buttons">
-                <button id="connect-serial" type="button" class="primary">Connect over USB</button>
+                <button id="connect-serial" type="button">Connect over USB</button>
+                <button id="connect-bluetooth" type="button">Connect over Bluetooth</button>
                 <button id="connect-demo" type="button">Try it without a board</button>
             </p>
-            <p id="unsupported" class="note" hidden>
-                This browser cannot reach a USB serial port. Chrome and Edge on a computer can;
-                Safari, Firefox and phones cannot yet.
-            </p>
+            <p id="unsupported" class="note" hidden></p>
             <ul class="muted notes">
                 <li>
                     The board needs Tern's firmware: <a href="/flash">put it on a Heltec V3</a> from this
                     browser.
+                </li>
+                <li>
+                    Over Bluetooth, the node asks for a passkey the first time: it is on the node's
+                    screen. The node's <code>forget</code> command, over USB, makes every device pair
+                    again.
                 </li>
                 <li>
                     This is an alpha of a draft protocol. Its cryptography has not been reviewed:
