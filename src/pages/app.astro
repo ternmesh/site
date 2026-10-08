@@ -1,0 +1,368 @@
+---
+import Base from "../layouts/Base.astro";
+
+const org = "https://github.com/ternmesh";
+---
+
+<Base
+    title="App"
+    description="Message through a Tern node from your browser, over USB. Nothing leaves your computer but what the node sends by radio."
+>
+    <section class="app wrap">
+        <div id="gate">
+            <h1>Tern, in your browser</h1>
+            <p class="lede">
+                Plug a Tern node into this computer and write to other nodes through it. The page
+                talks to the board over USB and to nothing else: there is no account and no server,
+                and what you write leaves your computer only by the node's radio.
+            </p>
+            <p class="buttons">
+                <button id="connect-serial" type="button" class="primary">Connect over USB</button>
+                <button id="connect-demo" type="button">Try it without a board</button>
+            </p>
+            <p id="unsupported" class="note" hidden>
+                This browser cannot reach a USB serial port. Chrome and Edge on a computer can;
+                Safari, Firefox and phones cannot yet.
+            </p>
+            <ul class="muted notes">
+                <li>
+                    The board needs Tern's firmware:{" "}
+                    <a href={`${org}/firmware/tree/main/ports/heltec-v3#flashing`}>how to flash a Heltec V3</a>.
+                </li>
+                <li>
+                    This is an alpha of a draft protocol. Its cryptography has not been reviewed:
+                    do not trust it with anything that matters.
+                </li>
+                <li>
+                    Conversations are also kept in this browser, since a node remembers only its
+                    latest messages.
+                </li>
+            </ul>
+        </div>
+
+        <p id="demo-note" class="note" hidden>
+            A demo: there is no node, and every name and message here is made up.
+        </p>
+
+        <div id="live" hidden>
+            <aside>
+                <div id="node" class="card"></div>
+                <p><button id="disconnect" type="button" class="small">Disconnect</button></p>
+                <h2>People</h2>
+                <ul id="people" class="list"></ul>
+                <form id="add" class="card">
+                    <label for="add-address">Add someone by their node's address</label>
+                    <input id="add-address" type="text" autocomplete="off" spellcheck="false" placeholder="64 hex digits" required />
+                    <label for="add-name">Name</label>
+                    <input id="add-name" type="text" autocomplete="off" maxlength="31" placeholder="for you; never sent by radio" />
+                    <button type="submit">Add</button>
+                </form>
+                <h2>Neighbours</h2>
+                <ul id="neighbours" class="list plain"></ul>
+            </aside>
+            <section id="talk">
+                <header id="talk-head"></header>
+                <ol id="messages"></ol>
+                <form id="compose" hidden>
+                    <label for="text" class="sr">Message</label>
+                    <input id="text" type="text" autocomplete="off" placeholder="Write a message" />
+                    <span id="counter" class="muted"></span>
+                    <button type="submit" class="primary">Send</button>
+                </form>
+            </section>
+        </div>
+
+        <p id="status" role="status" aria-live="polite"></p>
+
+        <details id="console" hidden>
+            <summary>The board's console</summary>
+            <pre id="console-text"></pre>
+            <form id="console-form">
+                <label for="console-line" class="sr">A command for the board</label>
+                <input id="console-line" type="text" autocomplete="off" spellcheck="false" placeholder="status, routes, peers…" />
+                <button type="submit" class="small">Send</button>
+            </form>
+        </details>
+    </section>
+</Base>
+
+<script>
+    import "../lib/app/main.ts";
+</script>
+
+<style is:global>
+    /* Global, and under .app: the page's script makes most of these elements, and a scoped
+       style would not reach them. */
+    .app {
+        padding-top: 32px;
+        padding-bottom: 48px;
+    }
+    .app [hidden] {
+        display: none !important;
+    }
+    .app h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 0 0 12px;
+    }
+    .app h2 {
+        font-size: 1rem;
+        margin: 20px 0 8px;
+    }
+    .app .lede {
+        max-width: 44rem;
+        font-size: 1.1rem;
+    }
+    .app .notes {
+        max-width: 44rem;
+        padding-left: 1.2em;
+        font-size: 0.95rem;
+    }
+    .app .note {
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 14px;
+        max-width: 44rem;
+    }
+    .app button {
+        font: inherit;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        cursor: pointer;
+    }
+    .app button:hover:not(:disabled) {
+        border-color: var(--accent);
+    }
+    .app button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .app button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+    }
+    .app button.small {
+        padding: 3px 10px;
+        font-size: 0.85rem;
+    }
+    .app .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .app input[type="text"] {
+        font: inherit;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+    }
+    .app .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .app #live {
+        display: grid;
+        grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+    @media (max-width: 46rem) {
+        .app #live {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+    .app .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+    }
+    .app .card h2 {
+        margin-top: 0;
+    }
+    .app .card label {
+        display: block;
+        font-size: 0.85rem;
+        margin: 8px 0 4px;
+    }
+    .app .card label:first-child {
+        margin-top: 0;
+    }
+    .app .card button[type="submit"] {
+        margin-top: 10px;
+    }
+    .app .address {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        margin: 0 0 6px;
+    }
+    .app .address code {
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+        line-height: 1.4;
+    }
+    .app .facts {
+        margin: 0;
+        font-size: 0.85rem;
+    }
+    .app .list {
+        list-style: none;
+        margin: 0 0 12px;
+        padding: 0;
+    }
+    .app .list.plain li {
+        font-size: 0.9rem;
+        padding: 2px 0;
+    }
+    .app .list .empty {
+        font-size: 0.9rem;
+    }
+    .app .person {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        margin-bottom: 6px;
+    }
+    .app .person.on {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+    }
+    .app .person .name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .app .badge {
+        background: var(--accent);
+        color: var(--bg);
+        border-radius: 999px;
+        padding: 0 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .app .session {
+        font-size: 0.7rem;
+    }
+    .app #talk {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        min-height: 24rem;
+        display: flex;
+        flex-direction: column;
+    }
+    .app #talk-head h2 {
+        margin: 0 0 4px;
+        font-size: 1.2rem;
+    }
+    .app #talk-head p {
+        margin: 0 0 4px;
+        font-size: 0.85rem;
+    }
+    .app #talk-head .actions {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0 0;
+    }
+    .app #talk-head:empty + #messages {
+        border-top: 0;
+        padding-top: 0;
+        margin-top: 0;
+    }
+    .app #messages {
+        list-style: none;
+        margin: 12px 0;
+        padding: 12px 0 0;
+        border-top: 1px solid var(--border);
+        flex: 1;
+        max-height: 60vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .app #messages li.in,
+    .app #messages li.out {
+        max-width: 80%;
+        padding: 8px 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+    }
+    .app #messages li.in {
+        align-self: flex-start;
+        background: var(--bg);
+    }
+    .app #messages li.out {
+        align-self: flex-end;
+        background: var(--accent-soft);
+    }
+    .app #messages li.failed {
+        border-style: dashed;
+    }
+    .app #messages .text {
+        margin: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+    }
+    .app #messages .meta {
+        margin: 2px 0 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+    }
+    .app #compose {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    .app #counter {
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+    .app #status {
+        min-height: 1.6em;
+        margin: 12px 0 0;
+        color: var(--muted);
+    }
+    .app .bad {
+        color: #b3261e;
+    }
+    @media (prefers-color-scheme: dark) {
+        .app .bad {
+            color: #f2b8b5;
+        }
+    }
+    .app #console {
+        margin-top: 16px;
+    }
+    .app #console pre {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px;
+        max-height: 16rem;
+        overflow: auto;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+    .app #console form {
+        display: flex;
+        gap: 8px;
+    }
+</style>
