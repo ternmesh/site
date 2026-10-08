@@ -10,20 +10,20 @@ the specification in [ternmesh/spec](https://github.com/ternmesh/spec).
 
 ```bash
 npm ci
-npm run dev       # http://localhost:4321, reloads on save
-npm run build     # astro check (types) + the static build into dist/
+npm run dev       # fetch the firmware release, then http://localhost:4321, reloads on save
+npm run build     # fetch the firmware release, astro check (types), the static build into dist/
 npm run preview   # build, then serve dist/ the way Cloudflare will (wrangler dev)
 npm test          # the companion client against the specification's vectors
 ```
 
-Node 22.12 or later to build; the tests run TypeScript as it is, which needs Node 22.18 or later.
+Node 22.18 or later: the build's own tools and the tests are TypeScript, run as it is.
 
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off
 * [Governance](https://github.com/ternmesh/spec/blob/main/GOVERNANCE.md)
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app and the 404, in `src/layouts/Base.astro`.
+`src/pages/` holds the landing page, the app, the flash page and the 404, in `src/layouts/Base.astro`.
 When the specification has a first draft, it will be rendered here from
 `ternmesh/spec` at build time rather than copied into this repository, so
 there is only ever one text of the protocol.
@@ -55,6 +55,34 @@ To check the client against a real board from a terminal, on macOS or Linux:
 ```bash
 node tools/board.ts /dev/cu.usbserial-0001                    # what the node holds
 node tools/board.ts /dev/cu.usbserial-0001 <address> "hello"  # and send a message
+```
+
+## The flash page
+
+`/flash` puts the firmware on a Heltec V3 from the browser, over Web Serial: it asks where the
+board will be used and whether it runs Tern already, fetches the image, checks it against the
+release's SHA-256 checksums, and writes it with Espressif's
+[esptool-js](https://github.com/espressif/esptool-js).
+
+A page cannot read a GitHub release's files itself, so the site carries a copy.
+`src/data/firmware.json` names the [firmware release](https://github.com/ternmesh/firmware/releases)
+the site offers, and `tools/firmware.ts`, which `npm run build` and `npm run dev` run first, fetches its images
+into `public/firmware/` (not kept in git) and refuses any that the release's `SHA256SUMS` does
+not match. **To offer a new release, change the version there**; the build fails if no such
+release exists.
+
+| | |
+|---|---|
+| `src/lib/flash/images.ts` | The images a release has, by name, and the check against its checksums. |
+| `src/lib/flash/flash.ts` | Writing one to the board, checking it, and restarting the board. |
+| `src/lib/flash/md5.ts` | MD5, which is how the board's bootloader says what it holds. |
+| `src/lib/flash/page.ts` | The page. |
+
+To try images that are not released, point the build at the directory
+`ports/heltec-v3/release.sh` leaves in the firmware repository:
+
+```bash
+TERN_FIRMWARE_DIR=../firmware/ports/heltec-v3/release npm run build
 ```
 
 ## Deploying
