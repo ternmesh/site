@@ -9,6 +9,7 @@ import type { Message, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
 import { ASKED, NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { bluetoothSupported, openBluetooth } from "../companion/bluetooth.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
@@ -52,6 +53,8 @@ let client: Client | null = null;
 let history: History | null = null;
 let selected: string | null = null;
 let demo = false;
+/** Whether the link carries the board's console: only USB does. */
+let hasConsole = false;
 let drawing = false;
 /** A READ is on its way: another is not sent until it is answered. */
 let reading = false;
@@ -438,7 +441,7 @@ function draw(): void {
         $("gate").hidden = up;
         $("live").hidden = !up || !client?.ready;
         $("demo-note").hidden = !up || !demo;
-        $("console").hidden = !up || demo;
+        $("console").hidden = !up || !hasConsole;
         if (!up || !client?.ready) {
             return;
         }
@@ -501,8 +504,14 @@ function act(what: () => Promise<unknown>): void {
     );
 }
 
-async function connect(open: () => Promise<Transport> | Transport, isDemo: boolean): Promise<void> {
-    say(isDemo ? "" : "Choose the board's port in the browser's list.");
+const CHOOSE = {
+    serial: "Choose the board's port in the browser's list.",
+    bluetooth: "Choose the node in the browser's list. The first time, type in the passkey its screen shows.",
+    demo: "",
+};
+
+async function connect(open: () => Promise<Transport> | Transport, by: keyof typeof CHOOSE): Promise<void> {
+    say(CHOOSE[by]);
     let transport: Transport;
     try {
         transport = await open();
@@ -511,7 +520,8 @@ async function connect(open: () => Promise<Transport> | Transport, isDemo: boole
         say(e instanceof DOMException && e.name === "NotFoundError" ? "" : explain(e), true);
         return;
     }
-    demo = isDemo;
+    demo = by === "demo";
+    hasConsole = by === "serial";
     selected = null;
     history = null;
     historyNode = "";
@@ -633,12 +643,21 @@ async function applySettings(c: Client): Promise<void> {
 
 function start(): void {
     const serialButton = $<HTMLButtonElement>("connect-serial");
-    if (!serialSupported()) {
-        serialButton.disabled = true;
-        $("unsupported").hidden = false;
-    }
-    serialButton.addEventListener("click", () => void connect(openSerial, false));
-    $("connect-demo").addEventListener("click", () => void connect(openDemo, true));
+    const bluetoothButton = $<HTMLButtonElement>("connect-bluetooth");
+    serialButton.disabled = !serialSupported();
+    bluetoothButton.disabled = !bluetoothSupported();
+    // A phone has Bluetooth and no serial port: what the browser has comes first.
+    (serialButton.disabled && !bluetoothButton.disabled ? bluetoothButton : serialButton).classList.add("primary");
+    $("unsupported").hidden = !serialButton.disabled && !bluetoothButton.disabled;
+    $("unsupported").textContent =
+        serialButton.disabled && bluetoothButton.disabled
+            ? "This browser can reach a node neither over USB nor over Bluetooth. Chrome and Edge can, on a computer or an Android phone; Safari, Firefox and iPhones cannot yet."
+            : serialButton.disabled
+              ? "This browser cannot reach a USB serial port: Chrome and Edge on a computer can."
+              : "This browser has no Web Bluetooth: Chrome and Edge can, on a computer or an Android phone.";
+    serialButton.addEventListener("click", () => void connect(openSerial, "serial"));
+    bluetoothButton.addEventListener("click", () => void connect(() => openBluetooth(), "bluetooth"));
+    $("connect-demo").addEventListener("click", () => void connect(openDemo, "demo"));
     $("disconnect").addEventListener("click", () => {
         const c = client;
         client = null;
@@ -711,7 +730,7 @@ function start(): void {
     setInterval(() => client?.ready && drawNeighbours(), 15000);
     count();
     if (new URLSearchParams(location.search).has("demo")) {
-        void connect(openDemo, true);
+        void connect(openDemo, "demo");
     }
 }
 

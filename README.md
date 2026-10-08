@@ -30,16 +30,19 @@ there is only ever one text of the protocol.
 
 ## The app
 
-`/app` is a client for a Tern node, in the browser: plug a board in over USB and write to other
-nodes through it. It speaks the [companion protocol](https://github.com/ternmesh/spec/blob/main/draft/companion.md)
-over Web Serial, which Chrome and Edge on a computer have. Nothing is sent anywhere but to the
-board, and nothing runs on a server.
+`/app` is a client for a Tern node, in the browser: plug a board in over USB, or reach one over
+Bluetooth, and write to other nodes through it. It speaks the
+[companion protocol](https://github.com/ternmesh/spec/blob/main/draft/companion.md) over Web
+Serial, which Chrome and Edge on a computer have, and over Web Bluetooth, which they have on a
+computer and on an Android phone. Nothing is sent anywhere but to the board, and nothing runs on
+a server.
 
 | | |
 |---|---|
 | `src/lib/companion/protocol.ts` | The protocol's frames: built, read, wrapped for a byte stream and found in one. |
 | `src/lib/companion/client.ts` | One connection: requests one at a time, the node's news, syncing again when some is missed, and keeping the node from taking the client for gone. |
 | `src/lib/companion/serial.ts` | A node on a USB serial port, through Web Serial. |
+| `src/lib/companion/bluetooth.ts` | A node over Bluetooth LE, through Web Bluetooth: pairing, and finding a node again after it restarts. |
 | `src/lib/companion/demo.ts` | A made-up node in the page, for "Try it without a board" and `/app?demo`. |
 | `src/lib/companion/ids.ts` | Addresses as typed, and the routing id of one. |
 | `src/lib/app/` | The page: what is drawn, and the conversations it keeps in the browser. |
