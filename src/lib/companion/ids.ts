@@ -2,11 +2,17 @@
 // ternmesh/spec.
 
 import { ADDRESS_LEN, unhex } from "./protocol.ts";
+import { readAddress } from "./share.ts";
 
-/** An address typed or pasted, as 64 lower-case hex digits, or null if it is not that. */
+/**
+ * An address typed or pasted, as 64 lower-case hex digits, or null if it is not one: its digits,
+ * or its link (draft/sharing.md), with what a paste brings round it trimmed and line breaks and
+ * tabs among the digits taken as spaces. Digits with colons between them, as some tools print a
+ * key, are taken too; the link is read first, since it has colons of its own.
+ */
 export function parseAddress(text: string): string | null {
-    const digits = text.replace(/[\s:]/g, "").toLowerCase();
-    return /^[0-9a-f]{64}$/.test(digits) ? digits : null;
+    const t = text.trim().replace(/\s/g, " ");
+    return readAddress(t) ?? readAddress(t.replaceAll(":", " "));
 }
 
 /**

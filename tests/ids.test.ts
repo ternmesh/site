@@ -21,6 +21,8 @@ test("an address is 64 hex digits, however it was pasted", () => {
     assert.equal(parseAddress(a), a);
     assert.equal(parseAddress(`  ${a.toUpperCase()}\n`), a);
     assert.equal(parseAddress(a.replace(/(.{8})/g, "$1 ")), a);
+    assert.equal(parseAddress(a.replace(/(..)(?!$)/g, "$1:")), a); // colons between bytes
+    assert.equal(parseAddress(a.toUpperCase().replace(/(..)(?!$)/g, "$1:")), a);
     assert.equal(parseAddress(a.slice(2)), null);
     assert.equal(parseAddress(a.slice(2) + "zz"), null);
     assert.equal(parseAddress(""), null);

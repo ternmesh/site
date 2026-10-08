@@ -23,7 +23,7 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app, the flash page and the 404, in `src/layouts/Base.astro`.
+`src/pages/` holds the landing page, the app, the flash page, the page a node's link opens, and the 404, in `src/layouts/Base.astro`.
 When the specification has a first draft, it will be rendered here from
 `ternmesh/spec` at build time rather than copied into this repository, so
 there is only ever one text of the protocol.
@@ -87,6 +87,28 @@ To try images that are not released, point the build at the directory
 ```bash
 TERN_FIRMWARE_DIR=../firmware/ports/heltec-v3/release npm run build
 ```
+
+## A node's link
+
+A node's QR code holds its link, `HTTPS://TERNMESH.ORG/A/` and its address in base32
+([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)), so that a
+phone's camera, with no Tern app, opens a page here. `public/_redirects` serves every `/A/…` and
+`/a/…` with the one page, `src/pages/node.astro`, and keeps the URL as it was;
+`src/lib/node/page.ts` reads the address out of it in the browser and shows it, with its short
+code, a button to copy it and one to add it in the app (`/app?add=<address>`). Nothing is fetched,
+and the page is kept out of search engines.
+
+The address is in the URL's path, so the request for the page tells the site which address was
+looked at: the specification says why it is not after a `#`. `observability` stays off in
+`wrangler.jsonc` for that reason too: there are no request logs to keep.
+
+| | |
+|---|---|
+| `src/lib/companion/share.ts` | The text form, the link and base32, reading either back, and the short code. `parseAddress()` in `ids.ts` goes through it, so the app's box takes a link as well as digits. |
+
+`tests/vectors/sharing.json` is a copy of the specification's
+[`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of
+[ternmesh/spec#21](https://github.com/ternmesh/spec/pull/21), and `npm test` holds `share.ts` to it.
 
 ## Deploying
 

@@ -696,7 +696,7 @@ function start(): void {
         const address = parseAddress($<HTMLInputElement>("add-address").value);
         const name = clip($<HTMLInputElement>("add-name").value.trim(), NAME_MAX);
         if (!address) {
-            say("An address is 64 hex digits: the other node's page, or its 'status', shows it.", true);
+            say("An address is 64 hex digits, or a node's link: its Share page's code, or its 'status', gives it.", true);
             return;
         }
         if (!client) {
@@ -729,6 +729,11 @@ function start(): void {
     document.addEventListener("visibilitychange", draw);
     setInterval(() => client?.ready && drawNeighbours(), 15000);
     count();
+    // A node's page (/node) sends its address here, to be added once a board is connected.
+    const shared = parseAddress(new URLSearchParams(location.search).get("add") ?? "");
+    if (shared) {
+        $<HTMLInputElement>("add-address").value = shared;
+    }
     if (new URLSearchParams(location.search).has("demo")) {
         void connect(openDemo, "demo");
     }
