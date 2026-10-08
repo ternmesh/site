@@ -492,7 +492,8 @@ function groupHead(id: string): void {
             act(() => client!.leaveGroup(id));
         }
     });
-    // Whom to invite: a contact, since an invite goes over a session with one.
+    // Whom to invite: any contact. An invite goes over a session, and to one there is none with
+    // yet the node makes first contact first, as for a first message.
     const whom = el("select", { "aria-label": "A contact to invite" });
     for (const c of client?.contacts.values() ?? []) {
         whom.append(el("option", { value: c.address }, nameOf(c.address)));
