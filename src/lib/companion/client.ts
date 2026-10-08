@@ -216,7 +216,10 @@ export class Client {
         // holds, since when news has been missed there may be one before that it never saw.
         let after = this.through;
         for (const m of this.messages.values()) {
-            if (m.state === STATE.waiting || m.state === STATE.sent) {
+            // A group message that is sent is at rest: nothing answers it, so nothing more
+            // becomes of it.
+            const groupMessage = m.group !== "" && !m.invite;
+            if (m.state === STATE.waiting || (m.state === STATE.sent && !groupMessage)) {
                 after = Math.min(after, m.id - 1);
             }
         }

@@ -196,6 +196,28 @@ test("a node from before groups is asked for none, and a sync is the whole list 
     await c.close();
 });
 
+test("a group message that is sent is at rest, and a sync does not go back for it", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const hut = "0011223344556677";
+    const at = { time: 5, flags: 0, reason: 0, wait: 0 };
+    await bringUp(wire, c, [
+        ["GROUP_MESSAGE", { id: 4, group: hut, from: 0, state: STATE.sent, text: "anyone?", ...at }],
+        ["MESSAGE", { id: 9, contact: BOB, state: STATE.delivered, text: "hi", ...at }],
+    ]);
+    let again = c.sync();
+    assert.equal(decode(await wire.next())!.fields.after, 9);
+    wire.say("SYNCED", 4);
+    await again;
+    // An invite that is sent may yet be delivered: it is a message to an address.
+    wire.say("INVITE", 2, { id: 10, contact: BOB, group: hut, state: STATE.sent, name: "Hut", ...at });
+    again = c.sync();
+    assert.equal(decode(await wire.next())!.fields.after, 9);
+    wire.say("SYNCED", 5);
+    await again;
+    await c.close();
+});
+
 test("who asked is kept until let go of, or let in", async () => {
     const wire = new Wire(true);
     const c = new Client(wire, quick);
