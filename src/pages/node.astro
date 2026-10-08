@@ -1,0 +1,137 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+    title="A Tern node"
+    description="Someone shared a Tern node with you: its address, and the code to check it by."
+    noindex
+>
+    <section class="node wrap">
+        <div id="found" hidden>
+            <h1>A Tern node</h1>
+            <p class="lede">Someone shared their node with you. This is its address.</p>
+
+            <div class="card">
+                <p class="label">Its code</p>
+                <p id="code" class="code"></p>
+                <p class="muted small">
+                    Check it with them: their node shows the same twelve digits on its <strong>This node</strong> page.
+                    If they differ, this is not their node.
+                </p>
+            </div>
+
+            <div class="card">
+                <p class="label">Its address</p>
+                <p id="address" class="address"></p>
+                <p class="actions">
+                    <button id="copy" type="button">Copy the address</button>
+                    <a id="add" class="button secondary" href="/app">Add it in the app</a>
+                </p>
+                <p id="copied" class="muted small" role="status"></p>
+            </div>
+
+            <p class="muted small">
+                To reach it, add the address as a contact: in the <a href="/app">app</a>, in a phone app once there
+                is one, or with <code>contact</code> on a board's console. Nothing is sent to the node until you
+                write to it.
+            </p>
+        </div>
+
+        <div id="missing" hidden>
+            <h1>No node here</h1>
+            <p class="lede">
+                This link does not hold a node's address. A node's link is the one its QR code opens, on
+                its <strong>Share</strong> page; check it was not cut short.
+            </p>
+        </div>
+
+        <noscript>
+            <p class="lede">This page reads the node's address out of its link, which needs JavaScript.</p>
+        </noscript>
+
+        <p class="muted small privacy">
+            This page reads the address out of the link in your browser and sends it nowhere. Opening the link did
+            tell this site which address you looked at, as any web address does; it keeps no logs. A Tern app,
+            once one claims these links, opens them without asking the site.
+        </p>
+    </section>
+</Base>
+
+<script>
+    import "../lib/node/page.ts";
+</script>
+
+<style>
+    .node {
+        padding-top: 32px;
+        padding-bottom: 48px;
+        max-width: 40rem;
+    }
+    [hidden] {
+        display: none !important;
+    }
+    h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 0 0 12px;
+    }
+    .lede {
+        font-size: 1.1rem;
+    }
+    .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        margin: 16px 0;
+    }
+    .label {
+        margin: 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+    }
+    .code {
+        margin: 4px 0 8px;
+        font: 600 clamp(1.6rem, 7vw, 2.2rem) / 1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+    }
+    .address {
+        margin: 6px 0 12px;
+        font: 1rem / 1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        word-spacing: 0.3em;
+        overflow-wrap: anywhere;
+    }
+    .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+    }
+    .small {
+        font-size: 0.9rem;
+    }
+    .privacy {
+        margin-top: 28px;
+    }
+    button,
+    a.button {
+        display: inline-block;
+        font: inherit;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+    }
+    a.button.secondary {
+        background: transparent;
+        color: var(--accent);
+    }
+</style>

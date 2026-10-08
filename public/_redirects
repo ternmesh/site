@@ -1,0 +1,6 @@
+# A node's link (draft/sharing.md in ternmesh/spec): HTTPS://TERNMESH.ORG/A/ and its address in
+# base32, upper-case as a QR code holds it. Every one is served by the one page, which reads the
+# address out of the URL in the browser; the URL stays as it was. Paths are case-sensitive here, so
+# both cases are listed.
+/A/* /node/ 200
+/a/* /node/ 200

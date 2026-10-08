@@ -4,11 +4,14 @@ import "../styles/global.css";
 interface Props {
     title?: string;
     description?: string;
+    /** Keep the page out of search engines: one whose content comes from the link that opened it. */
+    noindex?: boolean;
 }
 
 const {
     title,
     description = "Tern is an open LoRa mesh protocol that treats airtime as a shared, metered resource.",
+    noindex = false,
 } = Astro.props;
 const fullTitle = title ? `${title} · Tern` : "Tern — an open LoRa mesh protocol";
 const canonical = new URL(Astro.url.pathname, Astro.site);
@@ -22,6 +25,7 @@ const org = "https://github.com/ternmesh";
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{fullTitle}</title>
         <meta name="description" content={description} />
+        {noindex && <meta name="robots" content="noindex" />}
         <link rel="canonical" href={canonical} />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <meta property="og:title" content={fullTitle} />
