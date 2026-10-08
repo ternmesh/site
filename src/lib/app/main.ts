@@ -373,7 +373,7 @@ function drawTalk(): void {
             { class: "muted" },
             contact?.session
                 ? "This node has a session with it."
-                : "No session yet: the first message makes first contact, which needs the two nodes to hear each other.",
+                : "No session yet: the first message makes first contact, directly or through relays.",
         ),
         el("p", { class: "actions" }, rename, remove ?? null, end || null),
     );
