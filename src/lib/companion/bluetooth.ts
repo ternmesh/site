@@ -164,15 +164,26 @@ export async function openBluetooth(
     const find = async (ms: number): Promise<boolean> => {
         const until = Date.now() + ms;
         for (;;) {
+            if (ended) {
+                return false;
+            }
             try {
                 await link();
-                return true;
             } catch {
-                if (ended || closing || Date.now() + t.retry >= until) {
+                if (Date.now() + t.retry >= until) {
                     return false;
                 }
                 await sleep(t.retry);
+                continue;
             }
+            if (ended) {
+                // Closed while the link was being made: it is not kept.
+                deaf();
+                chars.to = null;
+                gatt.disconnect();
+                return false;
+            }
+            return true;
         }
     };
 

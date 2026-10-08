@@ -228,3 +228,36 @@ test("closing lets the node go, and is not the link ending", async () => {
     assert.equal(node.connects, 1);
     assert.equal(closed, "");
 });
+
+test("closing while a node is looked for stops the looking", async () => {
+    const node = new Node();
+    const t = await openBluetooth(node.browser(), FAST);
+    node.there = false;
+    node.drop();
+    await tick(8);
+    await t.close();
+    node.there = true;
+    await tick(30);
+    assert.equal(node.connects, 1);
+    assert.equal(node.connected, false);
+});
+
+test("a link made as the connection closes is not kept", async () => {
+    const node = new Node();
+    const t = await openBluetooth(node.browser(), FAST);
+    const connect = node.gatt.connect.bind(node.gatt);
+    node.gatt.connect = async () => {
+        await tick(10);
+        return connect();
+    };
+    node.drop();
+    await tick(2);
+    await t.close();
+    await tick(30);
+    assert.equal(node.connects, 2);
+    assert.equal(node.connected, false);
+    const got: Uint8Array[] = [];
+    t.onData = (d) => got.push(d);
+    node.from.notify([1, 1]);
+    assert.deepEqual(got, [], "and nothing is heard from it");
+});
