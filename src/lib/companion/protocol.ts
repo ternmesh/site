@@ -1,10 +1,10 @@
-// The companion protocol's frames: specification draft 0, draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 1 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 0;
+export const VERSION = 1;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
@@ -16,7 +16,8 @@ export const NAME_MAX = 31;
 type Kind = "u8" | "i8" | "u16" | "u32" | "addr" | "str";
 type Field = readonly [name: string, kind: Kind, longest?: number];
 
-// Every frame of version 0, by type: its name and its fields in order.
+// Every frame of version 1, by type: its name and its fields in order. END_SESSION and ASKED are
+// what version 1 added.
 const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x01: ["HELLO", [["version", "u8"]]],
     0x02: ["SYNC", [["after", "u32"]]],
@@ -27,6 +28,7 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x11: ["READ", [["through", "u32"]]],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]]],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]]],
+    0x1a: ["END_SESSION", [["address", "addr"]]],
     0x40: ["OK", []],
     0x41: ["ERROR", [["code", "u8"]]],
     0x42: ["INFO", [["version", "u8"], ["firmware", "str", 31]]],
@@ -53,6 +55,7 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
     0x86: ["NEIGHBOUR_GONE", [["routing_id", "u32"]]],
     0x87: ["AIRTIME", [["period", "u32"], ["allowed", "u32"], ["used", "u32"], ["wait", "u32"]]],
     0x88: ["POWER", [["millivolts", "u16"], ["percent", "u8"], ["flags", "u8"]]],
+    0x89: ["ASKED", [["address", "addr"], ["why", "u8"]]],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -66,6 +69,10 @@ const SETTINGS: Readonly<Record<number, Field>> = {
     3: ["value", "i8"],
     4: ["value", "u32"],
 };
+
+export const SETTING = { region: 1, role: 2, power: 3, passkey: 4 } as const;
+/** Why a node refused first contact: ASKED's `why`. */
+export const ASKED = { notContact: 1, noRoom: 2 } as const;
 
 export const STATE = { waiting: 0, sent: 1, delivered: 2, notDelivered: 3, received: 4 } as const;
 

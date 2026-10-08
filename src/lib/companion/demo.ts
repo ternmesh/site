@@ -9,6 +9,7 @@ import type { Fields } from "./protocol.ts";
 const SELF = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 const ROBIN = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 const SAM = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
+const KIT = "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e";
 
 interface Held {
     id: number;
@@ -31,6 +32,10 @@ export function openDemo(): Transport {
         { id: 2, contact: ROBIN, time: now() - 5300, flags: 0, state: STATE.delivered, reason: 0, text: "Half an hour out. Signal is good from the col." },
         { id: 3, contact: ROBIN, time: now() - 600, flags: 0, state: STATE.received, reason: 0, text: "Kettle is on." },
     ];
+    const self = { role: 1, region: "US915", power: 2 };
+    const tellSelf = () => news("SELF", { address: SELF, ...self, time: now() });
+    /** Kit asks once, a while after the page first syncs, and is refused: not a contact. */
+    let kitAsked = false;
     let greeted = false;
     let count = 0;
     let closed = false;
@@ -104,10 +109,10 @@ export function openDemo(): Transport {
             case "HELLO":
                 greeted = true;
                 count = 0;
-                answer("INFO", f.seq, { version: 0, firmware: "a demo, not a node" });
+                answer("INFO", f.seq, { version: 1, firmware: "a demo, not a node" });
                 break;
             case "SYNC":
-                news("SELF", { address: SELF, role: 1, region: "US915", power: 2, time: now() });
+                tellSelf();
                 for (const [address, c] of contacts) {
                     news("CONTACT", { address, session: c.session, name: c.name });
                 }
@@ -121,6 +126,10 @@ export function openDemo(): Transport {
                 news("AIRTIME", { period: 0, allowed: 0, used: 812, wait: 0 });
                 news("POWER", { millivolts: 3987, percent: 81, flags: 1 });
                 answer("SYNCED", f.seq);
+                if (!kitAsked) {
+                    kitAsked = true;
+                    later(9000, () => contacts.has(KIT) || news("ASKED", { address: KIT, why: 1 }));
+                }
                 break;
             case "SEND": {
                 const to = String(x.to);
@@ -160,6 +169,49 @@ export function openDemo(): Transport {
                 contacts.set(address, c);
                 answer("OK", f.seq);
                 news("CONTACT", { address, session: c.session, name: c.name });
+                if (address === KIT && c.session === 0) {
+                    // Let in: Kit tries again, and this time is taken.
+                    later(2500, () => {
+                        const kit = contacts.get(KIT);
+                        if (kit && kit.session === 0) {
+                            kit.session = 1;
+                            news("CONTACT", { address: KIT, session: 1, name: kit.name });
+                            add(KIT, STATE.received, 0, "(demo) Thanks for letting me in.");
+                        }
+                    });
+                }
+                break;
+            }
+            case "END_SESSION": {
+                const address = String(x.address);
+                answer("OK", f.seq);
+                for (const m of messages) {
+                    if (m.contact === address && m.state === STATE.waiting) {
+                        move(m, STATE.notDelivered);
+                    }
+                }
+                const c = contacts.get(address);
+                if (c && c.session === 1) {
+                    c.session = 0;
+                    news("CONTACT", { address, session: 0, name: c.name });
+                }
+                break;
+            }
+            case "SET": {
+                // A real node restarts to apply these; this one just changes.
+                const value = x.value;
+                if (x.setting === 1 && (value === "US915" || value === "EU868")) {
+                    self.region = value;
+                } else if (x.setting === 2 && (value === 0 || value === 1)) {
+                    self.role = value;
+                } else if (x.setting === 3 && typeof value === "number" && value >= -9 && value <= 22) {
+                    self.power = value;
+                } else {
+                    answer("ERROR", f.seq, { code: 3 });
+                    break;
+                }
+                answer("OK", f.seq);
+                tellSelf();
                 break;
             }
             case "REMOVE_CONTACT":

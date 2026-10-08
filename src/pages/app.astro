@@ -45,7 +45,31 @@ import Base from "../layouts/Base.astro";
         <div id="live" hidden>
             <aside>
                 <div id="node" class="card"></div>
+                <details id="settings" class="card">
+                    <summary>Settings</summary>
+                    <form id="settings-form">
+                        <label for="set-power">Transmit power, in dBm</label>
+                        <input id="set-power" type="number" min="-9" max="22" step="1" required />
+                        <label for="set-region">Region</label>
+                        <select id="set-region">
+                            <option value="US915">US915: United States, Canada</option>
+                            <option value="EU868">EU868: Europe</option>
+                        </select>
+                        <label for="set-role">Role</label>
+                        <select id="set-role">
+                            <option value="1">Relay: passes others' frames on</option>
+                            <option value="0">Leaf: sends and receives its own</option>
+                        </select>
+                        <p class="muted small-print">
+                            The board sends on its region's frequency: choose the one you are in.
+                            It restarts to apply a change, and refuses a power its region does not
+                            allow.
+                        </p>
+                        <button id="settings-apply" type="submit">Apply</button>
+                    </form>
+                </details>
                 <p><button id="disconnect" type="button" class="small">Disconnect</button></p>
+                <ul id="asked" class="list plain"></ul>
                 <h2>People</h2>
                 <ul id="people" class="list"></ul>
                 <form id="add" class="card">
@@ -188,6 +212,57 @@ import Base from "../layouts/Base.astro";
     }
     .app .card h2 {
         margin-top: 0;
+    }
+    .app #live.busy {
+        opacity: 0.6;
+    }
+    .app #settings {
+        margin-top: 12px;
+    }
+    .app #settings summary {
+        cursor: pointer;
+        font-weight: 600;
+    }
+    .app #settings form {
+        margin-top: 10px;
+    }
+    .app #settings input,
+    .app #settings select {
+        font: inherit;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+    }
+    .app .small-print {
+        font-size: 0.85rem;
+        margin: 10px 0 0;
+    }
+    .app #asked:empty {
+        display: none;
+    }
+    .app #asked li {
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.95rem;
+    }
+    .app #asked p {
+        margin: 0 0 8px;
+    }
+    .app #asked code {
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+    }
+    .app #asked .actions {
+        display: flex;
+        gap: 8px;
+        margin: 0;
     }
     .app .card label {
         display: block;

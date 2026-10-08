@@ -8,7 +8,7 @@ import { Client, Refused } from "../companion/client.ts";
 import type { Message, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
-import { NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { ASKED, NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
@@ -166,6 +166,101 @@ function drawNode(): void {
         el("p", { class: "muted facts" }, facts.join(" · ")),
         el("p", { class: "muted facts" }, c.firmware),
     );
+    if (c.version < 1) {
+        box.append(
+            el(
+                "p",
+                { class: "muted facts" },
+                "This firmware is older than the page: it cannot end a session from here, or say who asked to reach it. ",
+                el("a", { href: "/flash" }, "Update it"),
+                ".",
+            ),
+        );
+    }
+}
+
+/** What the settings form was last filled from: it is filled again only when the node's change. */
+let settingsShown = "";
+
+function drawSettings(): void {
+    const self = client?.self;
+    if (!self) {
+        return;
+    }
+    const key = `${self.region}/${self.power}/${self.role}`;
+    if (key === settingsShown) {
+        return;
+    }
+    settingsShown = key;
+    $<HTMLInputElement>("set-power").value = String(self.power);
+    $<HTMLSelectElement>("set-role").value = String(self.role);
+    const region = $<HTMLSelectElement>("set-region");
+    region.querySelector("option[data-other]")?.remove();
+    if (![...region.options].some((o) => o.value === self.region)) {
+        // One this page does not offer, or none: shown as it is, and left alone unless changed.
+        const other = el("option", { value: self.region, "data-other": "" }, self.region || "not set");
+        region.prepend(other);
+    }
+    region.value = self.region;
+}
+
+function drawAsked(): void {
+    const list = $("asked");
+    list.replaceChildren();
+    for (const [address, why] of client?.asked ?? []) {
+        const known = client?.contacts.has(address) ?? false;
+        const dismiss = el("button", { type: "button", class: "small" }, "Dismiss");
+        dismiss.addEventListener("click", () => client?.forgetAsked(address));
+        const who = el("code", {}, known ? nameOf(address) : address);
+        if (why === ASKED.notContact && !known) {
+            const letIn = el("button", { type: "button", class: "small" }, "Let it in");
+            letIn.addEventListener("click", () => {
+                const c = client;
+                c?.saveContact(address, "").then(
+                    () => {
+                        c.forgetAsked(address);
+                        say("Saved as a contact. It is let in the next time it tries: have it send again.");
+                        select(address);
+                    },
+                    (e: unknown) => say(explain(e), true),
+                );
+            });
+            list.append(
+                el(
+                    "li",
+                    {},
+                    el("p", {}, who, " tried to reach this node, and was refused: it is not a contact."),
+                    el("p", { class: "actions" }, letIn, dismiss),
+                ),
+            );
+        } else if (why === ASKED.notContact) {
+            // Saved since it asked: nothing more to do but wait for it.
+            list.append(
+                el(
+                    "li",
+                    {},
+                    el("p", {}, who, " was refused before it was a contact. It is let in the next time it tries."),
+                    el("p", { class: "actions" }, dismiss),
+                ),
+            );
+        } else {
+            list.append(
+                el(
+                    "li",
+                    {},
+                    el(
+                        "p",
+                        {},
+                        who,
+                        why === ASKED.noRoom
+                            ? " tried to reach this node, and was refused: the node holds as many sessions as it can. End one to make room."
+                            : " tried to reach this node, and was refused.",
+                    ),
+                    el("p", { class: "actions" }, dismiss),
+                ),
+            );
+        }
+    }
 }
 
 function drawPeople(): void {
@@ -254,6 +349,22 @@ function drawTalk(): void {
             }
         });
     }
+    const end =
+        contact?.session &&
+        client &&
+        client.version >= 1 &&
+        el("button", { type: "button", class: "small" }, "End session");
+    if (end) {
+        end.addEventListener("click", () => {
+            const sure = window.confirm(
+                `End this node's session with ${nameOf(address)}? Messages still waiting for it are given up. ` +
+                    "The other node is not told: to talk again, send it a message from here.",
+            );
+            if (sure) {
+                act(() => client!.endSession(address));
+            }
+        });
+    }
     head.append(
         el("h2", {}, nameOf(address)),
         el("p", { class: "muted address" }, el("code", {}, address)),
@@ -264,7 +375,7 @@ function drawTalk(): void {
                 ? "This node has a session with it."
                 : "No session yet: the first message makes first contact, which needs the two nodes to hear each other.",
         ),
-        el("p", { class: "actions" }, rename, remove ?? null),
+        el("p", { class: "actions" }, rename, remove ?? null, end || null),
     );
 
     const live = liveWith(address);
@@ -338,6 +449,8 @@ function draw(): void {
         history?.absorb(client.messages.values());
         learnIds();
         drawNode();
+        drawSettings();
+        drawAsked();
         drawPeople();
         drawNeighbours();
         drawTalk();
@@ -403,6 +516,7 @@ async function connect(open: () => Promise<Transport> | Transport, isDemo: boole
     history = null;
     historyNode = "";
     ids.clear();
+    settingsShown = "";
     $("console-text").textContent = "";
     const c = new Client(transport);
     client = c;
@@ -418,21 +532,103 @@ async function connect(open: () => Promise<Transport> | Transport, isDemo: boole
     };
     say("Connecting…");
     draw();
-    // A board that restarts when its port is opened takes a few seconds to answer.
-    for (let tries = 0; tries < 6 && !c.closed; tries++) {
-        try {
-            await c.start();
-            say("");
-            draw();
-            return;
-        } catch (e) {
-            if (tries === 5 || (e instanceof Refused && e.code !== 0)) {
-                say(`${explain(e)} Is this a Tern node? Flash the firmware first.`, true);
-            }
-        }
+    const failed = await bringUp(c);
+    if (failed === null) {
+        say("");
+        draw();
+        return;
+    }
+    if (!c.closed) {
+        say(`${explain(failed)} Is this a Tern node? Flash the firmware first.`, true);
     }
     await c.close();
     draw();
+}
+
+/**
+ * HELLO and a sync, tried for a while: a board that has just restarted, as one does when its port
+ * is opened or a setting is applied, takes a few seconds to answer. Null once it is up, or else
+ * why it is not.
+ */
+async function bringUp(c: Client): Promise<unknown> {
+    let why: unknown = new Error("The connection closed.");
+    for (let tries = 0; tries < 6 && !c.closed; tries++) {
+        try {
+            await c.start();
+            return null;
+        } catch (e) {
+            why = e;
+            if (e instanceof Refused && e.code !== 0) {
+                break;
+            }
+        }
+    }
+    return why;
+}
+
+/**
+ * Applies the settings that differ from the node's, one at a time: the region first, since what
+ * power is allowed depends on it. A node restarts to apply each, so each is followed by starting
+ * the connection again.
+ */
+async function applySettings(c: Client): Promise<void> {
+    const self = c.self;
+    if (!self) {
+        return;
+    }
+    const region = $<HTMLSelectElement>("set-region").value;
+    const power = Number($<HTMLInputElement>("set-power").value);
+    const role = Number($<HTMLSelectElement>("set-role").value);
+    const changes: [setting: "region" | "power" | "role", value: number | string][] = [];
+    if (region !== self.region) {
+        changes.push(["region", region]);
+    }
+    if (power !== self.power) {
+        changes.push(["power", power]);
+    }
+    if (role !== self.role) {
+        changes.push(["role", role]);
+    }
+    if (changes.length === 0) {
+        say("Nothing to change.");
+        return;
+    }
+    // Nothing else is asked of a board that is about to restart: a request it took just before
+    // would be lost with it, and one it never answered would hold up the HELLO after.
+    const live = $("live");
+    live.inert = true;
+    live.classList.add("busy");
+    try {
+        for (const [setting, value] of changes) {
+            await c.set(setting, value);
+            say("Applied. Waiting for the board to restart…");
+            // It restarts a moment after it answers: a HELLO sent before then would be answered
+            // by the board that is about to go.
+            await new Promise((r) => setTimeout(r, demo ? 0 : 1500));
+            const failed = await bringUp(c);
+            if (failed !== null) {
+                throw failed;
+            }
+        }
+        say("Applied.");
+    } catch (e) {
+        if (e instanceof Refused && e.code !== 0) {
+            say(explain(e), true); // refused, and still there
+        } else {
+            // It did not come back: the page goes back to where a board is connected from.
+            await c.close();
+            if (client === c) {
+                client = null;
+            }
+            say(`${explain(e)} The board did not come back after the change: connect to it again.`, true);
+        }
+    } finally {
+        live.inert = false;
+        live.classList.remove("busy");
+        // Whatever the node now has is what the form shows.
+        settingsShown = "";
+        draw();
+    }
 }
 
 function start(): void {
@@ -495,6 +691,13 @@ function start(): void {
             },
             (err: unknown) => say(explain(err), true),
         );
+    });
+
+    $<HTMLFormElement>("settings-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (client) {
+            void applySettings(client);
+        }
     });
 
     $<HTMLFormElement>("console-form").addEventListener("submit", (e) => {
