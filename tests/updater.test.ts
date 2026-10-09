@@ -122,3 +122,22 @@ test("an UPDATE_END that went unanswered is not known, and is not sent again", a
     await u.run(() => Promise.reject(new Error("not asked")));
     assert.equal(ends, 1);
 });
+
+test("a node that took the client for gone leaves the update to go on once greeted again", async () => {
+    // Error 6 mid-image, as a Bluetooth link that came back unseen gets, and then on UPDATE_END.
+    for (const at of ["UPDATE_DATA", "UPDATE_END"]) {
+        let once = true;
+        const u = await byHand((type) => {
+            if (type === at && once) return ((once = false), ["ERROR", { code: 6 }]);
+            if (type === "UPDATE_BEGIN") return ["UPDATING", { offset: 0 }];
+            return ["OK", {}];
+        });
+        assert.equal(u.state, "waiting", at);
+        let begun = false;
+        await u.run(async (type) => {
+            begun ||= type === "UPDATE_BEGIN";
+            return { type: type === "UPDATE_BEGIN" ? "UPDATING" : "OK", seq: 1, fields: { offset: 400 } };
+        });
+        assert.deepEqual([begun, u.state], [true, "restarting"], at);
+    }
+});

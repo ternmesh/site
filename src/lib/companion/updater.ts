@@ -27,6 +27,13 @@ export type UpdateState =
 
 /** How many ERROR 10s in a row, with no bytes taken between them, before an update is given up. */
 const SENT_BACK = 3;
+/** ERROR 6: the node took this client for gone, and acted on nothing until it says HELLO again. */
+const HELLO_FIRST = 6;
+
+/** Whether a failure leaves the update to go on on the next connection: no answer, a link gone, or a HELLO wanted. */
+function goesOn(e: unknown): boolean {
+    return !(e instanceof Refused) || e.code === 0 || e.code === HELLO_FIRST;
+}
 
 export type Ask = (type: string, fields?: Fields) => Promise<Frame>;
 
@@ -117,7 +124,10 @@ export class Updater {
                     await ask("UPDATE_END");
                 } catch (e) {
                     if (mine === this.attempt) {
-                        if (e instanceof Refused && e.code !== 0) {
+                        if (e instanceof Refused && e.code === HELLO_FIRST) {
+                            // Not acted on: the next connection asks where it is and ends it then.
+                            this.set("waiting");
+                        } else if (e instanceof Refused && e.code !== 0) {
                             this.refuse(e.code);
                         } else {
                             this.set("unknown");
@@ -134,10 +144,10 @@ export class Updater {
             if (mine !== this.attempt) {
                 return;
             }
-            if (e instanceof Refused && e.code !== 0) {
-                this.refuse(e.code);
+            if (goesOn(e)) {
+                this.set("waiting"); // the next connection, or this one greeted again, goes on
             } else {
-                this.set("waiting"); // no answer, or the link went: the next connection goes on
+                this.refuse((e as Refused).code);
             }
         }
     }
