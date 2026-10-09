@@ -107,6 +107,12 @@ The address is in the URL's path, so the request for the page tells the site whi
 looked at: the specification says why it is not after a `#`. `observability` stays off in
 `wrangler.jsonc` for that reason too: there are no request logs to keep.
 
+`public/.well-known/assetlinks.json` names the Android app (`org.ternmesh.app`, by the
+fingerprint of its release key, which only the maintainers hold; CI on main prints it in its
+summary), so a phone with the app opens a link in it and never asks the site for the page. The
+debug build is a different package and is not named. The iOS app's `apple-app-site-association` waits
+on it having a team to sign with.
+
 | | |
 |---|---|
 | `src/lib/companion/share.ts` | The text form, the link and base32, reading either back, and the short code. `parseAddress()` in `ids.ts` goes through it, so the app's box takes a link as well as digits. |
