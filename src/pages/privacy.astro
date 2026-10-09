@@ -4,19 +4,23 @@ import Base from "../layouts/Base.astro";
 const org = "https://github.com/ternmesh";
 ---
 
-<Base title="Privacy" description="What the Tern app for iPhone, iPad and Mac and this site learn about you: nothing they keep.">
+<Base
+    title="Privacy"
+    description="What the Tern apps for Android and for iPhone, iPad and Mac, and this site, learn about you: nothing they keep."
+>
     <section class="wrap" style="padding-top: 4rem; max-width: 44rem">
         <h1>Privacy</h1>
         <p class="muted">Last changed 9 October 2026.</p>
         <p>
-            This covers Tern Mesh, the Tern app for iPhone, iPad and Mac, and this site. The project
-            collects nothing about the people who use them: there is no account, no analytics and no
-            advertising. What does leave your device for the internet is a request to this site,
-            when you visit it or when the app looks for firmware. Cloudflare, which serves the site,
-            sees that request, as any host does. Both are set out below.
+            This covers Tern, the app for Android; Tern Mesh, the app for iPhone, iPad and Mac; and this site.
+            The project collects nothing about the people who use them: there is no account, no analytics and no
+            advertising. What does leave your device for the internet is a request to this site, when you visit
+            it or when an app looks for firmware, and the map's tiles, when you open the map. Cloudflare, which
+            serves the site, sees the first, as any host does; who serves the map is set out below.
         </p>
 
-        <h2>The app</h2>
+        <h2>The apps</h2>
+        <p>Both apps work the same way, except where this says otherwise.</p>
         <ul>
             <li>
                 <strong>Your messages, contacts and groups</strong> are held by your node and kept on
@@ -28,18 +32,37 @@ const org = "https://github.com/ternmesh";
                 else.
             </li>
             <li>
-                <strong>The camera</strong>, on iPhone and iPad, reads the QR code of a contact you
+                <strong>Your location</strong> is used only if you share your position with a contact or
+                a group, and the app asks for it only then. While your node shares with anyone, the app
+                gives it the phone's location, and the node rounds it to what each one was chosen to see
+                before anything goes on the air. It is given to nothing else. On Android 11 and earlier,
+                Android also asks for location before an app may look for Bluetooth devices; the app
+                uses that permission to find your node.
+            </li>
+            <li>
+                <strong>The camera</strong>, on a phone or iPad, reads the QR code of a contact you
                 are adding. The app keeps no picture and sends none anywhere.
             </li>
             <li>
-                <strong>The internet</strong> is used for one thing: when you look for an update to
-                your node's firmware, the app fetches the list of releases, and then the firmware,
-                from this site. Those requests carry what any request to a website does: the
-                address they come from and the file asked for, which for the firmware is the one
-                for your node's board and region. They carry nothing else about you or your node.
+                <strong>Firmware</strong>: when you look for an update to your node's firmware, the app
+                fetches the list of releases, and then the firmware, from this site. Those requests
+                carry what any request to a website does: the address they come from and the file
+                asked for, which for the firmware is the one for your node's board and region. They
+                carry nothing else about you or your node.
+            </li>
+            <li>
+                <strong>The map</strong> fetches its tiles while you look at it. The Android app's come
+                from <a href="https://openfreemap.org">OpenFreeMap</a>, which sees which areas the map
+                shows and nothing else of yours. The Apple app's map is Apple's own, through MapKit,
+                which Apple handles under <a href="https://www.apple.com/legal/privacy/">its privacy
+                policy</a>.
             </li>
         </ul>
-        <p>Removing the app removes everything it kept on the device.</p>
+        <p>
+            The apps use the internet for nothing else. Removing an app removes everything it kept on
+            the device. The Android app is left out of Android's backups and of moving to a new phone:
+            the next time it connects, your node gives it back what it holds.
+        </p>
 
         <h2>This site</h2>
         <p>
@@ -53,8 +76,9 @@ const org = "https://github.com/ternmesh";
         <h2>Changes and questions</h2>
         <p>
             If this changes, the new text and its date will be here, and the change will be in the
-            <a href={`${org}/site`}>site's history</a>. Questions go to the project's
-            <a href={`${org}/apple/issues`}>issue tracker</a>.
+            <a href={`${org}/site`}>site's history</a>. Questions go to the issue tracker of the
+            <a href={`${org}/android/issues`}>Android app</a>, the
+            <a href={`${org}/apple/issues`}>Apple app</a> or the <a href={`${org}/site/issues`}>site</a>.
         </p>
     </section>
 </Base>
