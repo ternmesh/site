@@ -465,6 +465,21 @@ export class Client {
         await this.request("JOIN", { id });
     }
 
+    /**
+     * A group's join code, as its link: the group's secret, which whoever sees it can read the
+     * group with. Ask only when the user asked to see or share it, and keep it nowhere.
+     */
+    async groupLink(group: string): Promise<string> {
+        return String((await this.request("GROUP_LINK", { group })).fields.link);
+    }
+    /**
+     * Takes the group a join code is for, under the name it gives, and returns its id: the code as
+     * the user gave it, which the node reads. Only when the user asked to join from it.
+     */
+    async joinLink(link: string): Promise<string> {
+        return String((await this.request("JOIN_LINK", { link })).fields.group);
+    }
+
     async read(through: number): Promise<void> {
         await this.request("READ", { through });
     }
