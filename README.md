@@ -23,7 +23,9 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app, the flash page, the page a node's link opens, and the 404, in `src/layouts/Base.astro`.
+`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the page a node's
+link opens, privacy, and the 404, in `src/layouts/Base.astro`. `@astrojs/sitemap` writes
+`sitemap-index.xml`, which `robots.txt` names, of every page but the node's and the 404.
 When the specification has a first draft, it will be rendered here from
 `ternmesh/spec` at build time rather than copied into this repository, so
 there is only ever one text of the protocol.
@@ -159,8 +161,10 @@ looked at: the specification says why it is not after a `#`. `observability` sta
 `public/.well-known/assetlinks.json` names the Android app (`org.ternmesh.app`, by the
 fingerprint of its release key, which only the maintainers hold; CI on main prints it in its
 summary), so a phone with the app opens a link in it and never asks the site for the page. The
-debug build is a different package and is not named. The iOS app's `apple-app-site-association` waits
-on it having a team to sign with.
+debug build is a different package and is not named. `public/apple-app-site-association`, and its
+copy in `public/.well-known/`, name the Apple app (`75ULBHU3YJ.org.ternmesh.tern`) for the same
+paths, for its universal links; `public/_headers` serves both as JSON, which Apple asks for and a
+file with no extension would not be.
 
 | | |
 |---|---|

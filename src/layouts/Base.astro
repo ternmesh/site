@@ -34,6 +34,7 @@ const org = "https://github.com/ternmesh";
         <meta property="og:type" content="website" />
     </head>
     <body>
+        <a class="skip" href="#main">Skip to the content</a>
         <header class="site-header">
             <nav class="wrap">
                 <a class="brand" href="/">
@@ -43,19 +44,21 @@ const org = "https://github.com/ternmesh";
                 <div class="links">
                     <a href="/app">App</a>
                     <a href="/flash">Flash</a>
+                    <a href="/apps">Get the apps</a>
+                    <a href="/why">Why Tern</a>
                     <a href={`${org}/spec`}>Spec</a>
-                    <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>Governance</a>
                     <a href={org}>GitHub</a>
                 </div>
             </nav>
         </header>
-        <main>
+        <main id="main" tabindex="-1">
             <slot />
         </main>
         <footer class="site-footer">
             <div class="wrap muted">
                 Site under the Apache License 2.0 · <a href={`${org}/site`}>Source</a> ·
-                <a href="/privacy">Privacy</a>
+                <a href="/privacy">Privacy</a> ·
+                <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>Governance</a>
                 <br />
                 Tern is an independent project, not affiliated with any other mesh project.
             </div>
@@ -85,7 +88,24 @@ const org = "https://github.com/ternmesh";
     }
     .links {
         display: flex;
-        gap: 1.25rem;
+        flex-wrap: wrap;
+        gap: 0.25rem 1.25rem;
+    }
+    /* On a phone the links take a row of their own under the name, and wrap within it. */
+    @media (max-width: 40rem) {
+        .site-header nav {
+            gap: 0.25rem;
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+        .links {
+            width: 100%;
+            gap: 0.25rem 1rem;
+            font-size: 0.95rem;
+        }
+        .links a {
+            padding: 4px 0;
+        }
     }
     .links a {
         color: var(--muted);
@@ -93,6 +113,22 @@ const org = "https://github.com/ternmesh";
     }
     .links a:hover {
         color: var(--text);
+    }
+    .skip {
+        position: absolute;
+        left: 16px;
+        top: -100px;
+        z-index: 10;
+        padding: 8px 12px;
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+    .skip:focus {
+        top: 8px;
+    }
+    main:focus {
+        outline: none;
     }
     .site-footer {
         margin-top: 4rem;
