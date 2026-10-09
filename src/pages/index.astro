@@ -1,6 +1,5 @@
 ---
 import Base from "../layouts/Base.astro";
-import release from "../data/firmware.json";
 
 const org = "https://github.com/ternmesh";
 
@@ -40,7 +39,6 @@ const repos = [
 
 <Base>
     <section class="hero wrap">
-        <p class="status">Alpha · a draft protocol</p>
         <h1>Tern</h1>
         <p class="lede">
             An open LoRa mesh protocol that treats airtime as a shared, metered resource.
@@ -49,11 +47,6 @@ const repos = [
             <a class="button" href="#start">Get started</a>
             <a class="button secondary" href="/app">Open the app</a>
             <a class="button secondary" href="/why">Why Tern</a>
-        </p>
-        <p class="muted small">
-            It runs today: firmware {release.version} for one board, an app for Android, a beta for iPhone, iPad
-            and Mac in TestFlight, and an app in the browser. It is an alpha of a draft protocol. Its cryptography
-            has not been reviewed: do not trust it with anything that matters.
         </p>
     </section>
 
@@ -155,16 +148,6 @@ const repos = [
     .hero {
         padding-top: 4rem;
         padding-bottom: 2rem;
-    }
-    .status {
-        display: inline-block;
-        margin: 0;
-        padding: 0.2rem 0.7rem;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 0.85rem;
-        font-weight: 600;
     }
     h1 {
         font-size: clamp(2.6rem, 8vw, 4rem);
