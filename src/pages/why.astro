@@ -1,0 +1,217 @@
+---
+import Base from "../layouts/Base.astro";
+
+const org = "https://github.com/ternmesh";
+const spec = `${org}/spec/blob/main`;
+const sim = `${org}/sim`;
+
+// draft/forwarding.md in ternmesh/spec, its Rationale: messages that arrived within a minute, and
+// how many did for each second on the air, all nodes together, over three seeds.
+const rows = [
+    { name: "Meshtastic", fast: ["19.0%", "0.013"], own: ["1.1%", "0.001"] },
+    { name: "MeshCore", fast: ["30.3%", "0.026"], own: ["5.7%", "0.004"] },
+    { name: "Tern, 255 neighbours kept", fast: ["96.6%", "0.47"], own: ["22.0%", "0.019"] },
+    { name: "Tern, 64 neighbours kept", fast: ["95.2%", "0.34"], own: ["20.2%", "0.017"] },
+];
+---
+
+<Base
+    title="Why Tern"
+    description="What Tern does differently from the LoRa meshes there are, and what the simulator measured of it, with how to run it again."
+>
+    <section class="why wrap">
+        <h1>Why Tern</h1>
+        <p class="lede">
+            A LoRa channel is slow and shared: every second one node spends sending is a second nobody near it can.
+            Tern is designed around that, and judged by one number: how many messages arrive in time for each
+            second spent on the air.
+        </p>
+        <p>
+            Meshtastic and MeshCore are working networks, with many users and a hundred boards or so between them.
+            Tern runs on one board today and is an alpha of a draft protocol, whose cryptography has not been
+            reviewed. This page says what it does differently, and what that was measured to be worth.
+        </p>
+
+        <h2 id="measured">What was measured</h2>
+        <p>
+            Tern's firmware's routing, run in the <a href={sim}>simulator</a> beside Meshtastic's and MeshCore's as
+            the simulator ports them: 1000 nodes of which 200 relay, a message from each node every half hour to
+            another at random, and a minute to arrive in. For each, the share of messages that arrived in time,
+            and how many did for each second on the air, all nodes together, over three seeds:
+        </p>
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col"></th>
+                        <th scope="col">All on SF7, 125 kHz</th>
+                        <th scope="col">Each on its own preset</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {
+                        rows.map((r) => (
+                            <tr>
+                                <th scope="row">{r.name}</th>
+                                <td>
+                                    {r.fast[0]}, {r.fast[1]}
+                                </td>
+                                <td>
+                                    {r.own[0]}, {r.own[1]}
+                                </td>
+                            </tr>
+                        ))
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p>
+            In a town of 200 nodes at SF9, every node a relay, Tern delivered 100.0% in time with 255 neighbours
+            kept and 99.9% with 64, and Meshtastic 21.0%.
+        </p>
+        <p>
+            "All on SF7" puts every protocol on one fast radio setting, so that only the routing and how each one
+            takes its turn on the air differ. "Its own preset" puts each on the one it ships with: Meshtastic on
+            LongFast, MeshCore on the UK/EU narrow preset, and Tern on the same as MeshCore. The 200 relays are
+            Meshtastic's routers, MeshCore's repeaters and Tern's relays, the rest clients.
+        </p>
+
+        <h3>What these numbers are not</h3>
+        <ul>
+            <li>
+                <strong>They are from a simulator, not a deployment.</strong> Its radio model is calibrated on bench
+                measurements of SX1262 radios, but its capture and isolation figures are from the literature, not a
+                bench. Every number is provisional.
+            </li>
+            <li>
+                <strong>The incumbents are the simulator's ports of them.</strong> Meshtastic's managed flood and its
+                timing are written from Meshtasticator's port of the firmware, and reproduce Meshtasticator's results
+                on its own maps. MeshCore's routing is ported from MeshCore 1.17.1 and checked against MeshBench running
+                MeshCore itself. A port can be wrong; the code is open for anyone to check.
+            </li>
+            <li>
+                <strong>Only messages to one node were sent.</strong> There is no broadcast in these runs, since
+                Tern's specification has none yet, and Meshtastic and MeshCore are built around it.
+            </li>
+        </ul>
+        <p>
+            The runs are in <a href={`${spec}/draft/forwarding.md#rationale`}>the draft that came of them</a>, with
+            the rest of what was measured. To run them again, build the simulator beside a checkout of
+            <a href={`${org}/firmware`}>ternmesh/firmware</a>, as its <a href={`${sim}#building`}>README</a> says,
+            then:
+        </p>
+        <pre><code>tools/density.py --tsim build/tsim --fast --candidates 1,2,core
+tools/density.py --tsim build/tsim --deployed --candidates 1,2,core</code></pre>
+
+        <h2 id="design">What it does differently</h2>
+        <h3>Addresses are public keys</h3>
+        <p>
+            A node's address is its Ed25519 public key. Adding someone is adding their key, from their node's QR
+            code or link, and both of you can compare its twelve-digit short code to check it. Who you are writing to is
+            something you can check, not something you are told.
+        </p>
+
+        <h3>No public channel</h3>
+        <p>
+            A <a href={`${spec}/draft/groups.md`}>group</a> is the people who were invited to it. A channel every
+            node holds the key to is the one thing in a mesh whose cost nobody bounds: it grows with how much people
+            say. Messages between two people go over a session between their nodes, which costs only the two of them.
+        </p>
+        <p>
+            Meeting people nearby without one is drafted as <a href={`${spec}/draft/cards.md`}>presence cards</a>: a
+            signed card with an address and a name, which a node sends only if its user turns it on, two hops and
+            every two hours. It is a strawman, open for review, and not in the apps yet.
+        </p>
+
+        <h3>Airtime is budgeted</h3>
+        <p>
+            A route is measured in time on air, and a frame meant for every node is held to an
+            <a href={`${spec}/draft/flooding.md#the-allowance`}>allowance</a> at each relay, which bounds what any one sender
+            costs. A busy channel is meant to degrade fairly instead of collapsing. The rest of the
+            <a href="/#ideas">design goals</a> are on the front page.
+        </p>
+
+        <h3>Open, and nobody's to sell</h3>
+        <ul>
+            <li>The specification is CC-BY-4.0, the test vectors CC0, the code Apache-2.0.</li>
+            <li>Contributions are signed off under the DCO. There is no CLA.</li>
+            <li>The specification will never need a fee, membership or certification to implement.</li>
+            <li>
+                An implementation is Tern-compatible if it passes the published conformance tests; nobody's
+                permission is needed.
+            </li>
+            <li>
+                How the project is run, and who decides what, is in
+                <a href={`${spec}/GOVERNANCE.md`}>GOVERNANCE.md</a>.
+            </li>
+        </ul>
+
+        <p class="next">
+            <a class="button" href="/#start">Get started</a>
+        </p>
+    </section>
+</Base>
+
+<style>
+    .why {
+        padding-top: 32px;
+        padding-bottom: 48px;
+        max-width: 46rem;
+    }
+    h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 0 0 12px;
+    }
+    h2 {
+        margin-top: 2.5rem;
+    }
+    h3 {
+        margin: 1.75rem 0 0.25rem;
+        font-size: 1.1rem;
+    }
+    .lede {
+        font-size: 1.1rem;
+    }
+    .table {
+        overflow-x: auto;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        font-variant-numeric: tabular-nums;
+    }
+    th,
+    td {
+        text-align: left;
+        padding: 8px 12px 8px 0;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+    }
+    thead th {
+        font-size: 0.9rem;
+        color: var(--muted);
+    }
+    tbody th {
+        font-weight: 600;
+    }
+    pre {
+        overflow-x: auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+    }
+    .next {
+        margin-top: 2.5rem;
+    }
+    a.button {
+        display: inline-block;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        text-decoration: none;
+    }
+</style>
