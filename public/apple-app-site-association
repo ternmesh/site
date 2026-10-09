@@ -1,0 +1,13 @@
+{
+    "applinks": {
+        "details": [
+            {
+                "appIDs": ["75ULBHU3YJ.org.ternmesh.tern"],
+                "components": [
+                    { "/": "/a/*", "comment": "A node's link, draft/sharing.md in ternmesh/spec" },
+                    { "/": "/A/*", "comment": "The same, upper-case as a QR code holds it" }
+                ]
+            }
+        ]
+    }
+}

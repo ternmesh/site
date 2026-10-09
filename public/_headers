@@ -1,0 +1,6 @@
+# Apple fetches apple-app-site-association, at either path, and wants it as JSON. The file has no
+# extension, so without these it would be served as application/octet-stream.
+/apple-app-site-association
+  Content-Type: application/json
+/.well-known/apple-app-site-association
+  Content-Type: application/json
