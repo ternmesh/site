@@ -34,6 +34,7 @@ const org = "https://github.com/ternmesh";
         <meta property="og:type" content="website" />
     </head>
     <body>
+        <a class="skip" href="#main">Skip to the content</a>
         <header class="site-header">
             <nav class="wrap">
                 <a class="brand" href="/">
@@ -49,7 +50,7 @@ const org = "https://github.com/ternmesh";
                 </div>
             </nav>
         </header>
-        <main>
+        <main id="main" tabindex="-1">
             <slot />
         </main>
         <footer class="site-footer">
@@ -93,6 +94,22 @@ const org = "https://github.com/ternmesh";
     }
     .links a:hover {
         color: var(--text);
+    }
+    .skip {
+        position: absolute;
+        left: 16px;
+        top: -100px;
+        z-index: 10;
+        padding: 8px 12px;
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+    .skip:focus {
+        top: 8px;
+    }
+    main:focus {
+        outline: none;
     }
     .site-footer {
         margin-top: 4rem;
