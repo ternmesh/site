@@ -1,0 +1,60 @@
+---
+import Base from "../layouts/Base.astro";
+
+const org = "https://github.com/ternmesh";
+---
+
+<Base title="Privacy" description="What the Tern app for iPhone, iPad and Mac and this site learn about you: nothing they keep.">
+    <section class="wrap" style="padding-top: 4rem; max-width: 44rem">
+        <h1>Privacy</h1>
+        <p class="muted">Last changed 9 October 2026.</p>
+        <p>
+            This covers Tern Mesh, the Tern app for iPhone, iPad and Mac, and this site. The project
+            collects nothing about the people who use them: there is no account, no analytics and no
+            advertising. What does leave your device for the internet is a request to this site,
+            when you visit it or when the app looks for firmware. Cloudflare, which serves the site,
+            sees that request, as any host does. Both are set out below.
+        </p>
+
+        <h2>The app</h2>
+        <ul>
+            <li>
+                <strong>Your messages, contacts and groups</strong> are held by your node and kept on
+                your device, so that the app can show them. They go between nodes by radio. They
+                do not pass through, and are not stored on, any server of the project's.
+            </li>
+            <li>
+                <strong>Bluetooth</strong> is how the app talks to your node, and is used for nothing
+                else.
+            </li>
+            <li>
+                <strong>The camera</strong>, on iPhone and iPad, reads the QR code of a contact you
+                are adding. The app keeps no picture and sends none anywhere.
+            </li>
+            <li>
+                <strong>The internet</strong> is used for one thing: when you look for an update to
+                your node's firmware, the app fetches the list of releases, and then the firmware,
+                from this site. Those requests carry what any request to a website does: the
+                address they come from and the file asked for, which for the firmware is the one
+                for your node's board and region. They carry nothing else about you or your node.
+            </li>
+        </ul>
+        <p>Removing the app removes everything it kept on the device.</p>
+
+        <h2>This site</h2>
+        <p>
+            The site is static files, with no cookies and no analytics of its own. What the
+            <a href="/app">web app</a> remembers, it keeps in your browser. The site is served by
+            Cloudflare, which, like any host, sees the address a request comes from and what was asked
+            for, and handles that under
+            <a href="https://www.cloudflare.com/privacypolicy/">its own privacy policy</a>.
+        </p>
+
+        <h2>Changes and questions</h2>
+        <p>
+            If this changes, the new text and its date will be here, and the change will be in the
+            <a href={`${org}/site`}>site's history</a>. Questions go to the project's
+            <a href={`${org}/apple/issues`}>issue tracker</a>.
+        </p>
+    </section>
+</Base>
