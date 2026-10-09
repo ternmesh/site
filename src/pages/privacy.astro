@@ -11,8 +11,9 @@ const org = "https://github.com/ternmesh";
         <p>
             This covers Tern Mesh, the Tern app for iPhone, iPad and Mac, and this site. The project
             collects nothing about the people who use them: there is no account, no analytics and no
-            advertising, and neither the app nor the site sends what you do to the project or to
-            anyone else.
+            advertising. What does leave your device for the internet is a request to this site,
+            when you visit it or when the app looks for firmware. Cloudflare, which serves the site,
+            sees that request, as any host does. Both are set out below.
         </p>
 
         <h2>The app</h2>
@@ -33,8 +34,9 @@ const org = "https://github.com/ternmesh";
             <li>
                 <strong>The internet</strong> is used for one thing: when you look for an update to
                 your node's firmware, the app fetches the list of releases, and then the firmware,
-                from this site. That request says nothing about you or your node beyond what any
-                request to a website does.
+                from this site. Those requests carry what any request to a website does: the
+                address they come from and the file asked for, which for the firmware is the one
+                for your node's board and region. They carry nothing else about you or your node.
             </li>
         </ul>
         <p>Removing the app removes everything it kept on the device.</p>
