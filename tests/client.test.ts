@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { routingId } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
-import { STATE, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import { STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
@@ -28,7 +28,7 @@ async function bringUp(wire: Wire, c: Client, news: [string, Fields][] = [], ver
     const up = c.start();
     const hello = decode(await wire.next())!;
     assert.equal(hello.type, "HELLO");
-    assert.equal(hello.fields.version, 6);
+    assert.equal(hello.fields.version, VERSION);
     const info: Fields = version >= 4 ? { board: "heltec-v3", release: "0.3.0" } : {};
     wire.say("INFO", hello.seq, { version, firmware: "test", ...info });
     wire.say("OK", decode(await wire.next())!.seq);
@@ -63,7 +63,7 @@ for (const framed of [false, true]) {
         await expect(); // SET_TIME
         await expect(); // SYNC
         await up;
-        assert.equal(c.version, 6);
+        assert.equal(c.version, VERSION);
         assert.deepEqual([c.firmware, c.board, c.release], ["tern 0.2.0 heltec-v3", "heltec-v3", "0.2.0"]);
         assert.equal(c.self?.region, "EU868");
         assert.deepEqual([c.self?.cards, c.self?.cardName], [false, ""]);
@@ -189,6 +189,21 @@ for (const framed of [false, true]) {
         await off;
         assert.equal(c.self?.cards, false);
         assert.equal(c.cards.has(DAVE), false);
+
+        // The group joined from an invite, handed on as a join code, and a code joined from: the
+        // node reads it, and the group is news. A code typed wrong is refused.
+        const link = c.groupLink(asked.group);
+        await expect();
+        const code = await link;
+        assert.equal(code, "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYRS2WUTJMRTWKIDXMFWGWZLSOM");
+        const given = steps[at]!;
+        const fromCode = c.joinLink(String(decode(unhex(given.frame)!)!.fields.link));
+        await expect();
+        const hutToo = await fromCode;
+        assert.equal(c.groups.get(hutToo)?.name, "Hut");
+        const typo = c.joinLink(String(decode(unhex(steps[at]!.frame)!)!.fields.link));
+        await expect();
+        await assert.rejects(typo, (e: unknown) => e instanceof Refused && e.code === 3);
         assert.equal(at, steps.length);
         await c.close();
     });

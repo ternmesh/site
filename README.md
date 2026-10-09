@@ -23,9 +23,10 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the page a node's
-link opens, privacy, and the 404, in `src/layouts/Base.astro`. `@astrojs/sitemap` writes
-`sitemap-index.xml`, which `robots.txt` names, of every page but the node's and the 404.
+`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the pages a node's
+link and a group's join code open, privacy, and the 404, in `src/layouts/Base.astro`.
+`@astrojs/sitemap` writes `sitemap-index.xml`, which `robots.txt` names, of every page but those
+two and the 404.
 When the specification has a first draft, it will be rendered here from
 `ternmesh/spec` at build time rather than copied into this repository, so
 there is only ever one text of the protocol.
@@ -39,13 +40,14 @@ Serial, which Chrome and Edge on a computer have, and over Web Bluetooth, which 
 computer and on an Android phone. Nothing is sent anywhere but to the board, and nothing runs on
 a server.
 
-It speaks version 6 of the protocol, as the phone apps do, and any earlier version a node speaks:
+It speaks version 7 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
 * **Groups:** making one, inviting a contact to it over their session, joining one from an
-  invite, and writing to it. A group's secret never reaches the page: the node draws it and keeps
-  it, and the page knows a group by an id.
+  invite or a join code, showing a group's join code, and writing to it. The node draws a group's
+  secret and keeps it, and the page knows a group by an id. The secret reaches the page only in a
+  join code the user asked to see or joins from, which the page passes through and does not keep.
 * **Who is about:** the presence cards the node holds, each name in quotes as its sender's claim,
   beside the address's short code; Add puts the address and the name in the add form, for the user
   to keep or change. The node's own card is turned on and named only under **Your presence card**,
@@ -192,6 +194,35 @@ file with no extension would not be.
 `tests/vectors/sharing.json` is a copy of the specification's
 [`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of
 [ternmesh/spec#21](https://github.com/ternmesh/spec/pull/21), and `npm test` holds `share.ts` to it.
+
+## A group's join code
+
+A group's join code hands the group over off the air
+([draft/groups.md](https://github.com/ternmesh/spec/blob/main/draft/groups.md#join-codes)): a link,
+`HTTPS://TERNMESH.ORG/G#` and the group's secret, a check and its name in base32, which a node
+makes (`GROUP_LINK`) and takes a group from (`JOIN_LINK`, companion protocol version 7). Here the
+code is after the `#`, which a browser sends to no site, so `public/_redirects` serves `/G` and
+`/g` with the one page, `src/pages/group.astro`, whose `src/lib/group/page.ts` reads the code in
+the browser, shows the group's name and what a code is, and hands it to the app after a `#` again
+(`/app#join=<link>`). The app puts it in its "Join from a code" box and takes it out of the address
+bar; the node joins only when the user presses Join and says yes to the group's name.
+
+In the app, a group's page has a "Join code" button for a node of version 7: after a warning, the
+node's link and a QR code of it, which the page holds only while it is shown. Neither phone app
+claims `/G` yet, so neither file of app links names it.
+
+| | |
+|---|---|
+| `src/lib/companion/share.ts` | `readJoinCode()`: the group's id and name from a code, every spelling the specification allows, and nothing else. |
+| `src/lib/qr.ts` | QR codes, versions 1 to 5 at level L, from ISO/IEC 18004, with a join code's link in three segments so the `#` costs one byte. |
+
+`tests/vectors/groups.json` is a copy of the specification's
+[`vectors/groups.json`](https://github.com/ternmesh/spec/blob/main/vectors/groups.json), as of
+[ternmesh/spec#32](https://github.com/ternmesh/spec/pull/32), and `npm test` holds `readJoinCode()`
+to its join codes. `tests/vectors/qr.json` holds codes made with
+[segno](https://github.com/heuer/segno) 1.6.6, its padding corrected (on a stream that already
+ends on a byte it adds a zero byte the standard does not), and `npm test` holds `qr.ts` to them
+module for module.
 
 ## Deploying
 

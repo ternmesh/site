@@ -29,13 +29,14 @@ export function base32(bytes: Uint8Array): string {
     return out;
 }
 
-/** The 32 bytes of canonical base32, either case, or null: wrong length, a character outside the
- * alphabet, or a spare bit set, which would give one address two links. */
-function unbase32(text: string): Uint8Array | null {
-    if (text.length !== BASE32_LEN) {
-        return null;
+/** The bytes of canonical base32 of any length, either case, or null: a character outside the
+ * alphabet, a length no number of bytes has, or a spare bit set, which would give the same bytes
+ * two spellings. */
+function unbase32Any(text: string): Uint8Array | null {
+    if ((text.length * 5) % 8 >= 5) {
+        return null; // a last character that would carry no bit of any byte
     }
-    const out = new Uint8Array(ADDRESS_LEN);
+    const out = new Uint8Array(Math.floor((text.length * 5) / 8));
     let n = 0;
     let bits = 0;
     let k = 0;
@@ -52,6 +53,11 @@ function unbase32(text: string): Uint8Array | null {
         }
     }
     return (n & ((1 << bits) - 1)) === 0 ? out : null;
+}
+
+/** The 32 bytes of an address's canonical base32, either case, or null. */
+function unbase32(text: string): Uint8Array | null {
+    return text.length === BASE32_LEN ? unbase32Any(text) : null;
 }
 
 function hex(bytes: Uint8Array): string {
@@ -111,4 +117,72 @@ export async function shortCode(address: string): Promise<string> {
 export function shortCodeText(value: bigint): string {
     const d = value.toString().padStart(12, "0");
     return `${d.slice(0, 4)} ${d.slice(4, 8)} ${d.slice(8)}`;
+}
+
+// --- Join codes: a group handed over off the air (draft/groups.md in ternmesh/spec) -------------
+
+/** A join code's link starts so: the code follows the `#`, which a browser never sends. */
+export const JOIN_LINK = "HTTPS://TERNMESH.ORG/G#";
+const SECRET_LEN = 16;
+const CODE_MIN = SECRET_LEN + 2;
+const CODE_MAX = CODE_MIN + 31;
+
+export interface JoinCode {
+    /** The group's id, as the node and this client know it: 16 hex digits. */
+    group: string;
+    /** What whoever made the code calls the group: a suggestion. */
+    name: string;
+}
+
+async function joinCheck(secret: Uint8Array, name: Uint8Array): Promise<Uint8Array> {
+    const label = new TextEncoder().encode("tern group code");
+    const input = new Uint8Array(label.length + secret.length + name.length);
+    input.set(label);
+    input.set(secret, label.length);
+    input.set(name, label.length + secret.length);
+    return new Uint8Array(await crypto.subtle.digest("SHA-256", input)).subarray(0, 2);
+}
+
+/** A group's id from its secret: Expand(G, "tern v0 group id", 8), HKDF-Expand with SHA-256. */
+async function groupId(secret: Uint8Array): Promise<string> {
+    const key = await crypto.subtle.importKey("raw", secret as Uint8Array<ArrayBuffer>, { name: "HMAC", hash: "SHA-256" }, false, [
+        "sign",
+    ]);
+    const info = new TextEncoder().encode("tern v0 group id");
+    const t = new Uint8Array(info.length + 1);
+    t.set(info);
+    t[info.length] = 1;
+    return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, t)).subarray(0, 8));
+}
+
+/**
+ * The group a join code is for, and its name, or null: its scheme, host and `G` each in either
+ * case, and its base32 in either case, and nothing else, a check that fails or a name that is not
+ * UTF-8 included. The secret itself is not returned: a page shows the name and hands the node the
+ * link, which is what the node reads, and keeps neither.
+ */
+export async function readJoinCode(text: string): Promise<JoinCode | null> {
+    // ASCII only, as for an address's link.
+    if (!/^[\x00-\x7f]*$/.test(text) || text.slice(0, JOIN_LINK.length).toUpperCase() !== JOIN_LINK) {
+        return null;
+    }
+    const code = unbase32Any(text.slice(JOIN_LINK.length));
+    if (!code || code.length < CODE_MIN || code.length > CODE_MAX) {
+        return null;
+    }
+    const secret = code.subarray(0, SECRET_LEN);
+    const raw = code.subarray(CODE_MIN);
+    const check = await joinCheck(secret, raw);
+    if (check[0] !== code[SECRET_LEN] || check[1] !== code[SECRET_LEN + 1]) {
+        return null;
+    }
+    let name: string;
+    try {
+        name = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+    } catch {
+        return null;
+    }
+    const group = await groupId(secret);
+    code.fill(0);
+    return { group, name };
 }

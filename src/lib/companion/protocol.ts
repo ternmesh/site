@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 6 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 7 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 6;
+export const VERSION = 7;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
@@ -15,6 +15,8 @@ export const DIGEST_LEN = 32;
 export const TEXT_MAX = 128;
 export const NAME_MAX = 31;
 export const UPDATE_CHUNK = 172;
+/** The longest a join code's link is (draft/groups.md). */
+export const LINK_MAX = 102;
 
 type Kind = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "addr" | "gid" | "digest" | "str" | "bytes";
 /** How many bytes a field of fixed bytes is: an address, a group's id or a digest. */
@@ -38,7 +40,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 6, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 7, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -58,6 +60,8 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x23: ["SEND_GROUP", [["ref", "u32"], ["group", "gid"], ["text", "str", TEXT_MAX]], 2],
     0x24: ["SEND_INVITE", [["group", "gid"], ["to", "addr"]], 2],
     0x25: ["JOIN", [["id", "u32"]], 2],
+    0x26: ["GROUP_LINK", [["group", "gid"]], 7],
+    0x27: ["JOIN_LINK", [["link", "str", LINK_MAX]], 7],
     0x30: ["UPDATE_BEGIN", [["size", "u32"], ["digest", "digest"]], 4],
     0x31: ["UPDATE_DATA", [["offset", "u32"], ["data", "bytes", UPDATE_CHUNK]], 4],
     0x32: ["UPDATE_END", [], 4],
@@ -84,6 +88,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x44: ["QUEUED", [["id", "u32"]], 0],
     0x45: ["MADE", [["group", "gid"]], 2],
     0x46: ["UPDATING", [["offset", "u32"]], 4],
+    0x47: ["LINK", [["link", "str", LINK_MAX]], 7],
     0x80: [
         "SELF",
         [

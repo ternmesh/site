@@ -1,0 +1,129 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+    title="A Tern group"
+    description="Someone shared a Tern group with you: a join code, which a node takes the group from."
+    noindex
+>
+    <section class="group wrap">
+        <div id="found" hidden>
+            <p class="label">A group's join code</p>
+            <h1 id="name"></h1>
+            <p id="unnamed" class="muted" hidden>Whoever made this code gave the group no name.</p>
+            <p class="lede">
+                Someone shared a Tern group with you. Join it from a node, and you read what its members send
+                to it, and can write to it.
+            </p>
+
+            <div class="card warn">
+                <p>
+                    <strong>This code is the group.</strong> Anyone who has it can join and read everything said in
+                    the group, before and after, and it cannot be taken back. Pass it on only to those the group is
+                    for.
+                </p>
+            </div>
+
+            <p class="actions">
+                <a id="join" class="button" href="/app">Join in the app in your browser</a>
+                <button id="copy" type="button" class="secondary">Copy the link</button>
+            </p>
+            <p id="copied" class="muted small" role="status"></p>
+
+            <p class="muted small">
+                The <a href="/app">app in your browser</a> joins from it with a node connected over USB or
+                Bluetooth: it asks you first, and the node takes the group. Nothing
+                goes on the air: the group's members learn of you only when you write.
+            </p>
+        </div>
+
+        <div id="missing" hidden>
+            <h1>No group here</h1>
+            <p class="lede">
+                This link does not hold a join code. A join code is the whole link, after the <code>#</code>
+                included; check it was not cut short.
+            </p>
+        </div>
+
+        <noscript>
+            <p class="lede">This page reads the join code out of its link, which needs JavaScript.</p>
+        </noscript>
+
+        <p class="muted small privacy">
+            The code is the part of the link after the <code>#</code>, which a browser never sends to a site. This
+            page reads it in your browser and sends it nowhere, so this site learns that a join code was opened, and
+            not which group's. It keeps no logs.
+        </p>
+    </section>
+</Base>
+
+<script>
+    import "../lib/group/page.ts";
+</script>
+
+<style>
+    .group {
+        padding-top: 32px;
+        padding-bottom: 48px;
+        max-width: 40rem;
+    }
+    [hidden] {
+        display: none !important;
+    }
+    h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 4px 0 12px;
+        overflow-wrap: anywhere;
+    }
+    .lede {
+        font-size: 1.1rem;
+    }
+    .label {
+        margin: 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+    }
+    .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        margin: 16px 0;
+    }
+    .card p {
+        margin: 0;
+    }
+    .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+    }
+    .small {
+        font-size: 0.9rem;
+    }
+    .privacy {
+        margin-top: 28px;
+    }
+    button,
+    a.button {
+        display: inline-block;
+        font: inherit;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+    }
+    button.secondary {
+        background: transparent;
+        color: var(--accent);
+    }
+</style>

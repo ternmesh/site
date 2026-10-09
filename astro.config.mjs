@@ -6,7 +6,7 @@ import { defineConfig } from "astro/config";
 // No adapter, because nothing here renders on request.
 export default defineConfig({
     site: "https://ternmesh.org",
-    // sitemap-index.xml, for search engines. The page a node's link opens is kept out of them, as
-    // its noindex says, and so is the 404.
-    integrations: [sitemap({ filter: (page) => !/\/(node|404)\/?$/.test(new URL(page).pathname) })],
+    // sitemap-index.xml, for search engines. The pages a node's link and a join code open are kept
+    // out of them, as their noindex says, and so is the 404.
+    integrations: [sitemap({ filter: (page) => !/\/(node|group|404)\/?$/.test(new URL(page).pathname) })],
 });
