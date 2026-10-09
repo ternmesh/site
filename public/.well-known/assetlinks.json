@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "org.ternmesh.app",
+      "sha256_cert_fingerprints": [
+        "98:7A:7B:87:A6:8C:9E:0F:E0:B3:E5:E4:4F:4B:7E:7D:B6:3E:D4:19:7E:31:DC:6A:AC:B7:2B:F7:CA:86:F5:A7"
+      ]
+    }
+  }
+]
