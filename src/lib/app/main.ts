@@ -689,22 +689,35 @@ function shareControls(key: string): Node[] {
 
 function shareForm(key: string, now: Sharing | null): HTMLFormElement {
     const group = isGroup(key);
+    // The five, and the precision shared now if another client chose another, so that it stays
+    // chosen: an empty choice would be read as 0, which turns sharing off.
     const precision = el("select", { id: "share-precision" });
-    for (const [p, word, size] of PRECISIONS) {
-        precision.append(el("option", { value: String(p) }, `${word} (${size})`));
+    const precisions = PRECISIONS.map(([p, word, size]): [number, string] => [p, `${word} (${size})`]);
+    if (now && !precisions.some(([p]) => p === now.precision)) {
+        precisions.push([now.precision, `Within ${cellSize(now.precision)}`]);
+        precisions.sort((a, b) => a[0] - b[0]);
+    }
+    for (const [p, words] of precisions) {
+        precision.append(el("option", { value: String(p) }, words));
     }
     precision.value = String(now?.precision ?? 16);
     // At least POSITION_MIN for a contact and POSITION_GROUP_MIN for a group.
+    // The interval shared now stays a choice too, however another client set it.
     const interval = el("select", { id: "share-interval" });
-    for (const [secs, words] of [
-        [60, "1 min"],
-        [300, "5 min"],
-        [900, "15 min"],
-        [3600, "1 h"],
-    ] as const) {
-        if (!group || secs >= 300) {
-            interval.append(el("option", { value: String(secs) }, words));
-        }
+    const intervals: [number, string][] = (
+        [
+            [60, "1 min"],
+            [300, "5 min"],
+            [900, "15 min"],
+            [3600, "1 h"],
+        ] as [number, string][]
+    ).filter(([secs]) => !group || secs >= 300);
+    if (now && !intervals.some(([secs]) => secs === now.interval)) {
+        intervals.push([now.interval, now.interval < 120 ? `${now.interval} s` : `${Math.round(now.interval / 60)} min`]);
+        intervals.sort((a, b) => a[0] - b[0]);
+    }
+    for (const [secs, words] of intervals) {
+        interval.append(el("option", { value: String(secs) }, words));
     }
     interval.value = String(now?.interval ?? (group ? 900 : 300));
     const minutes = el("select", { id: "share-minutes" });
