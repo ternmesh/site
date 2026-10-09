@@ -5,10 +5,14 @@
 // every string goes in as a text node.
 
 import { Client, Refused } from "../companion/client.ts";
-import type { Message, Transport } from "../companion/client.ts";
+import type { Message, Position, Sharing, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
 import { ASKED, NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { fetchImage, offerFor } from "../companion/release.ts";
+import { shortCode } from "../companion/share.ts";
+import { Updater } from "../companion/updater.ts";
+import type { ManifestImage } from "../flash/images.ts";
 import { bluetoothSupported, openBluetooth } from "../companion/bluetooth.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
@@ -193,19 +197,34 @@ function drawNode(): void {
         el("h2", {}, demo ? "A demo node" : "This node"),
         el("p", { class: "address" }, el("code", {}, address), copy),
         el("p", { class: "muted facts" }, facts.join(" · ")),
-        el("p", { class: "muted facts" }, c.firmware),
+        el("p", { class: "muted facts" }, [c.firmware, c.board].filter((x) => x !== "").join(" · ")),
     );
-    if (c.version < 1) {
+    // What the firmware's version leaves out, newest first, so the list says what an update brings.
+    const missing = [
+        [6, "show who is about"],
+        [5, "share positions"],
+        [4, "be updated from here"],
+        [2, "make or join groups"],
+        [1, "end a session, or say who asked to reach it"],
+    ]
+        .filter(([v]) => c.version < Number(v))
+        .map(([, what]) => String(what));
+    if (missing.length > 0) {
         box.append(
             el(
                 "p",
                 { class: "muted facts" },
-                "This firmware is older than the page: it cannot end a session from here, or say who asked to reach it. ",
-                el("a", { href: "/flash" }, "Update it"),
+                `This firmware is older than the page, and cannot ${listed(missing)}. `,
+                el("a", { href: "/flash" }, "Update it over USB"),
                 ".",
             ),
         );
     }
+}
+
+/** "a, b and c". */
+function listed(items: string[]): string {
+    return items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 /** What the settings form was last filled from: it is filled again only when the node's change. */
@@ -240,7 +259,15 @@ function drawAsked(): void {
         const known = client?.contacts.has(address) ?? false;
         const dismiss = el("button", { type: "button", class: "small" }, "Dismiss");
         dismiss.addEventListener("click", () => client?.forgetAsked(address));
-        const who = el("code", {}, known ? nameOf(address) : address);
+        const card = client?.cards.get(address);
+        // The address in an ASKED is proved, and a card from it is signed by it: its name can be
+        // shown, as what it says of itself.
+        const who = el(
+            "span",
+            {},
+            el("code", {}, known ? nameOf(address) : address),
+            !known && card && card.name !== "" ? ` (its card says “${card.name}”)` : "",
+        );
         if (why === ASKED.notContact && !known) {
             const letIn = el("button", { type: "button", class: "small" }, "Let it in");
             letIn.addEventListener("click", () => {
@@ -374,6 +401,526 @@ function drawNeighbours(): void {
             ),
         );
     }
+}
+
+/** Short codes worked out so far, by address: what two people compare to know it is the same node. */
+const codes = new Map<string, string>();
+function codeOf(address: string): string {
+    const known = codes.get(address);
+    if (known !== undefined) {
+        return known;
+    }
+    codes.set(address, "");
+    shortCode(address).then(
+        (code) => {
+            codes.set(address, code);
+            draw();
+        },
+        () => {},
+    );
+    return "";
+}
+
+function ago(at: number): string {
+    const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+    if (s < 90) {
+        return `${s} s ago`;
+    }
+    if (s < 90 * 60) {
+        return `${Math.round(s / 60)} min ago`;
+    }
+    if (s < 36 * 3600) {
+        return `${Math.round(s / 3600)} h ago`;
+    }
+    return `${Math.round(s / 86400)} days ago`;
+}
+
+/** The five precisions the specification asks a client to offer, by what each covers. */
+const PRECISIONS: [precision: number, word: string, size: string][] = [
+    [8, "Region", "about 150 km"],
+    [12, "Town", "about 10 km"],
+    [16, "Neighbourhood", "about 600 m"],
+    [20, "Street", "about 40 m"],
+    [24, "Exact", "a few metres"],
+];
+
+/** How far a cell of `precision` is, north to south. */
+function cellSize(precision: number): string {
+    const named = PRECISIONS.find(([p]) => p === precision);
+    if (named) {
+        return named[2];
+    }
+    const metres = (360 / 2 ** precision) * 111_000;
+    return metres >= 1000 ? `about ${Math.round(metres / 1000)} km` : metres >= 10 ? `about ${Math.round(metres)} m` : "a few metres";
+}
+
+function sharingText(s: Sharing): string {
+    const word = PRECISIONS.find(([p]) => p === s.precision)?.[1] ?? `within ${cellSize(s.precision)}`;
+    if (s.endsAt === 0) {
+        return `${word}, until you stop`;
+    }
+    const left = Math.max(1, Math.ceil((s.endsAt - Date.now()) / 60000));
+    return `${word}, ${left < 120 ? `${left} min` : `${Math.round(left / 60)} h`} left`;
+}
+
+/** A link that opens a position on OpenStreetMap, zoomed to about its cell. Opened only if clicked. */
+function mapLink(p: Position): HTMLAnchorElement {
+    const zoom = Math.max(3, Math.min(18, p.precision - 2));
+    const lat = p.lat.toFixed(6);
+    const lon = p.lon.toFixed(6);
+    return el(
+        "a",
+        {
+            href: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${zoom}/${lat}/${lon}`,
+            target: "_blank",
+            rel: "noopener noreferrer",
+        },
+        "Map",
+    );
+}
+
+/** Who a position is from: a contact, or a member of a group by the routing id it claimed. */
+function positionFrom(p: Position): string {
+    return p.group === "" ? nameOf(p.contact) : `${writer(p.from)} in ${nameOf(p.group)}`;
+}
+
+function drawPlaces(): void {
+    const c = client!;
+    const able = c.can("SHARE");
+    $("places-head").hidden = !able;
+    const list = $("places");
+    list.hidden = !able;
+    list.replaceChildren();
+    if (!able) {
+        return;
+    }
+    const all = [...c.positions.values()].sort((a, b) => b.fixedAt - a.fixedAt);
+    for (const p of all) {
+        const facts = [
+            `within ${cellSize(p.precision)}`,
+            p.altitude !== null ? `${p.altitude} m up` : null,
+            ago(p.fixedAt),
+        ].filter((x): x is string => x !== null);
+        list.append(
+            el(
+                "li",
+                {},
+                el("span", { class: "name" }, positionFrom(p)),
+                el("span", { class: "muted" }, ` ${facts.join(", ")} `),
+                mapLink(p),
+            ),
+        );
+    }
+    for (const [key, sharing] of c.sharing) {
+        list.append(
+            el(
+                "li",
+                {},
+                el("span", { class: "name" }, `You, to ${nameOf(key)}`),
+                el("span", { class: "muted" }, ` ${sharingText(sharing)}`),
+            ),
+        );
+    }
+    if (list.children.length === 0) {
+        list.append(
+            el("li", { class: "muted empty" }, "Nobody shares a position with this node, and it shares none. Share yours from a conversation."),
+        );
+    }
+}
+
+function drawAbout(): void {
+    const c = client!;
+    const able = c.can("SET", 5);
+    $("about-head").hidden = !able;
+    const list = $("about");
+    list.hidden = !able;
+    list.replaceChildren();
+    if (!able) {
+        return;
+    }
+    const all = [...c.cards.values()].sort((a, b) => b.heardAt - a.heardAt);
+    if (all.length === 0) {
+        list.append(el("li", { class: "muted empty" }, "No cards heard. Nearby nodes send one only if their user turns it on."));
+    }
+    for (const card of all) {
+        const contact = c.contacts.get(card.address);
+        const open = el("button", { type: "button", class: "small" }, contact ? "Open" : "Add");
+        open.addEventListener("click", () => {
+            if (contact) {
+                select(card.address);
+                return;
+            }
+            // Offered, never saved, until the user says so: a card's name is its sender's claim.
+            $<HTMLInputElement>("add-address").value = card.address;
+            $<HTMLInputElement>("add-name").value = clip(card.name, NAME_MAX);
+            $<HTMLInputElement>("add-name").focus();
+            say("Check the name, and the short code with them if you can, then Add.");
+        });
+        list.append(
+            el(
+                "li",
+                {},
+                el("span", { class: "name" }, card.name === "" ? "No name given" : `“${card.name}”`),
+                contact && el("span", { class: "muted" }, ` (${nameOf(card.address)})`),
+                el("br", {}),
+                el("span", { class: "muted" }, `${codeOf(card.address) || short(card.address)} · ${ago(card.heardAt)} `),
+                open,
+            ),
+        );
+    }
+}
+
+/** What the card form was last filled from: it is filled again only when the node's change. */
+let cardShown = "";
+
+function drawCard(): void {
+    const c = client!;
+    const able = c.can("SET", 5) && c.self?.cards !== null;
+    $("card-settings").hidden = !able;
+    if (!able || !c.self) {
+        return;
+    }
+    const key = `${c.self.cards}/${c.self.cardName}`;
+    if (key === cardShown) {
+        return;
+    }
+    cardShown = key;
+    $<HTMLInputElement>("card-on").checked = c.self.cards === true;
+    $<HTMLInputElement>("card-name").value = c.self.cardName ?? "";
+    $("card-state").textContent = c.self.cards
+        ? c.self.cardName
+            ? `On: nodes near this one are told its address and “${c.self.cardName}”.`
+            : "On: nodes near this one are told its address, with no name."
+        : "Off: this node tells nobody who it is.";
+}
+
+async function applyCard(c: Client): Promise<void> {
+    const on = $<HTMLInputElement>("card-on").checked;
+    const name = clip($<HTMLInputElement>("card-name").value.trim(), NAME_MAX);
+    if (!c.self) {
+        return;
+    }
+    if (on && !c.self.cards) {
+        const sure = window.confirm(
+            "Turn on this node's presence card? Every two hours or so it sends, in clear, two hops round: " +
+                `its address${name ? ` and the name “${name}”` : ""}. Anyone near can then see this node is about, and ask to reach it.`,
+        );
+        if (!sure) {
+            return;
+        }
+    }
+    try {
+        if (name !== c.self.cardName) {
+            await c.setCardName(name);
+        }
+        if (on !== c.self.cards) {
+            await c.setCards(on);
+        }
+        say(on ? "Your card is on." : "Your card is off.");
+    } catch (e) {
+        say(explain(e), true);
+    } finally {
+        cardShown = "";
+        draw();
+    }
+}
+
+// ----- Sharing the browser's position -----
+
+/** The geolocation watch while the node shares with anyone, and when the node was last told. */
+let watching: number | null = null;
+let toldAt = 0;
+/** The least time between positions given the node, in milliseconds. */
+const TELL_EVERY_MS = 15000;
+
+function feedPosition(): void {
+    const c = client;
+    const want = c !== null && !c.closed && c.ready && c.sharing.size > 0 && !demo && "geolocation" in navigator;
+    if (want && watching === null) {
+        watching = navigator.geolocation.watchPosition(
+            (fix) => {
+                const now = Date.now();
+                const live = client;
+                if (!live || live.closed || now - toldAt < TELL_EVERY_MS) {
+                    return;
+                }
+                toldAt = now;
+                const age = Math.max(0, Math.round((now - fix.timestamp) / 1000));
+                live
+                    .setPosition(fix.coords.latitude, fix.coords.longitude, fix.coords.altitude, fix.coords.accuracy, age)
+                    .catch(() => {
+                        toldAt = 0; // tried again with the next fix
+                    });
+            },
+            (e) => say(`The browser gave no position (${e.message}): the node has nothing to share.`, true),
+            { enableHighAccuracy: true, maximumAge: 10000 },
+        );
+    } else if (!want && watching !== null) {
+        navigator.geolocation.clearWatch(watching);
+        watching = null;
+        toldAt = 0;
+    }
+}
+
+/** The share form for a conversation, opened from its head. */
+let sharingWith: string | null = null;
+
+function shareControls(key: string): Node[] {
+    const c = client;
+    if (!c || !c.can("SHARE") || (isGroup(key) ? !c.groups.has(key) : !c.contacts.has(key))) {
+        return [];
+    }
+    const now = c.sharing.get(key);
+    const open = el("button", { type: "button", class: "small" }, now ? "Change sharing" : "Share my position");
+    open.addEventListener("click", () => {
+        sharingWith = sharingWith === key ? null : key;
+        draw();
+    });
+    const stop = now && el("button", { type: "button", class: "small" }, "Stop sharing");
+    if (stop) {
+        stop.addEventListener("click", () => act(() => c.share(key, 0)));
+    }
+    return [
+        now && el("p", { class: "muted" }, `This node shares your position here: ${sharingText(now)}.`),
+        el("p", { class: "actions" }, open, stop),
+        sharingWith === key && shareForm(key, now ?? null),
+    ].filter((n): n is HTMLParagraphElement | HTMLFormElement => n instanceof HTMLElement);
+}
+
+function shareForm(key: string, now: Sharing | null): HTMLFormElement {
+    const group = isGroup(key);
+    const precision = el("select", { id: "share-precision" });
+    for (const [p, word, size] of PRECISIONS) {
+        precision.append(el("option", { value: String(p) }, `${word} (${size})`));
+    }
+    precision.value = String(now?.precision ?? 16);
+    // At least POSITION_MIN for a contact and POSITION_GROUP_MIN for a group.
+    const interval = el("select", { id: "share-interval" });
+    for (const [secs, words] of [
+        [60, "1 min"],
+        [300, "5 min"],
+        [900, "15 min"],
+        [3600, "1 h"],
+    ] as const) {
+        if (!group || secs >= 300) {
+            interval.append(el("option", { value: String(secs) }, words));
+        }
+    }
+    interval.value = String(now?.interval ?? (group ? 900 : 300));
+    const minutes = el("select", { id: "share-minutes" });
+    minutes.append(el("option", { value: "60" }, "1 hour"), el("option", { value: "480" }, "8 hours"), el("option", { value: "0" }, "until I stop"));
+    minutes.value = now && now.endsAt === 0 ? "0" : "60";
+    const altitude = el("input", { type: "checkbox", id: "share-altitude" });
+    altitude.checked = now?.altitude ?? false;
+    const form = el(
+        "form",
+        { class: "share card" },
+        el("label", { for: "share-precision" }, "How exactly"),
+        precision,
+        el("label", { for: "share-interval" }, "How often, at most"),
+        interval,
+        el("label", { for: "share-minutes" }, "For how long"),
+        minutes,
+        el("label", { class: "check" }, altitude, " Include altitude (from Street up)"),
+        el(
+            "p",
+            { class: "muted small-print" },
+            "The node rounds your location to the size you pick before it leaves; the exact location stays between this browser and the node. " +
+                "The browser asks for your location now, and gives it to the node only while this page is open.",
+        ),
+        el("button", { type: "submit", class: "primary" }, now ? "Update" : "Share"),
+    );
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const p = Number(precision.value);
+        const c = client;
+        if (!c) {
+            return;
+        }
+        c.share(key, p, {
+            altitude: p >= 20 && altitude.checked,
+            interval: Number(interval.value),
+            minutes: Number(minutes.value),
+        }).then(
+            () => {
+                sharingWith = null;
+                say(`Sharing your position with ${nameOf(key)}.`);
+                draw();
+            },
+            (err: unknown) => say(explain(err), true),
+        );
+    });
+    return form;
+}
+
+// ----- Updating the node's firmware over its link -----
+
+interface Offer {
+    release: string;
+    image: ManifestImage;
+}
+/** What the site offers the connected node, once asked; the key it was asked for. */
+let offer: Offer | null = null;
+let offerAsked = "";
+/** An update under way, and the node it is for: it goes on when that node is connected again. */
+let updating: { node: string; offer: Offer; updater: Updater } | null = null;
+/** The image is downloading. */
+let fetching = false;
+
+function askOffer(c: Client): void {
+    if (demo || !c.can("UPDATE_BEGIN") || c.board === "" || !c.self) {
+        return;
+    }
+    const key = `${c.board}/${c.self.region}/${c.release}`;
+    if (key === offerAsked) {
+        return;
+    }
+    offerAsked = key;
+    offer = null;
+    offerFor(c.board, c.self.region, c.release).then(
+        (found) => {
+            if (offerAsked === key) {
+                offer = found;
+                draw();
+            }
+        },
+        () => {
+            // Offline, or the site has none: nothing is offered, and nothing is said.
+        },
+    );
+}
+
+function drawUpdate(): void {
+    const c = client!;
+    const box = $("update");
+    box.replaceChildren();
+    const mine = updating && updating.node === c.self?.address ? updating : null;
+    if (mine) {
+        const u = mine.updater;
+        const percent = Math.floor((100 * u.acknowledged) / u.size);
+        const cancel = el("button", { type: "button", class: "small" }, "Stop");
+        cancel.addEventListener("click", () => {
+            u.cancel();
+            updating = null;
+            say("Stopped. The node runs the firmware it had.");
+            draw();
+        });
+        const progress = el("progress", { max: String(u.size), value: String(u.acknowledged) });
+        box.append(
+            el("h2", {}, `Updating to ${mine.offer.release}`),
+            progress,
+            el(
+                "p",
+                { class: "muted facts" },
+                u.state === "ending" || u.state === "restarting"
+                    ? "Sent. The node is checking it and restarting into it."
+                    : u.state === "waiting"
+                      ? `${percent}%: waiting for the node. Keep it in reach; it goes on from where it stopped.`
+                      : `${percent}%. Keep this page open and the node in reach. Messages still come and go meanwhile.`,
+            ),
+        );
+        if (u.state !== "ending" && u.state !== "restarting") {
+            box.append(el("p", { class: "actions" }, cancel));
+        }
+        box.hidden = false;
+        return;
+    }
+    if (!offer) {
+        box.hidden = true;
+        return;
+    }
+    const go = el("button", { type: "button", class: "small primary" }, "Update");
+    go.addEventListener("click", () => void update(c, offer!));
+    box.append(
+        el("h2", {}, "An update"),
+        el(
+            "p",
+            { class: "muted facts" },
+            `Release ${offer.release} is out for this ${c.board} in ${c.self?.region}; it runs ${c.release || "an unnamed release"}. ` +
+                "It is sent over this link and keeps everything the node holds.",
+        ),
+        el("p", { class: "actions" }, go),
+    );
+    box.hidden = false;
+}
+
+async function update(c: Client, chosen: Offer): Promise<void> {
+    const node = c.self?.address;
+    if (!node || fetching || updating) {
+        return; // one at a time: a second click while the first downloads does nothing
+    }
+    let u: Updater;
+    fetching = true;
+    try {
+        say("Downloading the firmware…");
+        u = await Updater.of(await fetchImage(chosen.image));
+    } catch (e) {
+        say(explain(e), true);
+        return;
+    } finally {
+        fetching = false;
+    }
+    say("");
+    updating = { node, offer: chosen, updater: u };
+    u.onChange = () => draw();
+    await drive(c);
+}
+
+/**
+ * Runs the update on a connection, starting the connection again while the link holds: a node
+ * that took the client for gone, or did not answer for a while, is asked where it got to. A link
+ * that closes leaves it for the next connection to the same node.
+ */
+async function drive(c: Client): Promise<void> {
+    const job = updating;
+    if (!job) {
+        return;
+    }
+    const u = job.updater;
+    for (let tries = 0; tries < 4 && !u.finished && !c.closed && updating === job; tries++) {
+        await u.run((type, fields) => c.request(type, fields));
+        if (u.state === "waiting" && !c.closed) {
+            if ((await bringUp(c)) !== null) {
+                break;
+            }
+        }
+    }
+    if (updating !== job) {
+        return;
+    }
+    switch (u.state) {
+        case "restarting":
+        case "unknown": {
+            // It restarts into the image: what it says on coming back is whether it runs it.
+            await new Promise((r) => setTimeout(r, 1500));
+            const back = c.closed ? new Error("the link closed") : await bringUp(c);
+            updating = null;
+            offerAsked = "";
+            if (back !== null) {
+                say("The node is restarting into the new firmware. Connect to it again in a moment.");
+            } else if (c.release === job.offer.release) {
+                say(`Updated: the node runs ${c.release}.`);
+            } else {
+                say(`The node came back running ${c.release || "its old firmware"}, not ${job.offer.release}.`, true);
+            }
+            break;
+        }
+        case "refused":
+            updating = null;
+            say(
+                u.code === 11
+                    ? "The node would not run that image, and kept its firmware."
+                    : u.code === 5
+                      ? "The node cannot take an update this way: flash it over USB."
+                      : `The node refused the update (${u.code}).`,
+                true,
+            );
+            break;
+        case "waiting":
+            say("The link went in the middle of the update. Connect to the node again to go on.", true);
+            break;
+    }
+    draw();
 }
 
 function bubble(m: {
@@ -518,6 +1065,7 @@ function groupHead(id: string): void {
                 "Nothing says a message arrived.",
         ),
         el("p", { class: "actions" }, rename, leave, whom.options.length > 0 && whom, whom.options.length > 0 && invite),
+        ...shareControls(id),
     );
 }
 
@@ -566,6 +1114,7 @@ function personHead(address: string): void {
                 : "No session yet: the first message makes first contact, directly or through relays.",
         ),
         el("p", { class: "actions" }, rename, remove ?? null, end || null),
+        ...shareControls(address),
     );
 }
 
@@ -619,6 +1168,7 @@ function draw(): void {
         $("live").hidden = !up || !client?.ready;
         $("demo-note").hidden = !up || !demo;
         $("console").hidden = !up || !hasConsole;
+        feedPosition();
         if (!up || !client?.ready) {
             return;
         }
@@ -628,11 +1178,16 @@ function draw(): void {
         }
         history?.absorb(client.messages.values());
         learnIds();
+        askOffer(client);
         drawNode();
+        drawUpdate();
         drawSettings();
+        drawCard();
         drawAsked();
         drawPeople();
         drawGroups();
+        drawAbout();
+        drawPlaces();
         drawNeighbours();
         drawTalk();
     });
@@ -705,6 +1260,10 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
     historyNode = "";
     ids.clear();
     settingsShown = "";
+    cardShown = "";
+    sharingWith = null;
+    offer = null;
+    offerAsked = "";
     $("console-text").textContent = "";
     const c = new Client(transport);
     client = c;
@@ -724,6 +1283,10 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
     if (failed === null) {
         say("");
         draw();
+        if (updating && updating.node === c.self?.address) {
+            say("Going on with the update…");
+            void drive(c);
+        }
         return;
     }
     if (!c.closed) {
@@ -910,6 +1473,13 @@ function start(): void {
         }
     });
 
+    $<HTMLFormElement>("card-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (client) {
+            void applyCard(client);
+        }
+    });
+
     $<HTMLFormElement>("console-form").addEventListener("submit", (e) => {
         e.preventDefault();
         const line = $<HTMLInputElement>("console-line");
@@ -918,7 +1488,13 @@ function start(): void {
     });
 
     document.addEventListener("visibilitychange", draw);
-    setInterval(() => client?.ready && drawNeighbours(), 15000);
+    setInterval(() => {
+        if (client?.ready) {
+            drawNeighbours();
+            drawAbout();
+            drawPlaces();
+        }
+    }, 15000);
     count();
     // A node's page (/node) sends its address here, to be added once a board is connected.
     const shared = parseAddress(new URLSearchParams(location.search).get("add") ?? "");

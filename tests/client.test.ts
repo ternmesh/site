@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { Client, Refused } from "../src/lib/companion/client.ts";
+import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { routingId } from "../src/lib/companion/ids.ts";
-import type { Transport } from "../src/lib/companion/client.ts";
-import { STATE, decode, encode, hex, unhex, wrap } from "../src/lib/companion/protocol.ts";
+import { Wire } from "./wire.ts";
+import { STATE, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
@@ -15,58 +15,27 @@ const v: { exchange: { from: string; type: string; seq: number; frame: string }[
 );
 const BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 const CAROL = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
-
-/** The far end of the link: what the client wrote, and a way to say things back. */
-class Wire implements Transport {
-    readonly framed: boolean;
-    wrote: Uint8Array[] = [];
-    onData: (data: Uint8Array) => void = () => {};
-    onClose: (why: string) => void = () => {};
-    closedByClient = false;
-    private arrived: (() => void) | null = null;
-
-    constructor(framed: boolean) {
-        this.framed = framed;
-    }
-    write(data: Uint8Array): Promise<void> {
-        this.wrote.push(data);
-        this.arrived?.();
-        return Promise.resolve();
-    }
-    close(): Promise<void> {
-        this.closedByClient = true;
-        return Promise.resolve();
-    }
-    /** The next frame the client writes, as the frame alone. */
-    async next(): Promise<Uint8Array> {
-        while (this.wrote.length === 0) {
-            await new Promise<void>((r) => (this.arrived = r));
-        }
-        const w = this.wrote.shift()!;
-        return this.framed ? w : w.subarray(4, w.length - 2);
-    }
-    say(type: string, seq: number, fields: Fields = {}): void {
-        const f = encode(type, seq, fields);
-        this.onData(this.framed ? f : wrap(f));
-    }
-    raw(frame: Uint8Array): void {
-        this.onData(this.framed ? frame : wrap(frame));
-    }
-}
+const DAVE = "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e";
 
 const quick = { answerWaitMs: 40, idleMs: 60_000, gapMs: 10, now: () => 1_790_000_000_000 };
 
-/** Answers HELLO, SET_TIME and a SYNC that sends `news`, and returns once the client is up. */
-async function bringUp(wire: Wire, c: Client, news: [string, Fields][] = []): Promise<void> {
+/**
+ * Answers HELLO, SET_TIME and a SYNC that sends `news`, as a node of `version`, and returns once
+ * the client is up. Version 2 is the last whose SYNCED carries no count, which the tests that
+ * answer a SYNC by hand rely on.
+ */
+async function bringUp(wire: Wire, c: Client, news: [string, Fields][] = [], version = 2): Promise<void> {
     const up = c.start();
     const hello = decode(await wire.next())!;
     assert.equal(hello.type, "HELLO");
-    wire.say("INFO", hello.seq, { version: 0, firmware: "test" });
+    assert.equal(hello.fields.version, 6);
+    const info: Fields = version >= 4 ? { board: "heltec-v3", release: "0.3.0" } : {};
+    wire.say("INFO", hello.seq, { version, firmware: "test", ...info });
     wire.say("OK", decode(await wire.next())!.seq);
     const sync = decode(await wire.next())!;
     assert.equal(sync.type, "SYNC");
     news.forEach(([type, fields], i) => wire.say(type, i, fields));
-    wire.say("SYNCED", sync.seq);
+    wire.say("SYNCED", sync.seq, version >= 3 ? { news: news.length } : {});
     await up;
 }
 
@@ -94,8 +63,13 @@ for (const framed of [false, true]) {
         await expect(); // SET_TIME
         await expect(); // SYNC
         await up;
-        assert.equal(c.firmware, "tern 0.1.0 heltec-v3");
+        assert.equal(c.version, 6);
+        assert.deepEqual([c.firmware, c.board, c.release], ["tern 0.2.0 heltec-v3", "heltec-v3", "0.2.0"]);
         assert.equal(c.self?.region, "EU868");
+        assert.deepEqual([c.self?.cards, c.self?.cardName], [false, ""]);
+        // Dave's card was accepted 1260 seconds before the sync: his claim, not a name given him.
+        assert.equal(c.cards.get(DAVE)?.name, "Trail crew · ask me");
+        assert.equal(c.cards.get(DAVE)?.heardAt, quick.now() - 1260_000);
         assert.equal(c.contacts.get(BOB)?.name, "Bob");
         assert.equal(c.messages.get(17)?.read, false);
         assert.equal(c.neighbours.size, 1);
@@ -161,24 +135,89 @@ for (const framed of [false, true]) {
         await left;
         assert.deepEqual([...c.groups.keys()], [asked.group]);
 
+        // The user's position, and sharing it with Bob, who shares his.
+        const placed = c.setPosition(45.8325, 6.8644, 4806, 4, 3);
+        await expect();
+        await placed;
+        const shared = c.share(BOB, 20, { interval: 900, minutes: 60 });
+        await expect();
+        await shared;
+        assert.deepEqual(c.sharing.get(BOB), {
+            precision: 20,
+            altitude: false,
+            accuracy: false,
+            interval: 900,
+            endsAt: quick.now() + 3600_000,
+        });
+        const bob = c.positions.get(BOB)!;
+        assert.deepEqual([bob.precision, bob.lat, bob.lon, bob.altitude, bob.accuracy], [16, 60.3945922, 5.2871704, null, null]);
+        assert.equal(bob.fixedAt, quick.now() - 40_000);
+        const tooFine = c.share(asked.group, 25, { interval: 300 });
+        await expect();
+        await assert.rejects(tooFine, (e: unknown) => e instanceof Refused && e.code === 3);
+        const unshared = c.share(BOB, 0);
+        await expect();
+        await unshared;
+        assert.equal(c.sharing.has(BOB), false);
+
         assert.equal(c.contacts.get(BOB)?.session, true);
         const ended = c.endSession(BOB);
         await expect();
         await ended;
         assert.equal(c.contacts.get(BOB)?.session, false);
+
+        // The node's own card: named, turned on, and a value that is neither refused.
+        const named2 = c.setCardName("Ada · hut warden");
+        await expect();
+        await named2;
+        const on = c.setCards(true);
+        await expect();
+        await on;
+        assert.deepEqual([c.self?.cards, c.self?.cardName], [true, "Ada · hut warden"]);
+        const neither = c.request("SET", { setting: 5, value: 2 });
+        await expect();
+        await assert.rejects(neither, (e: unknown) => e instanceof Refused && e.code === 3);
+        assert.equal(c.cards.get(DAVE)?.heardAt, quick.now());
+
+        // Dave is met from his card, under a name the user chose.
+        const met = c.saveContact(DAVE, "Dave (trail crew)");
+        await expect();
+        await met;
+        assert.equal(c.contacts.get(DAVE)?.name, "Dave (trail crew)");
+        const off = c.setCards(false);
+        await expect();
+        await off;
+        assert.equal(c.self?.cards, false);
+        assert.equal(c.cards.has(DAVE), false);
         assert.equal(at, steps.length);
         await c.close();
     });
 }
 
-test("a node from before groups is asked for none, and a sync is the whole list of them", async () => {
+test("a node from before groups is asked for none, nor anything later", async () => {
     const wire = new Wire(true);
     const c = new Client(wire, quick);
-    await bringUp(wire, c, []);
+    await bringUp(wire, c, [], 1);
+    assert.equal(c.version, 1);
     await assert.rejects(c.makeGroup("Hut"), (e: unknown) => e instanceof Refused && e.code === 1);
     await assert.rejects(c.sendGroup("0011223344556677", "hi"), Refused);
     await assert.rejects(c.join(3), Refused);
+    await assert.rejects(c.setCards(true), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.share(BOB, 12), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.setPosition(1, 2, null, null, 0), (e: unknown) => e instanceof Refused && e.code === 1);
     assert.equal(wire.wrote.length, 0, "nothing was asked of it");
+    // Nor is news of a later version read from it.
+    wire.say("GROUP", 0, { group: "0011223344556677", name: "Hut" });
+    wire.say("CARD", 1, { address: CAROL, heard: 1, name: "x" });
+    assert.deepEqual([c.groups.size, c.cards.size], [0, 0]);
+    assert.equal(c.self, null);
+    await c.close();
+});
+
+test("a sync is the whole list of groups", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, []);
 
     // A group the node held, and holds no longer when it is next asked, is forgotten.
     wire.say("GROUP", 0, { group: "0011223344556677", name: "Hut" });
@@ -243,7 +282,7 @@ test("who asked is kept until let go of, or let in", async () => {
 test("settings are SET, and a session is not ended on a node too old to know how", async () => {
     const wire = new Wire(true);
     const c = new Client(wire, quick);
-    await bringUp(wire, c, []); // a node of version 0
+    await bringUp(wire, c, [], 0);
     assert.equal(c.version, 0);
     await assert.rejects(c.endSession(BOB), (e: unknown) => e instanceof Refused && e.code === 1);
     assert.equal(wire.wrote.length, 0);
@@ -479,4 +518,61 @@ test("a link that drops ends what was waiting", async () => {
     await assert.rejects(read);
     assert.equal(why, "unplugged");
     await assert.rejects(c.read(2));
+});
+
+test("a sync whose count the SYNCED does not match is asked for again", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [], 6);
+    const again = c.sync();
+    const first = decode(await wire.next())!;
+    wire.say("CONTACT", 0, { address: BOB, session: 1, name: "Bob" });
+    // The last news before the answer was lost: no gap shows it, but the count does.
+    wire.say("SYNCED", first.seq, { news: 2 });
+    const second = decode(await wire.next())!;
+    assert.equal(second.type, "SYNC");
+    // The node counts on from the one that was lost, and so does the client, from the SYNCED.
+    wire.say("CONTACT", 2, { address: BOB, session: 1, name: "Bob" });
+    wire.say("CONTACT", 3, { address: CAROL, session: 0, name: "Carol" });
+    wire.say("SYNCED", second.seq, { news: 4 });
+    await again;
+    assert.equal(c.contacts.size, 2);
+    await c.close();
+});
+
+test("a sync is the whole list of positions, sharing and cards, and a record of precision 0 is none", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const hut = "c8eafadc0857a696";
+    const at = { lat: 458325040, lon: 68644058, altitude: 4806, accuracy: 4, age: 12 };
+    await bringUp(
+        wire,
+        c,
+        [
+            ["POSITION", { contact: BOB, precision: 16, ...at }],
+            ["GROUP_POSITION", { group: hut, from: 7, precision: 24, ...at }],
+            ["SHARING", { contact: BOB, precision: 20, fields: 1, interval: 900, minutes: 0 }],
+            ["GROUP_SHARING", { group: hut, precision: 12, fields: 2, interval: 300, minutes: 5 }],
+            ["CARD", { address: DAVE, heard: 5, name: "Dave" }],
+            ["CARD", { address: CAROL, heard: 9, name: "" }],
+        ],
+        6,
+    );
+    assert.deepEqual([...c.positions.keys()], [BOB, positionKey("", hut, 7)]);
+    assert.deepEqual([c.positions.get(`${hut}/7`)?.from, c.positions.get(`${hut}/7`)?.altitude], [7, 4806]);
+    assert.deepEqual([c.sharing.get(BOB)?.altitude, c.sharing.get(BOB)?.endsAt], [true, 0]);
+    assert.deepEqual([c.sharing.get(hut)?.accuracy, c.sharing.get(hut)?.endsAt], [true, quick.now() + 300_000]);
+    assert.equal(c.cards.size, 2);
+
+    wire.say("POSITION", 6, { contact: BOB, precision: 0, lat: 0, lon: 0, altitude: 0, accuracy: 0, age: 0 });
+    assert.equal(c.positions.has(BOB), false);
+
+    const again = c.sync();
+    const sync = decode(await wire.next())!;
+    wire.say("GROUP_SHARING", 7, { group: hut, precision: 12, fields: 0, interval: 300, minutes: 0 });
+    wire.say("CARD", 8, { address: CAROL, heard: 0, name: "Carol" });
+    wire.say("SYNCED", sync.seq, { news: 9 });
+    await again;
+    assert.deepEqual([c.positions.size, [...c.sharing.keys()], [...c.cards.keys()]], [0, [hut], [CAROL]]);
+    await c.close();
 });

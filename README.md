@@ -39,10 +39,26 @@ Serial, which Chrome and Edge on a computer have, and over Web Bluetooth, which 
 computer and on an Android phone. Nothing is sent anywhere but to the board, and nothing runs on
 a server.
 
-It speaks version 2 of the protocol, which has groups: making one, inviting a contact to it over
-their session, joining one from an invite, and writing to it. A node whose firmware is from
-before groups is asked for none. A group's secret never reaches the page: the node draws it and
-keeps it, and the page knows a group by an id.
+It speaks version 6 of the protocol, as the phone apps do, and any earlier version a node speaks:
+it reads each frame by the version both ends speak, and asks a node for nothing its version does
+not define, saying on the node's card what an update would bring.
+
+* **Groups:** making one, inviting a contact to it over their session, joining one from an
+  invite, and writing to it. A group's secret never reaches the page: the node draws it and keeps
+  it, and the page knows a group by an id.
+* **Who is about:** the presence cards the node holds, each name in quotes as its sender's claim,
+  beside the address's short code; Add puts the address and the name in the add form, for the user
+  to keep or change. The node's own card is turned on and named only under **Your presence card**,
+  which asks first and says what that puts on the air.
+* **Positions:** the positions the node holds, each with a link that opens it on OpenStreetMap
+  (followed only if clicked), and sharing the user's own with a contact or group from its
+  conversation, at the precisions the specification lists. While the node shares with anyone, the
+  page gives it the browser's location from `navigator.geolocation`, at most every 15 seconds, and
+  only while the page is open.
+* **Updates:** a node with a board and a release is offered the release in `/firmware/latest.json`
+  for its board and region when it is later, by Semantic Versioning. The image is checked against
+  the manifest's size and SHA-256 and sent over the same link, going on from where the node says
+  after a dropped link.
 
 | | |
 |---|---|
@@ -50,6 +66,8 @@ keeps it, and the page knows a group by an id.
 | `src/lib/companion/client.ts` | One connection: requests one at a time, the node's news, syncing again when some is missed, and keeping the node from taking the client for gone. |
 | `src/lib/companion/serial.ts` | A node on a USB serial port, through Web Serial. |
 | `src/lib/companion/bluetooth.ts` | A node over Bluetooth LE, through Web Bluetooth: pairing, and finding a node again after it restarts. |
+| `src/lib/companion/updater.ts` | One firmware image given to a node: `UPDATE_BEGIN`, the image a chunk at a time from the offset the node gives, `UPDATE_END`, and going on after the link drops. |
+| `src/lib/companion/release.ts` | `latest.json` as the page reads it: the image for a node's board and region, and Semantic Versioning's order. |
 | `src/lib/companion/demo.ts` | A made-up node in the page, for "Try it without a board" and `/app?demo`. |
 | `src/lib/companion/ids.ts` | Addresses as typed, and the routing id of one. |
 | `src/lib/app/` | The page: what is drawn, and the conversations it keeps in the browser. |
@@ -57,7 +75,8 @@ keeps it, and the page knows a group by an id.
 `tests/vectors/companion.json` is a copy of the specification's
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), and
 `npm test` holds the client to it: every frame, every stream, and the specification's exchange
-byte for byte. When the specification's vectors change, copy the new file here in the pull
+byte for byte, the older clients' frames read by their versions, and the update as its client.
+When the specification's vectors change, copy the new file here in the pull
 request that changes the code to match.
 
 To check the client against a real board from a terminal, on macOS or Linux:

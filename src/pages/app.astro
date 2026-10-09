@@ -39,6 +39,10 @@ import Base from "../layouts/Base.astro";
                     Conversations are also kept in this browser, since a node remembers only its
                     latest messages.
                 </li>
+                <li>
+                    Sharing your position from here gives the node the browser's location only
+                    while this page is open: for sharing from a pocket, use a phone app.
+                </li>
             </ul>
         </div>
 
@@ -49,6 +53,7 @@ import Base from "../layouts/Base.astro";
         <div id="live" hidden>
             <aside>
                 <div id="node" class="card"></div>
+                <div id="update" class="card" hidden></div>
                 <details id="settings" class="card">
                     <summary>Settings</summary>
                     <form id="settings-form">
@@ -70,6 +75,21 @@ import Base from "../layouts/Base.astro";
                             allow.
                         </p>
                         <button id="settings-apply" type="submit">Apply</button>
+                    </form>
+                </details>
+                <details id="card-settings" class="card" hidden>
+                    <summary>Your presence card</summary>
+                    <form id="card-form">
+                        <p id="card-state" class="muted small-print"></p>
+                        <label class="check"><input id="card-on" type="checkbox" /> Send it</label>
+                        <label for="card-name">The name it carries</label>
+                        <input id="card-name" type="text" autocomplete="off" maxlength="31" placeholder="empty for none; sent in clear" />
+                        <p class="muted small-print">
+                            A card tells the nodes near this one, two hops round and every couple of
+                            hours, its address and this name, so that people about can find and add
+                            it. It is off until you turn it on.
+                        </p>
+                        <button type="submit">Apply</button>
                     </form>
                 </details>
                 <p><button id="disconnect" type="button" class="small">Disconnect</button></p>
@@ -95,6 +115,10 @@ import Base from "../layouts/Base.astro";
                     <input id="group-name" type="text" autocomplete="off" maxlength="31" placeholder="a name, for you; never sent by radio" required />
                     <button type="submit">Make</button>
                 </form>
+                <h2 id="about-head" hidden>Who's about</h2>
+                <ul id="about" class="list plain" hidden></ul>
+                <h2 id="places-head" hidden>Positions</h2>
+                <ul id="places" class="list plain" hidden></ul>
                 <h2>Neighbours</h2>
                 <ul id="neighbours" class="list plain"></ul>
             </aside>
@@ -232,18 +256,24 @@ import Base from "../layouts/Base.astro";
     .app #live.busy {
         opacity: 0.6;
     }
-    .app #settings {
+    .app #settings,
+    .app #card-settings,
+    .app #update {
         margin-top: 12px;
     }
-    .app #settings summary {
+    .app #settings summary,
+    .app #card-settings summary {
         cursor: pointer;
         font-weight: 600;
     }
-    .app #settings form {
+    .app #settings form,
+    .app #card-settings form {
         margin-top: 10px;
     }
-    .app #settings input,
-    .app #settings select {
+    .app #settings input:not([type="checkbox"]),
+    .app #settings select,
+    .app #card-settings input:not([type="checkbox"]),
+    .app form.share select {
         font: inherit;
         width: 100%;
         box-sizing: border-box;
@@ -290,6 +320,19 @@ import Base from "../layouts/Base.astro";
     }
     .app .card button[type="submit"] {
         margin-top: 10px;
+    }
+    .app .card label.check {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 0.95rem;
+    }
+    .app #update progress {
+        width: 100%;
+    }
+    .app form.share {
+        margin: 8px 0 12px;
+        max-width: 28rem;
     }
     .app .address {
         display: flex;

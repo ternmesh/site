@@ -68,7 +68,12 @@ const org = "https://github.com/ternmesh";
         <h2>This site</h2>
         <p>
             The site is static files, with no cookies and no analytics of its own. What the
-            <a href="/app">web app</a> remembers, it keeps in your browser. The site is served by
+            <a href="/app">web app</a> remembers, it keeps in your browser. It asks the browser for your
+            location only when you share your position, and gives it to your node alone, while the page is
+            open, as the apps do. It shows a position received on a map only if you follow its Map link,
+            which opens <a href="https://www.openstreetmap.org">OpenStreetMap</a> with that position in
+            the address. When the node can be updated, it asks this site for the list of releases and
+            then for the firmware, as the apps do. The site is served by
             Cloudflare, which, like any host, sees the address a request comes from and what was asked
             for, and handles that under
             <a href="https://www.cloudflare.com/privacypolicy/">its own privacy policy</a>.
