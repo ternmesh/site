@@ -4,3 +4,9 @@
 # both cases are listed.
 /A/* /node/ 200
 /a/* /node/ 200
+
+# A group's join code (draft/groups.md in ternmesh/spec): HTTPS://TERNMESH.ORG/G# and the code in
+# base32. The code is after the #, which no request carries, so every one is the same request for
+# /G, served by the one page that reads the code in the browser.
+/G /group/ 200
+/g /group/ 200

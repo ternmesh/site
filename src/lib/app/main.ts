@@ -10,7 +10,8 @@ import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
 import { ASKED, NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
 import { fetchImage, offerFor } from "../companion/release.ts";
-import { shortCode } from "../companion/share.ts";
+import { readJoinCode, shortCode } from "../companion/share.ts";
+import { linkSegments, qrEncode, qrPath } from "../qr.ts";
 import { Updater } from "../companion/updater.ts";
 import type { ManifestImage } from "../flash/images.ts";
 import { bluetoothSupported, openBluetooth } from "../companion/bluetooth.ts";
@@ -62,6 +63,8 @@ let hasConsole = false;
 let drawing = false;
 /** A READ is on its way: another is not sent until it is answered. */
 let reading = false;
+/** A group's join code the user asked to see, while it is shown: in memory, and nowhere else. */
+let shownCode: { group: string; link: string } | null = null;
 /** Routing ids of the addresses the page knows, to put names to neighbours. */
 const ids = new Map<string, number>();
 
@@ -201,6 +204,7 @@ function drawNode(): void {
     );
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
     const missing = [
+        [7, "share a group by its join code, or join from one"],
         [6, "show who is about"],
         [5, "share positions"],
         [4, "be updated from here"],
@@ -360,6 +364,7 @@ function drawGroups(): void {
     $("groups-old").hidden = able || demo;
     $("groups-demo").hidden = !demo;
     $("group-add").hidden = !able;
+    $("group-join").hidden = !client?.can("JOIN_LINK");
     const list = $("groups");
     list.replaceChildren();
     const all = groups();
@@ -1049,9 +1054,29 @@ function groupHead(id: string): void {
                 "The others are not told, and only an invite brings it back.",
         );
         if (sure) {
+            shownCode = null;
             act(() => client!.leaveGroup(id));
         }
     });
+    const code = client?.can("GROUP_LINK") && el("button", { type: "button", class: "small" }, "Join code");
+    if (code) {
+        code.addEventListener("click", () => {
+            const sure = window.confirm(
+                `Show ${nameOf(id)}'s join code? Anyone who sees it, or a photo of it, can join the group and ` +
+                    "read everything said in it, before and after, and it cannot be taken back. Show it only to " +
+                    "those the group is for.",
+            );
+            if (sure) {
+                client!.groupLink(id).then(
+                    (link) => {
+                        shownCode = { group: id, link };
+                        draw();
+                    },
+                    (e: unknown) => say(explain(e), true),
+                );
+            }
+        });
+    }
     // Whom to invite: any contact. An invite goes over a session, and to one there is none with
     // yet the node makes first contact first, as for a first message.
     const whom = el("select", { "aria-label": "A contact to invite" });
@@ -1077,8 +1102,63 @@ function groupHead(id: string): void {
                 "whoever is given the key can read all that was said, and nobody can be put out. " +
                 "Nothing says a message arrived.",
         ),
-        el("p", { class: "actions" }, rename, leave, whom.options.length > 0 && whom, whom.options.length > 0 && invite),
+        el(
+            "p",
+            { class: "actions" },
+            rename,
+            leave,
+            code,
+            whom.options.length > 0 && whom,
+            whom.options.length > 0 && invite,
+        ),
+        ...(shownCode?.group === id ? [joinCodePanel(shownCode.link)] : []),
         ...shareControls(id),
+    );
+}
+
+/** A join code, shown because the user asked: its QR code, its link, and a way to put it away. */
+function joinCodePanel(link: string): HTMLElement {
+    const ns = "http://www.w3.org/2000/svg";
+    const modules = qrEncode(linkSegments(link));
+    const side = modules.length + 8; // and a quiet zone of four modules each side
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${side} ${side}`);
+    svg.setAttribute("class", "qr");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "The group's join code, as a QR code");
+    const ground = document.createElementNS(ns, "rect");
+    ground.setAttribute("width", String(side));
+    ground.setAttribute("height", String(side));
+    ground.setAttribute("fill", "#fff");
+    const dark = document.createElementNS(ns, "path");
+    dark.setAttribute("d", qrPath(modules));
+    dark.setAttribute("fill", "#000");
+    svg.append(ground, dark);
+
+    const copy = el("button", { type: "button", class: "small" }, "Copy the link");
+    copy.addEventListener("click", () => {
+        navigator.clipboard.writeText(link).then(
+            () => say("Copied. Send it only to those the group is for."),
+            () => say("Your browser would not copy it: select the link and copy it yourself.", true),
+        );
+    });
+    const hide = el("button", { type: "button", class: "small" }, "Hide");
+    hide.addEventListener("click", () => {
+        shownCode = null;
+        draw();
+    });
+    return el(
+        "div",
+        { class: "card join-code" },
+        svg,
+        el("p", {}, el("code", { class: "link" }, link)),
+        el(
+            "p",
+            { class: "muted small-print" },
+            "Whoever scans this or is sent the link can join the group and read all of it. It works for as " +
+                "long as the group does. This page keeps it only while it is shown.",
+        ),
+        el("p", { class: "actions" }, copy, hide),
     );
 }
 
@@ -1236,7 +1316,37 @@ function clip(text: string, bytes: number): string {
     return out;
 }
 
+/** Joins the group a join code is for, once the user has seen its name and said yes. */
+async function joinFromCode(text: string): Promise<void> {
+    const code = await readJoinCode(text);
+    if (!code) {
+        say("That is not a join code. Check it was copied whole: it starts HTTPS://TERNMESH.ORG/G#.", true);
+        return;
+    }
+    if (client?.groups.has(code.group)) {
+        $<HTMLFormElement>("group-join").reset();
+        select(code.group);
+        say("This node is in that group already.");
+        return;
+    }
+    const called = code.name === "" ? "this group" : `the group “${code.name}”`;
+    if (!window.confirm(`Join ${called}? Whoever gave you the code can read it too, as can anyone else they gave it to.`)) {
+        return;
+    }
+    try {
+        const id = await client!.joinLink(text);
+        $<HTMLFormElement>("group-join").reset();
+        say("Joined. Its members learn of you only when you write.");
+        select(id);
+    } catch (e) {
+        say(explain(e), true);
+    }
+}
+
 function select(address: string): void {
+    if (shownCode && shownCode.group !== address) {
+        shownCode = null;
+    }
     selected = address;
     draw();
     $<HTMLInputElement>("text").focus();
@@ -1269,6 +1379,7 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
     demo = by === "demo";
     hasConsole = by === "serial";
     selected = null;
+    shownCode = null;
     history = null;
     historyNode = "";
     ids.clear();
@@ -1479,6 +1590,11 @@ function start(): void {
         );
     });
 
+    $<HTMLFormElement>("group-join").addEventListener("submit", (e) => {
+        e.preventDefault();
+        void joinFromCode($<HTMLInputElement>("join-code").value.trim());
+    });
+
     $<HTMLFormElement>("settings-form").addEventListener("submit", (e) => {
         e.preventDefault();
         if (client) {
@@ -1513,6 +1629,13 @@ function start(): void {
     const shared = parseAddress(new URLSearchParams(location.search).get("add") ?? "");
     if (shared) {
         $<HTMLInputElement>("add-address").value = shared;
+    }
+    // A join code's page (/G) sends its code here after the #, which no request carries, to be
+    // joined from once a node is connected and the user says so. It leaves the address bar at once.
+    if (location.hash.startsWith("#join=")) {
+        $<HTMLInputElement>("join-code").value = decodeURIComponent(location.hash.slice("#join=".length));
+        window.history.replaceState(null, "", location.pathname + location.search);
+        say("Connect your node, then press Join under Groups.");
     }
     if (new URLSearchParams(location.search).has("demo")) {
         void connect(openDemo, "demo");

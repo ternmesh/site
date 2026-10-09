@@ -72,7 +72,9 @@ const org = "https://github.com/ternmesh";
             location only when you share your position, and gives it to your node alone, while the page is
             open, as the apps do. It shows a position received on a map only if you follow its Map link,
             which opens <a href="https://www.openstreetmap.org">OpenStreetMap</a> with that position in
-            the address. When the node can be updated, it asks this site for the list of releases and
+            the address. A group's join code is read in your browser: the page a code opens finds it after the
+            link's <code>#</code>, which a browser never sends to a site, and the app keeps a code only while it
+            shows it. When the node can be updated, it asks this site for the list of releases and
             then for the firmware, as the apps do. The site is served by
             Cloudflare, which, like any host, sees the address a request comes from and what was asked
             for, and handles that under

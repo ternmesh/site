@@ -115,6 +115,11 @@ import Base from "../layouts/Base.astro";
                     <input id="group-name" type="text" autocomplete="off" maxlength="31" placeholder="a name, for you; never sent by radio" required />
                     <button type="submit">Make</button>
                 </form>
+                <form id="group-join" class="card" hidden>
+                    <label for="join-code">Join from a code</label>
+                    <input id="join-code" type="text" autocomplete="off" spellcheck="false" placeholder="HTTPS://TERNMESH.ORG/G#…" required />
+                    <button type="submit">Join</button>
+                </form>
                 <h2 id="about-head" hidden>Who's about</h2>
                 <ul id="about" class="list plain" hidden></ul>
                 <h2 id="places-head" hidden>Positions</h2>
@@ -326,6 +331,30 @@ import Base from "../layouts/Base.astro";
         gap: 8px;
         align-items: center;
         font-size: 0.95rem;
+    }
+    .app #group-join {
+        margin-top: 8px;
+    }
+    .app .join-code {
+        margin: 8px 0 12px;
+        max-width: 22rem;
+    }
+    /* Black on white whatever the theme: some scanners will not read a code the other way round. */
+    .app .join-code .qr {
+        display: block;
+        width: 100%;
+        max-width: 16rem;
+        height: auto;
+        border-radius: 4px;
+    }
+    .app .join-code .link {
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+    }
+    .app .join-code .actions {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0 0;
     }
     .app #update progress {
         width: 100%;
