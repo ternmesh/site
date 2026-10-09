@@ -23,7 +23,9 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app, the flash page, the page a node's link opens, and the 404, in `src/layouts/Base.astro`.
+`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the page a node's
+link opens, privacy, and the 404, in `src/layouts/Base.astro`. `@astrojs/sitemap` writes
+`sitemap-index.xml`, which `robots.txt` names, of every page but the node's and the 404.
 When the specification has a first draft, it will be rendered here from
 `ternmesh/spec` at build time rather than copied into this repository, so
 there is only ever one text of the protocol.
