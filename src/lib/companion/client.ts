@@ -1,5 +1,6 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 2 of draft/companion.md in ternmesh/spec.
+// has been told. Version 6 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
 // says something every so often so the node does not take it for gone, and starts over when the
@@ -16,6 +17,8 @@ import {
     VERSION,
     decode,
     encode,
+    settingSince,
+    since,
     wrap,
 } from "./protocol.ts";
 import type { Fields, Frame } from "./protocol.ts";
@@ -36,6 +39,9 @@ export interface Self {
     region: string;
     power: number;
     time: number;
+    /** Whether the node sends presence cards, and the name they carry: null from a node before cards. */
+    cards: boolean | null;
+    cardName: string | null;
 }
 export interface Contact {
     address: string;
@@ -86,6 +92,47 @@ export interface Power {
     charging: boolean;
     external: boolean;
 }
+/**
+ * A position the node holds: from a contact (`group` empty, `from` 0), or from a routing id in a
+ * group, which is what that member claimed. `lat` and `lon` are the centre of its cell, in degrees;
+ * the cell is 360 / 2^precision degrees each way.
+ */
+export interface Position {
+    contact: string;
+    group: string;
+    from: number;
+    precision: number;
+    lat: number;
+    lon: number;
+    /** In metres, or null if the position gave none. */
+    altitude: number | null;
+    accuracy: number | null;
+    /** When the fix was taken, by this client's clock, in milliseconds. */
+    fixedAt: number;
+}
+/** How the node shares its position with a contact or a group. */
+export interface Sharing {
+    precision: number;
+    altitude: boolean;
+    accuracy: boolean;
+    /** Seconds between positions. */
+    interval: number;
+    /** When the node turns it off, by this client's clock, in milliseconds; 0 for when it is told to. */
+    endsAt: number;
+}
+/** A presence card the node holds: who is about, by their own account. */
+export interface Card {
+    address: string;
+    /** The name its sender chose: their claim, not a name the user gave. */
+    name: string;
+    /** When the node accepted it, by this client's clock, in milliseconds. */
+    heardAt: number;
+}
+
+/** A position's key in Client.positions: the contact's address, or a group's id and the writer's routing id. */
+export function positionKey(contact: string, group = "", from = 0): string {
+    return group === "" ? contact : `${group}/${from}`;
+}
 
 /** A request the node refused, with the specification's code, or 0 for one it never answered. */
 export class Refused extends Error {
@@ -106,6 +153,9 @@ const ERRORS: Readonly<Record<number, string>> = {
     7: "the Bluetooth link's MTU is too small",
     8: "the node cannot do that just now",
     9: "the node is not in that group, or no longer holds that invite",
+    10: "the node is not where the update is",
+    11: "the node will not run that image",
+    12: "that address is not a contact",
 };
 
 export interface Options {
@@ -114,6 +164,24 @@ export interface Options {
     answerWaitMs?: number;
     idleMs?: number;
     gapMs?: number;
+}
+
+interface Seen {
+    contacts: Set<string>;
+    groups: Set<string>;
+    neighbours: Set<number>;
+    positions: Set<string>;
+    sharing: Set<string>;
+    cards: Set<string>;
+}
+
+/** After a whole list: what the list did not send is no longer the node's. */
+function forgetUnseen<K>(held: Map<K, unknown>, seen: Set<K>): void {
+    for (const key of [...held.keys()]) {
+        if (!seen.has(key)) {
+            held.delete(key);
+        }
+    }
 }
 
 interface Waiting {
@@ -126,12 +194,21 @@ interface Waiting {
 
 export class Client {
     firmware = "";
+    /** The version both ends speak: the lesser of the node's and this client's. */
     version = 0;
+    /** What the node's firmware is built for, and its release: empty from a node before updates. */
+    board = "";
+    release = "";
     self: Self | null = null;
     readonly contacts = new Map<string, Contact>();
     readonly groups = new Map<string, Group>();
     readonly messages = new Map<number, Message>();
     readonly neighbours = new Map<number, Neighbour>();
+    /** By positionKey(). */
+    readonly positions = new Map<string, Position>();
+    /** By the contact's address or the group's id. */
+    readonly sharing = new Map<string, Sharing>();
+    readonly cards = new Map<string, Card>();
     /**
      * Addresses the node refused first contact from since this client connected, each with the
      * latest reason (ASKED). The node does not keep them, so neither does a sync: they go when
@@ -166,8 +243,10 @@ export class Client {
     /** The greatest message id this client is sure it holds everything up to. */
     private through = 0;
     private starting: Promise<void> | null = null;
-    /** During a sync: the contacts and neighbours it has sent, to forget the rest when it ends. */
-    private syncSeen: { contacts: Set<string>; groups: Set<string>; neighbours: Set<number> } | null = null;
+    /** Whether the node has answered HELLO on this connection, so that `version` is the one both speak. */
+    private greeted = false;
+    /** During a sync: what it has sent of each list, to forget the rest when it ends. */
+    private syncSeen: Seen | null = null;
 
     constructor(transport: Transport, options: Options = {}) {
         this.transport = transport;
@@ -190,6 +269,7 @@ export class Client {
 
     private async begin(): Promise<void> {
         this.ready = false;
+        this.greeted = false;
         const info = await this.request("HELLO", { version: VERSION });
         this.newsSeq = 0;
         this.missed = false;
@@ -198,8 +278,11 @@ export class Client {
         // whole, and nothing held from before is taken to be the node's.
         this.messages.clear();
         this.through = 0;
-        this.version = Number(info.fields.version);
+        this.version = Math.min(VERSION, Number(info.fields.version));
         this.firmware = String(info.fields.firmware);
+        this.board = String(info.fields.board ?? "");
+        this.release = String(info.fields.release ?? "");
+        this.greeted = true;
         await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
         await this.sync();
         this.ready = true;
@@ -240,28 +323,32 @@ export class Client {
     /** One SYNC. False if news was missed during it. */
     private async syncFrom(after: number): Promise<boolean> {
         this.missed = false;
-        const seen = { contacts: new Set<string>(), groups: new Set<string>(), neighbours: new Set<number>() };
+        const seen: Seen = {
+            contacts: new Set(),
+            groups: new Set(),
+            neighbours: new Set(),
+            positions: new Set(),
+            sharing: new Set(),
+            cards: new Set(),
+        };
         this.syncSeen = seen;
         try {
-            await this.request("SYNC", { after });
+            const synced = await this.request("SYNC", { after });
+            // From version 3 the answer says what the count should be next: news lost at the end
+            // of a sync leaves no gap to see.
+            if (synced.fields.news !== undefined && Number(synced.fields.news) !== this.newsSeq) {
+                this.missed = true;
+                this.newsSeq = Number(synced.fields.news); // the node's count is the one to follow
+            }
             if (this.missed) {
                 return false;
             }
-            for (const address of [...this.contacts.keys()]) {
-                if (!seen.contacts.has(address)) {
-                    this.contacts.delete(address);
-                }
-            }
-            for (const id of [...this.groups.keys()]) {
-                if (!seen.groups.has(id)) {
-                    this.groups.delete(id);
-                }
-            }
-            for (const id of [...this.neighbours.keys()]) {
-                if (!seen.neighbours.has(id)) {
-                    this.neighbours.delete(id);
-                }
-            }
+            forgetUnseen(this.contacts, seen.contacts);
+            forgetUnseen(this.groups, seen.groups);
+            forgetUnseen(this.neighbours, seen.neighbours);
+            forgetUnseen(this.positions, seen.positions);
+            forgetUnseen(this.sharing, seen.sharing);
+            forgetUnseen(this.cards, seen.cards);
         } finally {
             this.syncSeen = null;
         }
@@ -289,6 +376,55 @@ export class Client {
         if (this.version < 2) {
             throw new Refused(1, "the node's firmware is from before groups");
         }
+    }
+
+    /** Whether the version both ends speak defines a request, or a setting. */
+    can(type: string, setting?: number): boolean {
+        return since(type) <= this.version && (setting === undefined || settingSince(setting) <= this.version);
+    }
+
+    /**
+     * Gives the node the user's position: degrees, WGS 84; altitude above the ellipsoid and
+     * accuracy in metres, null for none; how many seconds old the fix is.
+     */
+    async setPosition(lat: number, lon: number, altitude: number | null, accuracy: number | null, age: number): Promise<void> {
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+        await this.request("SET_POSITION", {
+            lat: clamp(lat * 1e7, -900000000, 900000000),
+            lon: clamp(lon * 1e7, -1800000000, 1800000000),
+            altitude: altitude === null ? -32768 : clamp(altitude, -32767, 32767),
+            accuracy: accuracy === null ? 0 : clamp(accuracy, 1, 0xffff),
+            age: clamp(age, 0, 0xffff),
+        });
+    }
+    /**
+     * Turns sharing of the node's position with a contact, or a group's id, on or changes it, or
+     * with precision 0 turns it off. Only ever because the user asked.
+     */
+    async share(
+        to: string,
+        precision: number,
+        how: { altitude?: boolean; accuracy?: boolean; interval?: number; minutes?: number } = {},
+    ): Promise<void> {
+        const fields = {
+            precision,
+            fields: precision === 0 ? 0 : (how.altitude ? 1 : 0) | (how.accuracy ? 2 : 0),
+            interval: precision === 0 ? 0 : (how.interval ?? 0),
+            minutes: precision === 0 ? 0 : (how.minutes ?? 0),
+        };
+        if (to.length === 16) {
+            await this.request("SHARE_GROUP", { group: to, ...fields });
+        } else {
+            await this.request("SHARE", { contact: to, ...fields });
+        }
+    }
+    /** Turns the node's presence cards on or off. Only ever because the user asked. */
+    async setCards(on: boolean): Promise<void> {
+        await this.request("SET", { setting: SETTING.cards, value: on ? 1 : 0 });
+    }
+    /** The name the node's cards carry, in clear, to everyone near. */
+    async setCardName(name: string): Promise<void> {
+        await this.request("SET", { setting: SETTING.cardName, value: name });
     }
 
     /** Makes a group on the node, which draws its secret, and returns its id. */
@@ -349,7 +485,7 @@ export class Client {
      * Changes a setting. A node may restart to apply it once it has answered: the caller starts
      * the connection again.
      */
-    async set(setting: keyof typeof SETTING, value: number | string): Promise<void> {
+    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName">, value: number | string): Promise<void> {
         await this.request("SET", { setting: SETTING[setting], value });
     }
     /** Lets go of an address the node said had asked. */
@@ -384,6 +520,12 @@ export class Client {
     private ask(type: string, fields: Fields): Promise<Frame> {
         if (this.closed) {
             return Promise.reject(new Refused(0, "the connection has closed"));
+        }
+        // A client sends nothing the version both speak does not define: the node could not tell
+        // it what the request changed.
+        const setting = type === "SET" ? Number(fields.setting) : undefined;
+        if (this.greeted && !this.can(type, setting)) {
+            return Promise.reject(new Refused(1, "the node's firmware is too old for that: update it"));
         }
         this.seq = (this.seq % 255) + 1;
         const seq = this.seq;
@@ -453,7 +595,7 @@ export class Client {
     }
 
     private frame(bytes: Uint8Array): void {
-        const f = decode(bytes);
+        const f = decode(bytes, this.greeted ? this.version : VERSION);
         if (!f) {
             return; // news of a type this version does not know, or a frame it cannot read
         }
@@ -514,6 +656,8 @@ export class Client {
                     region: String(x.region),
                     power: Number(x.power),
                     time: Number(x.time),
+                    cards: x.cards === undefined ? null : x.cards === 1,
+                    cardName: x.card_name === undefined ? null : String(x.card_name),
                 };
                 break;
             case "CONTACT":
@@ -587,6 +731,57 @@ export class Client {
                 break;
             case "ASKED":
                 this.asked.set(String(x.address), Number(x.why));
+                break;
+            case "POSITION":
+            case "GROUP_POSITION": {
+                const group = f.type === "GROUP_POSITION" ? String(x.group) : "";
+                const from = f.type === "GROUP_POSITION" ? Number(x.from) : 0;
+                const key = positionKey(String(x.contact ?? ""), group, from);
+                if (x.precision === 0) {
+                    this.positions.delete(key);
+                    break;
+                }
+                this.positions.set(key, {
+                    contact: group === "" ? String(x.contact) : "",
+                    group,
+                    from,
+                    precision: Number(x.precision),
+                    lat: Number(x.lat) / 1e7,
+                    lon: Number(x.lon) / 1e7,
+                    altitude: x.altitude === -32768 ? null : Number(x.altitude),
+                    accuracy: x.accuracy === 0 ? null : Number(x.accuracy),
+                    fixedAt: this.now() - 1000 * Number(x.age),
+                });
+                this.syncSeen?.positions.add(key);
+                break;
+            }
+            case "SHARING":
+            case "GROUP_SHARING": {
+                const key = String(f.type === "SHARING" ? x.contact : x.group);
+                if (x.precision === 0) {
+                    this.sharing.delete(key);
+                    break;
+                }
+                this.sharing.set(key, {
+                    precision: Number(x.precision),
+                    altitude: (Number(x.fields) & 1) !== 0,
+                    accuracy: (Number(x.fields) & 2) !== 0,
+                    interval: Number(x.interval),
+                    endsAt: x.minutes === 0 ? 0 : this.now() + 60000 * Number(x.minutes),
+                });
+                this.syncSeen?.sharing.add(key);
+                break;
+            }
+            case "CARD":
+                this.cards.set(String(x.address), {
+                    address: String(x.address),
+                    name: String(x.name),
+                    heardAt: this.now() - 1000 * Number(x.heard),
+                });
+                this.syncSeen?.cards.add(String(x.address));
+                break;
+            case "CARD_GONE":
+                this.cards.delete(String(x.address));
                 break;
             case "POWER":
                 this.power = {

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { StreamReader, crc16, decode, encode, hex, unhex, wrap } from "../src/lib/companion/protocol.ts";
+import { StreamReader, VERSION, crc16, decode, encode, hex, unhex, wrap } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 interface Vectors {
@@ -15,6 +15,7 @@ interface Vectors {
     streams: { why: string; stream: string; items: ({ frame: string } | { text: string })[]; pending: string }[];
     exchange: { from: string; type: string; seq: number; frame: string }[];
     older: { version: number; frames: { from: string; type: string; seq: number; frame: string }[] }[];
+    unknown_to_older: { type: string; version: number; frame: string; why: string; answer: number | null }[];
 }
 
 const v: Vectors = JSON.parse(readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"));
@@ -75,13 +76,37 @@ test("streams: all at once, and a byte at a time", () => {
     }
 });
 
-test("exchange: every frame of it reads, and builds back to the same bytes", () => {
-    for (const c of [...v.exchange, ...v.older.flatMap((o) => o.frames)]) {
-        const f = decode(bytes(c.frame));
-        assert.ok(f, c.type);
-        assert.equal(f.type, c.type);
-        assert.equal(f.seq, c.seq);
-        assert.equal(hex(encode(f.type, f.seq, f.fields)), c.frame);
+test("exchange and older: every frame reads by the version spoken, and builds back to the same bytes", () => {
+    const connections = [{ version: VERSION, frames: v.exchange }, ...v.older];
+    for (const { version, frames } of connections) {
+        for (const c of frames) {
+            // Each older client's last request is one its version does not define, sent on purpose
+            // to see the node refuse it: it is a frame of a later version.
+            const later = c.from === "client" && decode(bytes(c.frame), version) === null;
+            const f = decode(bytes(c.frame), later ? VERSION : version);
+            assert.ok(f, `${c.type}, version ${version}`);
+            assert.equal(f.type, c.type);
+            assert.equal(f.seq, c.seq);
+            assert.equal(hex(encode(f.type, f.seq, f.fields)), c.frame);
+        }
+    }
+});
+
+test("an INFO is read by the lesser of the two versions, and so is all after it", () => {
+    // A node of version 2 says nothing of its board, and its SYNCED carries no count.
+    const info = encode("INFO", 1, { version: 2, firmware: "tern 0.1.0" });
+    assert.deepEqual(decode(info), { type: "INFO", seq: 1, fields: { version: 2, firmware: "tern 0.1.0" } });
+    assert.deepEqual(decode(Uint8Array.of(0x43, 3), 2), { type: "SYNCED", seq: 3, fields: {} });
+    assert.equal(decode(Uint8Array.of(0x43, 3)), null);
+    // A node of version 6 that leaves them out has cut its INFO short.
+    assert.equal(decode(encode("INFO", 1, { version: 6, firmware: "tern 0.1.0" })), null);
+});
+
+test("unknown_to_older: news and answers of a later version are not read by an earlier one", () => {
+    assert.ok(v.unknown_to_older.length >= 15);
+    for (const c of v.unknown_to_older) {
+        assert.equal(decode(bytes(c.frame), c.version), null, `${c.type}, version ${c.version}`);
+        assert.ok(decode(bytes(c.frame)), `${c.type} is read by version ${VERSION}`);
     }
 });
 
@@ -101,4 +126,6 @@ test("encode refuses what is not a frame", () => {
     assert.throws(() => encode("SEND", 1, { ref: 1, to: "00".repeat(32), text: "x".repeat(129) }));
     assert.throws(() => encode("SET", 1, { setting: 9, value: 1 }));
     assert.throws(() => encode("HELLO", 1, {}));
+    assert.throws(() => encode("UPDATE_DATA", 1, { offset: 0, data: "00".repeat(173) }));
+    assert.throws(() => encode("SELF", 0, { address: "00".repeat(32), role: 0, region: "", power: 0, time: 0, card_name: "x" }));
 });

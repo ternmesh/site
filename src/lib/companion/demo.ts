@@ -10,6 +10,8 @@ const SELF = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 const ROBIN = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 const SAM = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
 const KIT = "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e";
+/** RFC 8032's TEST SHA(abc): a stranger whose card the node hears. */
+const CREW = "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf";
 
 interface Held {
     id: number;
@@ -32,8 +34,34 @@ export function openDemo(): Transport {
         { id: 2, contact: ROBIN, time: now() - 5300, flags: 0, state: STATE.delivered, reason: 0, text: "Half an hour out. Signal is good from the col." },
         { id: 3, contact: ROBIN, time: now() - 600, flags: 0, state: STATE.received, reason: 0, text: "Kettle is on." },
     ];
-    const self = { role: 1, region: "US915", power: 2 };
+    const self = { role: 1, region: "US915", power: 2, cards: 0, card_name: "" };
     const tellSelf = () => news("SELF", { address: SELF, ...self, time: now() });
+    /** Who is about: each card's name, and when the node accepted it. */
+    const cards = new Map<string, { name: string; at: number }>([
+        [KIT, { name: "Kit · ridge hut", at: now() - 1260 }],
+        [CREW, { name: "Trail crew, ask about the path", at: now() - 4100 }],
+    ]);
+    const tellCard = (address: string) => {
+        const c = cards.get(address)!;
+        news("CARD", { address, heard: Math.max(0, now() - c.at), name: c.name });
+    };
+    /** Robin shares where they are, to a street: near the col, a quarter of an hour ago. */
+    const robinAt = { precision: 20, lat: 459237000, lon: 68694000, altitude: 2340, accuracy: 12, at: now() - 900 };
+    const tellRobin = () => {
+        const { at, ...where } = robinAt;
+        news("POSITION", { contact: ROBIN, ...where, age: Math.max(0, now() - at) });
+    };
+    /** How this node shares its position, by contact. */
+    const sharing = new Map<string, { precision: number; fields: number; interval: number; ends: number }>();
+    const tellSharing = (contact: string) => {
+        const s = sharing.get(contact);
+        news(
+            "SHARING",
+            s
+                ? { contact, precision: s.precision, fields: s.fields, interval: s.interval, minutes: s.ends === 0 ? 0 : Math.max(1, Math.ceil((s.ends - now()) / 60)) }
+                : { contact, precision: 0, fields: 0, interval: 0, minutes: 0 },
+        );
+    };
     /** Kit asks once, a while after the page first syncs, and is refused: not a contact. */
     let kitAsked = false;
     let greeted = false;
@@ -109,7 +137,8 @@ export function openDemo(): Transport {
             case "HELLO":
                 greeted = true;
                 count = 0;
-                answer("INFO", f.seq, { version: 1, firmware: "a demo, not a node" });
+                // No board: a demo is not a node that can be given firmware.
+                answer("INFO", f.seq, { version: 6, firmware: "a demo, not a node", board: "", release: "" });
                 break;
             case "SYNC":
                 tellSelf();
@@ -123,9 +152,18 @@ export function openDemo(): Transport {
                 }
                 news("NEIGHBOUR", { routing_id: 0x1d2e3f40, role: 1, snr_quarter_db: 38, heard: 12 });
                 news("NEIGHBOUR", { routing_id: 0x7b10c2a9, role: 0, snr_quarter_db: -26, heard: 95 });
+                if (contacts.has(ROBIN)) {
+                    tellRobin();
+                }
+                for (const contact of sharing.keys()) {
+                    tellSharing(contact);
+                }
+                for (const address of cards.keys()) {
+                    tellCard(address);
+                }
                 news("AIRTIME", { period: 0, allowed: 0, used: 812, wait: 0 });
                 news("POWER", { millivolts: 3987, percent: 81, flags: 1 });
-                answer("SYNCED", f.seq);
+                answer("SYNCED", f.seq, { news: count });
                 if (!kitAsked) {
                     kitAsked = true;
                     later(9000, () => contacts.has(KIT) || news("ASKED", { address: KIT, why: 1 }));
@@ -200,7 +238,11 @@ export function openDemo(): Transport {
             case "SET": {
                 // A real node restarts to apply these; this one just changes.
                 const value = x.value;
-                if (x.setting === 1 && (value === "US915" || value === "EU868")) {
+                if (x.setting === 5 && (value === 0 || value === 1)) {
+                    self.cards = value;
+                } else if (x.setting === 6 && typeof value === "string") {
+                    self.card_name = value;
+                } else if (x.setting === 1 && (value === "US915" || value === "EU868")) {
                     self.region = value;
                 } else if (x.setting === 2 && (value === 0 || value === 1)) {
                     self.role = value;
@@ -214,12 +256,50 @@ export function openDemo(): Transport {
                 tellSelf();
                 break;
             }
-            case "REMOVE_CONTACT":
+            case "REMOVE_CONTACT": {
+                const address = String(x.address);
                 answer("OK", f.seq);
-                if (contacts.delete(String(x.address))) {
-                    news("CONTACT_GONE", { address: String(x.address) });
+                if (contacts.delete(address)) {
+                    news("CONTACT_GONE", { address });
+                    if (sharing.delete(address)) {
+                        tellSharing(address);
+                    }
+                    if (address === ROBIN) {
+                        news("POSITION", { contact: ROBIN, precision: 0, lat: 0, lon: 0, altitude: 0, accuracy: 0, age: 0 });
+                    }
                 }
                 break;
+            }
+            case "SET_POSITION":
+                // Kept by a real node to share; here only taken, since nobody receives it.
+                answer("OK", f.seq);
+                break;
+            case "SHARE": {
+                const contact = String(x.contact);
+                if (contact === SELF) {
+                    answer("ERROR", f.seq, { code: 4 });
+                } else if (!contacts.has(contact)) {
+                    answer("ERROR", f.seq, { code: 12 });
+                } else if (x.precision === 0) {
+                    answer("OK", f.seq);
+                    if (sharing.delete(contact)) {
+                        tellSharing(contact);
+                    }
+                } else if (Number(x.precision) > 24 || Number(x.fields) > 3 || Number(x.interval) < 60) {
+                    answer("ERROR", f.seq, { code: 3 });
+                } else {
+                    const minutes = Number(x.minutes);
+                    sharing.set(contact, {
+                        precision: Number(x.precision),
+                        fields: Number(x.fields),
+                        interval: Number(x.interval),
+                        ends: minutes === 0 ? 0 : now() + 60 * minutes,
+                    });
+                    answer("OK", f.seq);
+                    tellSharing(contact);
+                }
+                break;
+            }
             case "PING":
             case "SET_TIME":
                 answer("OK", f.seq);

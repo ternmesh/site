@@ -1,53 +1,104 @@
-// The companion protocol's frames: version 2 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 6 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 2;
+export const VERSION = 6;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
 export const GAP_MS = 500;
 export const ADDRESS_LEN = 32;
 export const GROUP_LEN = 8;
+export const DIGEST_LEN = 32;
 export const TEXT_MAX = 128;
 export const NAME_MAX = 31;
+export const UPDATE_CHUNK = 172;
 
-type Kind = "u8" | "i8" | "u16" | "u32" | "addr" | "gid" | "str";
-/** How many bytes a field of bytes is: an address, or a group's id. */
-const BYTES: Readonly<Partial<Record<Kind, number>>> = { addr: ADDRESS_LEN, gid: GROUP_LEN };
-type Field = readonly [name: string, kind: Kind, longest?: number];
+type Kind = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "addr" | "gid" | "digest" | "str" | "bytes";
+/** How many bytes a field of fixed bytes is: an address, a group's id or a digest. */
+const FIXED: Readonly<Partial<Record<Kind, number>>> = { addr: ADDRESS_LEN, gid: GROUP_LEN, digest: DIGEST_LEN };
+const WIDTH: Readonly<Partial<Record<Kind, number>>> = { u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4 };
+/** A field: its name and kind, the longest a str or bytes may be, and the version that added it. */
+type Field = readonly [name: string, kind: Kind, longest?: number, since?: number];
 
-// Every frame of version 2, by type: its name and its fields in order. END_SESSION and ASKED are
-// what version 1 added; the requests from 0x20, MADE, and the news from 0x8a are version 2's, for
-// groups.
-const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
-    0x01: ["HELLO", [["version", "u8"]]],
-    0x02: ["SYNC", [["after", "u32"]]],
-    0x03: ["PING", []],
-    0x04: ["SET_TIME", [["time", "u32"]]],
-    0x05: ["SET", [["setting", "u8"]]],
-    0x10: ["SEND", [["ref", "u32"], ["to", "addr"], ["text", "str", TEXT_MAX]]],
-    0x11: ["READ", [["through", "u32"]]],
-    0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]]],
-    0x19: ["REMOVE_CONTACT", [["address", "addr"]]],
-    0x1a: ["END_SESSION", [["address", "addr"]]],
-    0x20: ["MAKE_GROUP", [["name", "str", NAME_MAX]]],
-    0x21: ["LEAVE_GROUP", [["group", "gid"]]],
-    0x22: ["NAME_GROUP", [["group", "gid"], ["name", "str", NAME_MAX]]],
-    0x23: ["SEND_GROUP", [["ref", "u32"], ["group", "gid"], ["text", "str", TEXT_MAX]]],
-    0x24: ["SEND_INVITE", [["group", "gid"], ["to", "addr"]]],
-    0x25: ["JOIN", [["id", "u32"]]],
-    0x40: ["OK", []],
-    0x41: ["ERROR", [["code", "u8"]]],
-    0x42: ["INFO", [["version", "u8"], ["firmware", "str", 31]]],
-    0x43: ["SYNCED", []],
-    0x44: ["QUEUED", [["id", "u32"]]],
-    0x45: ["MADE", [["group", "gid"]]],
-    0x80: ["SELF", [["address", "addr"], ["role", "u8"], ["region", "str", 15], ["power", "i8"], ["time", "u32"]]],
-    0x81: ["CONTACT", [["address", "addr"], ["session", "u8"], ["name", "str", NAME_MAX]]],
-    0x82: ["CONTACT_GONE", [["address", "addr"]]],
+const sharing: readonly Field[] = [
+    ["precision", "u8"],
+    ["fields", "u8"],
+    ["interval", "u16"],
+    ["minutes", "u16"],
+];
+const position: readonly Field[] = [
+    ["precision", "u8"],
+    ["lat", "i32"],
+    ["lon", "i32"],
+    ["altitude", "i16"],
+    ["accuracy", "u8"],
+    ["age", "u32"],
+];
+
+// Every frame of version 6, by type: its name, its fields in order, and the version that added it.
+// A field added at the end of a frame by a later version says so; a receiver reads a frame by the
+// version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
+const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
+    0x01: ["HELLO", [["version", "u8"]], 0],
+    0x02: ["SYNC", [["after", "u32"]], 0],
+    0x03: ["PING", [], 0],
+    0x04: ["SET_TIME", [["time", "u32"]], 0],
+    0x05: ["SET", [["setting", "u8"]], 0],
+    0x10: ["SEND", [["ref", "u32"], ["to", "addr"], ["text", "str", TEXT_MAX]], 0],
+    0x11: ["READ", [["through", "u32"]], 0],
+    0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
+    0x19: ["REMOVE_CONTACT", [["address", "addr"]], 0],
+    0x1a: ["END_SESSION", [["address", "addr"]], 1],
+    0x20: ["MAKE_GROUP", [["name", "str", NAME_MAX]], 2],
+    0x21: ["LEAVE_GROUP", [["group", "gid"]], 2],
+    0x22: ["NAME_GROUP", [["group", "gid"], ["name", "str", NAME_MAX]], 2],
+    0x23: ["SEND_GROUP", [["ref", "u32"], ["group", "gid"], ["text", "str", TEXT_MAX]], 2],
+    0x24: ["SEND_INVITE", [["group", "gid"], ["to", "addr"]], 2],
+    0x25: ["JOIN", [["id", "u32"]], 2],
+    0x30: ["UPDATE_BEGIN", [["size", "u32"], ["digest", "digest"]], 4],
+    0x31: ["UPDATE_DATA", [["offset", "u32"], ["data", "bytes", UPDATE_CHUNK]], 4],
+    0x32: ["UPDATE_END", [], 4],
+    0x33: [
+        "SET_POSITION",
+        [["lat", "i32"], ["lon", "i32"], ["altitude", "i16"], ["accuracy", "u16"], ["age", "u16"]],
+        5,
+    ],
+    0x34: ["SHARE", [["contact", "addr"], ...sharing], 5],
+    0x35: ["SHARE_GROUP", [["group", "gid"], ...sharing], 5],
+    0x40: ["OK", [], 0],
+    0x41: ["ERROR", [["code", "u8"]], 0],
+    0x42: [
+        "INFO",
+        [
+            ["version", "u8"],
+            ["firmware", "str", 31],
+            ["board", "str", 31, 4],
+            ["release", "str", 31, 4],
+        ],
+        0,
+    ],
+    0x43: ["SYNCED", [["news", "u8", undefined, 3]], 0],
+    0x44: ["QUEUED", [["id", "u32"]], 0],
+    0x45: ["MADE", [["group", "gid"]], 2],
+    0x46: ["UPDATING", [["offset", "u32"]], 4],
+    0x80: [
+        "SELF",
+        [
+            ["address", "addr"],
+            ["role", "u8"],
+            ["region", "str", 15],
+            ["power", "i8"],
+            ["time", "u32"],
+            ["cards", "u8", undefined, 6],
+            ["card_name", "str", NAME_MAX, 6],
+        ],
+        0,
+    ],
+    0x81: ["CONTACT", [["address", "addr"], ["session", "u8"], ["name", "str", NAME_MAX]], 0],
+    0x82: ["CONTACT_GONE", [["address", "addr"]], 0],
     0x83: [
         "MESSAGE",
         [
@@ -60,15 +111,16 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
             ["wait", "u16"],
             ["text", "str", TEXT_MAX],
         ],
+        0,
     ],
-    0x84: ["STATE", [["id", "u32"], ["state", "u8"], ["reason", "u8"], ["wait", "u16"]]],
-    0x85: ["NEIGHBOUR", [["routing_id", "u32"], ["role", "u8"], ["snr_quarter_db", "i8"], ["heard", "u16"]]],
-    0x86: ["NEIGHBOUR_GONE", [["routing_id", "u32"]]],
-    0x87: ["AIRTIME", [["period", "u32"], ["allowed", "u32"], ["used", "u32"], ["wait", "u32"]]],
-    0x88: ["POWER", [["millivolts", "u16"], ["percent", "u8"], ["flags", "u8"]]],
-    0x89: ["ASKED", [["address", "addr"], ["why", "u8"]]],
-    0x8a: ["GROUP", [["group", "gid"], ["name", "str", NAME_MAX]]],
-    0x8b: ["GROUP_GONE", [["group", "gid"]]],
+    0x84: ["STATE", [["id", "u32"], ["state", "u8"], ["reason", "u8"], ["wait", "u16"]], 0],
+    0x85: ["NEIGHBOUR", [["routing_id", "u32"], ["role", "u8"], ["snr_quarter_db", "i8"], ["heard", "u16"]], 0],
+    0x86: ["NEIGHBOUR_GONE", [["routing_id", "u32"]], 0],
+    0x87: ["AIRTIME", [["period", "u32"], ["allowed", "u32"], ["used", "u32"], ["wait", "u32"]], 0],
+    0x88: ["POWER", [["millivolts", "u16"], ["percent", "u8"], ["flags", "u8"]], 0],
+    0x89: ["ASKED", [["address", "addr"], ["why", "u8"]], 1],
+    0x8a: ["GROUP", [["group", "gid"], ["name", "str", NAME_MAX]], 2],
+    0x8b: ["GROUP_GONE", [["group", "gid"]], 2],
     0x8c: [
         "GROUP_MESSAGE",
         [
@@ -82,6 +134,7 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
             ["wait", "u16"],
             ["text", "str", TEXT_MAX],
         ],
+        2,
     ],
     0x8d: [
         "INVITE",
@@ -96,28 +149,47 @@ const FRAMES: Readonly<Record<number, readonly [string, readonly Field[]]>> = {
             ["wait", "u16"],
             ["name", "str", NAME_MAX],
         ],
+        2,
     ],
+    0x8e: ["POSITION", [["contact", "addr"], ...position], 5],
+    0x8f: ["GROUP_POSITION", [["group", "gid"], ["from", "u32"], ...position], 5],
+    0x90: ["SHARING", [["contact", "addr"], ...sharing], 5],
+    0x91: ["GROUP_SHARING", [["group", "gid"], ...sharing], 5],
+    0x92: ["CARD", [["address", "addr"], ["heard", "u32"], ["name", "str", NAME_MAX]], 6],
+    0x93: ["CARD_GONE", [["address", "addr"]], 6],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
     Object.entries(FRAMES).map(([type, [name]]) => [name, Number(type)]),
 );
 
-// SET's value follows its setting, and its kind depends on which.
-const SETTINGS: Readonly<Record<number, Field>> = {
-    1: ["value", "str", 15],
-    2: ["value", "u8"],
-    3: ["value", "i8"],
-    4: ["value", "u32"],
+// SET's value follows its setting, and its kind depends on which; each with the version that added it.
+const SETTINGS: Readonly<Record<number, readonly [Field, number]>> = {
+    1: [["value", "str", 15], 0],
+    2: [["value", "u8"], 0],
+    3: [["value", "i8"], 0],
+    4: [["value", "u32"], 0],
+    5: [["value", "u8"], 6],
+    6: [["value", "str", NAME_MAX], 6],
 };
 
-export const SETTING = { region: 1, role: 2, power: 3, passkey: 4 } as const;
+export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6 } as const;
 /** Why a node refused first contact: ASKED's `why`. */
 export const ASKED = { notContact: 1, noRoom: 2 } as const;
 
 export const STATE = { waiting: 0, sent: 1, delivered: 2, notDelivered: 3, received: 4 } as const;
 
-/** A field's value: a number, text, or an address or a group's id as lower-case hex. */
+/** The version that added a request, which a client does not send to a node that speaks an earlier one. */
+export function since(type: string): number {
+    const t = TYPES[type];
+    return t === undefined ? Infinity : FRAMES[t]![2];
+}
+/** The version that added a setting. */
+export function settingSince(setting: number): number {
+    return SETTINGS[setting]?.[1] ?? Infinity;
+}
+
+/** A field's value: a number, text, or an address, a group's id, a digest or bytes as lower-case hex. */
 export type Value = number | string;
 export type Fields = Record<string, Value>;
 
@@ -169,7 +241,8 @@ export function crc16(data: Uint8Array): number {
     return crc;
 }
 
-function fieldsOf(type: number, fields: Fields): readonly Field[] | null {
+/** A frame's fields, with SET's value after its setting; null for a type or setting not defined. */
+function fieldsOf(type: number, setting: number | undefined): readonly Field[] | null {
     const frame = FRAMES[type];
     if (!frame) {
         return null;
@@ -177,36 +250,46 @@ function fieldsOf(type: number, fields: Fields): readonly Field[] | null {
     if (frame[0] !== "SET") {
         return frame[1];
     }
-    const value = SETTINGS[Number(fields.setting)];
-    return value ? [...frame[1], value] : null;
+    const value = setting === undefined ? undefined : SETTINGS[setting];
+    return value ? [...frame[1], value[0]] : null;
 }
 
 /**
  * Builds a frame. Throws if the type is not one of this version's, a field is missing or of the
- * wrong kind, text is longer than its field allows, or the frame is longer than MAX_FRAME: these
- * are the caller's mistakes, not the wire's.
+ * wrong kind, text or bytes are longer than their field allows, or the frame is longer than
+ * MAX_FRAME: these are the caller's mistakes, not the wire's. A field a later version added at the
+ * end of a frame is left out when it is not given, with every field after it: that is the frame
+ * as an earlier version builds it.
  */
 export function encode(type: string, seq: number, fields: Fields = {}): Uint8Array {
     const t = TYPES[type];
-    const list = t === undefined ? null : fieldsOf(t, fields);
+    const list = t === undefined ? null : fieldsOf(t, typeof fields.setting === "number" ? fields.setting : undefined);
     if (t === undefined || !list) {
         throw new Error(`not a frame of this version: ${type}`);
     }
     const out: number[] = [t, seq & 0xff];
-    for (const [name, kind, longest] of list) {
+    let ended = false;
+    for (const [name, kind, longest, added] of list) {
         const v = fields[name];
-        const width = BYTES[kind];
+        if (added !== undefined && (v === undefined || ended)) {
+            if (v !== undefined) {
+                throw new Error(`${type}.${name} is given without the fields before it`);
+            }
+            ended = true;
+            continue;
+        }
+        const width = FIXED[kind];
         if (width !== undefined) {
             const bytes = typeof v === "string" ? unhex(v) : null;
             if (!bytes || bytes.length !== width) {
-                throw new Error(`${type}.${name} is not ${kind === "addr" ? "an address" : "a group's id"}`);
+                throw new Error(`${type}.${name} is not ${width} bytes of hex`);
             }
             out.push(...bytes);
-        } else if (kind === "str") {
-            if (typeof v !== "string") {
-                throw new Error(`${type}.${name} is not text`);
+        } else if (kind === "str" || kind === "bytes") {
+            const bytes = typeof v !== "string" ? null : kind === "str" ? new TextEncoder().encode(v) : unhex(v);
+            if (!bytes) {
+                throw new Error(`${type}.${name} is not ${kind === "str" ? "text" : "bytes as hex"}`);
             }
-            const bytes = new TextEncoder().encode(v);
             if (bytes.length > (longest ?? 255)) {
                 throw new Error(`${type}.${name} is longer than ${longest} bytes`);
             }
@@ -215,9 +298,10 @@ export function encode(type: string, seq: number, fields: Fields = {}): Uint8Arr
             if (typeof v !== "number" || !Number.isInteger(v)) {
                 throw new Error(`${type}.${name} is not a whole number`);
             }
-            const size = kind === "u32" ? 4 : kind === "u16" ? 2 : 1;
+            const size = WIDTH[kind]!;
+            const n = v < 0 ? v + 2 ** (8 * size) : v;
             for (let i = size - 1; i >= 0; i--) {
-                out.push(Math.floor(v / 2 ** (8 * i)) & 0xff);
+                out.push(Math.floor(n / 2 ** (8 * i)) & 0xff);
             }
         }
     }
@@ -228,43 +312,54 @@ export function encode(type: string, seq: number, fields: Fields = {}): Uint8Arr
 }
 
 /**
- * Reads a frame, or returns null for one that is malformed or of a type this version does not
- * define. Bytes after the fields this version defines are ignored, as the specification requires:
- * that is how a later version adds a field.
+ * Reads a frame by `version`, the one both ends speak, or returns null for one that is malformed
+ * or of a type, or naming a setting, that version does not define. Bytes after the fields that
+ * version defines are ignored, as the specification requires: that is how a later version adds a
+ * field. An INFO is read by the lesser of `version` and the version it carries, since it is how a
+ * client learns the node's.
  */
-export function decode(frame: Uint8Array): Frame | null {
+export function decode(frame: Uint8Array, version: number = VERSION): Frame | null {
     if (frame.length < 2 || frame.length > MAX_FRAME) {
         return null;
     }
     const def = FRAMES[frame[0]!];
-    if (!def) {
+    if (!def || def[2] > version) {
         return null;
     }
     const fields: Fields = {};
     let at = 2;
+    let spoken = version;
     let list: readonly Field[] = def[1];
     for (let i = 0; i < list.length; i++) {
-        const [name, kind, longest] = list[i]!;
-        const width = BYTES[kind];
+        const [name, kind, longest, added] = list[i]!;
+        if (added !== undefined && added > spoken) {
+            break; // and so is every field after it: later versions add only at the end
+        }
+        const width = FIXED[kind];
         if (width !== undefined) {
             if (at + width > frame.length) {
                 return null;
             }
             fields[name] = hex(frame.subarray(at, at + width));
             at += width;
-        } else if (kind === "str") {
+        } else if (kind === "str" || kind === "bytes") {
             const n = frame[at];
             if (n === undefined || n > (longest ?? 255) || at + 1 + n > frame.length) {
                 return null;
             }
-            try {
-                fields[name] = new TextDecoder("utf-8", { fatal: true }).decode(frame.subarray(at + 1, at + 1 + n));
-            } catch {
-                return null;
+            const bytes = frame.subarray(at + 1, at + 1 + n);
+            if (kind === "bytes") {
+                fields[name] = hex(bytes);
+            } else {
+                try {
+                    fields[name] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+                } catch {
+                    return null;
+                }
             }
             at += 1 + n;
         } else {
-            const size = kind === "u32" ? 4 : kind === "u16" ? 2 : 1;
+            const size = WIDTH[kind]!;
             if (at + size > frame.length) {
                 return null;
             }
@@ -272,15 +367,18 @@ export function decode(frame: Uint8Array): Frame | null {
             for (let k = 0; k < size; k++) {
                 v = v * 256 + frame[at + k]!;
             }
-            fields[name] = kind === "i8" && v > 127 ? v - 256 : v;
+            fields[name] = kind[0] === "i" && v >= 2 ** (8 * size - 1) ? v - 2 ** (8 * size) : v;
             at += size;
+        }
+        if (def[0] === "INFO" && name === "version") {
+            spoken = Math.min(version, Number(fields.version));
         }
         if (def[0] === "SET" && name === "setting") {
             const value = SETTINGS[Number(fields.setting)];
-            if (!value) {
+            if (!value || value[1] > version) {
                 return null;
             }
-            list = [...def[1], value];
+            list = [...def[1], value[0]];
         }
     }
     return { type: def[0], seq: frame[1]!, fields };
