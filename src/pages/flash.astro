@@ -1,9 +1,18 @@
 ---
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
+import { layoutOf, parseSums } from "../lib/flash/images.ts";
 
 const org = "https://github.com/ternmesh";
 const notes = `${org}/firmware/releases/tag/v${release.version}`;
+
+// tools/firmware.ts put the release here before the build: a release from before the OTA layout
+// cannot be updated from a phone, so the page only says it can for one that can.
+const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
+const ota = layoutOf(release.version, sums) === "ota";
 ---
 
 <Base
@@ -69,6 +78,14 @@ const notes = `${org}/firmware/releases/tag/v${release.version}`;
                     <input type="radio" name="kind" value="update" required />
                     Tern already
                     <span class="muted">keeps its address, its sessions and its contacts</span>
+                    {
+                        ota && (
+                            <span class="muted">
+                                update it this way once, and from then on the Tern phone apps can update it over
+                                Bluetooth
+                            </span>
+                        )
+                    }
                 </label>
             </fieldset>
 

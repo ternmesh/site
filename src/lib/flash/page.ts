@@ -2,8 +2,8 @@
 
 import release from "../../data/firmware.json";
 import { flash } from "./flash.ts";
-import type { Stage } from "./flash.ts";
-import { ADDRESS, check, imageName, parseSums, REGIONS } from "./images.ts";
+import type { Image, Stage } from "./flash.ts";
+import { check, layoutOf, parseSums, REGIONS, sparesNvs, writes } from "./images.ts";
 import type { Kind, Region } from "./images.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -28,12 +28,23 @@ async function fetchBytes(path: string): Promise<Uint8Array> {
     return new Uint8Array(await answer.arrayBuffer());
 }
 
-/** The image for a choice, checked against the release's checksums. */
-async function image(region: Region, kind: Kind): Promise<Uint8Array> {
-    const name = imageName(release.version, region, kind);
-    const [data, sums] = await Promise.all([fetchBytes(`/firmware/${name}`), fetchBytes("/firmware/SHA256SUMS")]);
-    await check(name, data, parseSums(new TextDecoder().decode(sums)));
-    return data;
+/**
+ * The images for a choice, every one checked against the release's checksums before any is
+ * written. An update leaves NVS alone, so a board keeps its address, contacts and sessions.
+ */
+async function images(region: Region, kind: Kind): Promise<Image[]> {
+    const sums = parseSums(new TextDecoder().decode(await fetchBytes("/firmware/SHA256SUMS")));
+    const plan = writes(release.version, region, kind, layoutOf(release.version, sums));
+    return Promise.all(
+        plan.map(async ({ name, address }) => {
+            const data = await fetchBytes(`/firmware/${name}`);
+            await check(name, data, sums);
+            if (kind === "update") {
+                sparesNvs(name, address, data.length);
+            }
+            return { data, address };
+        }),
+    );
 }
 
 function chosen<T extends string>(name: string, among: readonly T[]): T | undefined {
@@ -82,9 +93,8 @@ function start(): void {
         lines.length = 0;
         log.textContent = "";
         try {
-            say("Fetching the image…");
-            const data = await image(region, kind);
-            await flash(port, data, ADDRESS[kind], {
+            say("Fetching the firmware…");
+            await flash(port, await images(region, kind), {
                 onStage: (stage) => {
                     say(STAGES[stage]);
                     if (stage !== "writing") {

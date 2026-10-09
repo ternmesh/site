@@ -68,23 +68,72 @@ node tools/board.ts /dev/cu.usbserial-0001 <address> "hello"  # and send a messa
 ## The flash page
 
 `/flash` puts the firmware on a Heltec V3 from the browser, over Web Serial: it asks where the
-board will be used and whether it runs Tern already, fetches the image, checks it against the
-release's SHA-256 checksums, and writes it with Espressif's
+board will be used and whether it runs Tern already, fetches the images, checks them against the
+release's SHA-256 checksums, and writes them with Espressif's
 [esptool-js](https://github.com/espressif/esptool-js).
+
+A release has four images for each region `<r>` (`us915`, `eu868`) and version `<v>`, and one
+`SHA256SUMS` over all of them. The board's flash is NVS at 0x9000 to 0xF000 (its address,
+contacts, sessions and bonds), otadata at 0xF000, and two 2 MB app slots at 0x20000 and 0x220000.
+
+| | Written | |
+|---|---|---|
+| `tern-heltec-v3-<r>-<v>.bin` | at 0x0 | The whole flash, NVS blank. **New**: the board gets a new address. |
+| `tern-heltec-v3-<r>-<v>-boot.bin` | at 0x0 | The bootloader and partition table, 0x9000 bytes: it stops where NVS starts. |
+| `tern-heltec-v3-<r>-<v>-update.bin` | at 0xF000 | otadata blank, then the app in the first slot. |
+| `tern-heltec-v3-<r>-<v>-app.bin` | over Bluetooth | The app alone, which the phone apps send. Not written over USB. |
+
+**Update** writes `-boot.bin` and `-update.bin` in one session, both checked first, and refuses
+either if it would reach NVS. It works on a board with the old one-app layout as well as the new
+one, and keeps the board's NVS: after it, a node is in the two-slot layout and the phone apps can
+update it. Releases up to 0.1.0-alpha.4 have neither file; for one of those, which
+`tools/firmware.ts` and the page tell by its `SHA256SUMS`, an update writes `-app.bin` at 0x10000
+as it used to, and the page does not mention the phone apps.
 
 A page cannot read a GitHub release's files itself, so the site carries a copy.
 `src/data/firmware.json` names the [firmware release](https://github.com/ternmesh/firmware/releases)
 the site offers, and `tools/firmware.ts`, which `npm run build` and `npm run dev` run first, fetches its images
 into `public/firmware/` (not kept in git) and refuses any that the release's `SHA256SUMS` does
 not match. **To offer a new release, change the version there**; the build fails if no such
-release exists.
+release exists, or if it names some of the update's images and not all.
 
 | | |
 |---|---|
-| `src/lib/flash/images.ts` | The images a release has, by name, and the check against its checksums. |
-| `src/lib/flash/flash.ts` | Writing one to the board, checking it, and restarting the board. |
+| `src/lib/flash/images.ts` | The images a release has, by name, what each choice writes where, the check against its checksums, and `latest.json`. |
+| `src/lib/flash/flash.ts` | Writing them to the board, checking it, and restarting the board. |
 | `src/lib/flash/md5.ts` | MD5, which is how the board's bootloader says what it holds. |
 | `src/lib/flash/page.ts` | The page. |
+
+### latest.json: what the phone apps read
+
+For a release in the two-slot layout, `tools/firmware.ts` also writes
+`https://ternmesh.org/firmware/latest.json`, and the Tern phone apps read it to update a node
+over Bluetooth. It is a contract with them: change it only with them.
+
+```json
+{
+    "release": "0.1.0",
+    "images": [
+        {
+            "board": "heltec-v3",
+            "region": "EU868",
+            "file": "tern-heltec-v3-eu868-0.1.0-app.bin",
+            "size": 1234567,
+            "sha256": "<64 hex digits>"
+        }
+    ]
+}
+```
+
+* `release` is the version `src/data/firmware.json` pins, without the `v`.
+* One entry per board and region. `region` is as the node reports it (`US915`, `EU868`): an app
+  sends a node only the image for its own board and region. The order means nothing.
+* `file` is relative to `/firmware/`, the app image alone. `size` is its length in bytes and
+  `sha256` its SHA-256 in lowercase hex, both of the file this site serves, which is the
+  release's (checked against its `SHA256SUMS`).
+* A release from before the two-slot layout has no `latest.json`: its app is not one a phone may
+  send. An app takes a missing file to mean there is nothing to update to.
+* Fields may be added; none will be removed or change meaning without the apps.
 
 To try images that are not released, point the build at the directory
 `ports/heltec-v3/release.sh` leaves in the firmware repository:

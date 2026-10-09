@@ -1,4 +1,4 @@
-// Writes an image to an ESP32-S3 over Web Serial, with Espressif's own esptool-js: the board is
+// Writes images to an ESP32-S3 over Web Serial, with Espressif's own esptool-js: the board is
 // reset into its ROM bootloader by the port's DTR and RTS lines, the way esptool.py does it.
 
 import { ESPLoader, Transport } from "esptool-js";
@@ -33,11 +33,17 @@ async function restart(transport: Transport): Promise<void> {
     await transport.setRTS(false);
 }
 
+export interface Image {
+    data: Uint8Array;
+    address: number;
+}
+
 /**
- * Writes `image` at `address`, checks the board holds what was sent, and restarts it. `port` is a
- * Web Serial port that is not open. It is closed again when this returns or throws.
+ * Writes each image at its address, in one session, checks the board holds what was sent, and
+ * restarts it. `port` is a Web Serial port that is not open. It is closed again when this returns
+ * or throws. Progress is of all of them together, in their bytes before compression.
  */
-export async function flash(port: unknown, image: Uint8Array, address: number, options: FlashOptions): Promise<void> {
+export async function flash(port: unknown, images: Image[], options: FlashOptions): Promise<void> {
     const transport = new Transport(port as ConstructorParameters<typeof Transport>[0], false);
     const log = (line: string) => options.onLog?.(line);
     const loader = new ESPLoader({
@@ -54,16 +60,20 @@ export async function flash(port: unknown, image: Uint8Array, address: number, o
         }
         options.onStage("writing", chip);
         let done = false;
+        const total = images.reduce((sum, image) => sum + image.data.length, 0);
+        const before = (i: number) => images.slice(0, i).reduce((sum, image) => sum + image.data.length, 0);
         await loader.writeFlash({
-            fileArray: [{ data: image, address }],
+            fileArray: images.map(({ data, address }) => ({ data, address })),
             flashMode: "keep",
             flashFreq: "keep",
             flashSize: "keep",
             eraseAll: false,
             compress: true,
-            reportProgress: (_file, written, total) => {
-                options.onProgress(written, total);
-                if (written >= total && !done) {
+            // esptool-js counts each file's compressed bytes: scaled here to its share of the whole.
+            reportProgress: (file, sent, compressed) => {
+                const size = images[file]?.data.length ?? 0;
+                options.onProgress(before(file) + (compressed ? Math.round((size * sent) / compressed) : 0), total);
+                if (file === images.length - 1 && sent >= compressed && !done) {
                     done = true;
                     options.onStage("checking", chip);
                 }
