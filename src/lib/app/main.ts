@@ -1263,6 +1263,10 @@ function draw(): void {
         $("console").hidden = !up || !hasConsole;
         feedPosition();
         if (!up || !client?.ready) {
+            // A join code shown is let go of with the link, whichever way the link went: the panel
+            // is in the subtree just hidden.
+            shownCode = null;
+            document.querySelector(".join-code")?.remove();
             return;
         }
         if (client.self && (!history || !historyFor(client.self.address))) {
