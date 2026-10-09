@@ -1,0 +1,138 @@
+---
+import Base from "../layouts/Base.astro";
+
+const org = "https://github.com/ternmesh";
+---
+
+<Base
+    title="Apps"
+    description="Tern's apps for Android, for iPhone, iPad and Mac, and in the browser: what each runs on and where to get it."
+>
+    <section class="apps wrap">
+        <h1>The apps</h1>
+        <p class="lede">
+            An app is how you use a Tern node: it talks to the node over Bluetooth or USB, and the node does the
+            radio. Every one of them needs a node with Tern's firmware, which you can
+            <a href="/flash">put on a Heltec V3</a> from a browser.
+        </p>
+        <p class="note">
+            This is an alpha of a draft protocol. Its cryptography has not been reviewed: do not trust it with
+            anything that matters.
+        </p>
+
+        <ul class="list">
+            <li class="card" id="android">
+                <h2>Android</h2>
+                <p class="muted">Android 8 or later.</p>
+                <p>
+                    Chats with contacts and groups, adding a contact by its QR code or link, sharing your position on
+                    a map with the people you choose, the node's battery and settings, and updates to its firmware
+                    over Bluetooth. A node's link opens in the app.
+                </p>
+                <p>
+                    <a class="button" href={`${org}/android/releases/latest`}>Download the APK</a>
+                </p>
+                <p class="muted small">
+                    From the app's latest release on GitHub. Open the file on the phone; Android asks first to be
+                    allowed to install apps from your browser. The APK is signed with the project's release key, so a
+                    newer one installs over an older one. Source and issues:
+                    <a href={`${org}/android`}>ternmesh/android</a>.
+                </p>
+            </li>
+
+            <li class="card" id="apple">
+                <h2>iPhone, iPad and Mac</h2>
+                <p class="muted">iOS 16 or later, macOS 13 or later.</p>
+                <p>
+                    One app for all three: chats with contacts and groups, adding a contact by its QR code on iPhone
+                    and iPad or its link anywhere, sharing your position on a map, the node's battery and settings,
+                    and updates to its firmware over Bluetooth.
+                </p>
+                <p>
+                    It is being tested through Apple's TestFlight, and there is no public link to join yet. To try
+                    it, ask on <a href={`${org}/apple`}>ternmesh/apple</a>, where its source is.
+                </p>
+            </li>
+
+            <li class="card" id="browser">
+                <h2>In the browser</h2>
+                <p class="muted">Chrome or Edge, on a computer or an Android phone.</p>
+                <p>
+                    Chats with contacts and groups, through a node plugged into the computer over USB, or one in
+                    Bluetooth's reach. Nothing to install, and nothing runs on a server. Safari and Firefox cannot
+                    reach a node yet.
+                </p>
+                <p>
+                    <a class="button" href="/app">Open the app</a>
+                    <a class="button secondary" href="/app?demo">Try it without a board</a>
+                </p>
+            </li>
+        </ul>
+
+        <p class="muted small">
+            What the apps send anywhere but to your node is on the <a href="/privacy">privacy page</a>.
+        </p>
+    </section>
+</Base>
+
+<style>
+    .apps {
+        padding-top: 32px;
+        padding-bottom: 48px;
+        max-width: 44rem;
+    }
+    h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 0 0 12px;
+    }
+    .lede {
+        font-size: 1.1rem;
+    }
+    .list {
+        list-style: none;
+        padding: 0;
+        margin: 24px 0;
+        display: grid;
+        gap: 16px;
+    }
+    .note,
+    .card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+    }
+    .note {
+        background: var(--accent-soft);
+    }
+    .card {
+        background: var(--surface);
+    }
+    .card h2 {
+        margin: 0;
+        font-size: 1.3rem;
+    }
+    .card p {
+        margin: 8px 0;
+    }
+    .card .muted:first-of-type {
+        margin-top: 2px;
+    }
+    .small {
+        font-size: 0.9rem;
+    }
+    a.button {
+        display: inline-block;
+        margin: 4px 8px 4px 0;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        text-decoration: none;
+    }
+    a.button.secondary {
+        background: transparent;
+        color: var(--accent);
+    }
+</style>
