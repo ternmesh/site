@@ -108,8 +108,9 @@ looked at: the specification says why it is not after a `#`. `observability` sta
 `wrangler.jsonc` for that reason too: there are no request logs to keep.
 
 `public/.well-known/assetlinks.json` names the Android app (`org.ternmesh.app`, by the
-fingerprint of the key in its repository that signs its builds), so a phone with the app opens a
-link in it and never asks the site for the page. The iOS app's `apple-app-site-association` waits
+fingerprint of its release key, which only the maintainers hold; CI on main prints it in its
+summary), so a phone with the app opens a link in it and never asks the site for the page. The
+debug build is a different package and is not named. The iOS app's `apple-app-site-association` waits
 on it having a team to sign with.
 
 | | |
