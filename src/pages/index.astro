@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import release from "../data/firmware.json";
 
 const org = "https://github.com/ternmesh";
 
@@ -39,14 +40,64 @@ const repos = [
 
 <Base>
     <section class="hero wrap">
-        <p class="status">Pre-draft · nothing to install yet</p>
+        <p class="status">Alpha · a draft protocol</p>
         <h1>Tern</h1>
         <p class="lede">
             An open LoRa mesh protocol that treats airtime as a shared, metered resource.
         </p>
+        <p class="cta">
+            <a class="button" href="#start">Get started</a>
+            <a class="button secondary" href="/app">Open the app</a>
+            <a class="button secondary" href="/why">Why Tern</a>
+        </p>
+        <p class="muted small">
+            It runs today: firmware {release.version} for one board, an app for Android, one for iPhone, iPad and
+            Mac in testing, and one in the browser. It is an alpha of a draft protocol. Its cryptography has not been reviewed: do not
+            trust it with anything that matters.
+        </p>
     </section>
 
-    <section class="wrap">
+    <section class="wrap" id="start">
+        <h2>Get started</h2>
+        <ol class="steps">
+            <li class="card">
+                <h3>A board</h3>
+                <p>
+                    A <strong>Heltec WiFi LoRa 32 V3</strong>, the 863-928 MHz kind, with its antenna. It is the one
+                    board Tern runs on today. The Heltec V4 and the Heltec Mesh Node T114 are built but not yet run
+                    on a board.
+                </p>
+            </li>
+            <li class="card">
+                <h3>Flash it</h3>
+                <p>
+                    <a href="/flash">Put Tern on it</a> from Chrome or Edge on a computer, over USB, with nothing to
+                    install. It replaces Meshtastic or MeshCore if either is on the board.
+                </p>
+            </li>
+            <li class="card">
+                <h3>An app</h3>
+                <p>
+                    <a href="/apps#android">Android</a>, <a href="/apps#apple">iPhone, iPad or Mac</a>, or
+                    <a href="/app">the app in your browser</a>, in Chrome or Edge. Each talks to the node over
+                    Bluetooth; the browser can use USB too.
+                </p>
+            </li>
+            <li class="card">
+                <h3>Add someone</h3>
+                <p>
+                    Scan their node's QR code, or open its link, and add them as a contact. Compare the twelve-digit
+                    code with them to check it is their node. Then write.
+                </p>
+            </li>
+        </ol>
+        <p class="muted">
+            Two boards, one for each of you, are the least that makes a conversation. Where you are matters: the
+            firmware has images for the US915 and EU868 regions only.
+        </p>
+    </section>
+
+    <section class="wrap" id="ideas">
         <h2>What it is built around</h2>
         <p class="muted">
             These are design goals. Each one is being tested in simulation and on real radios
@@ -154,5 +205,44 @@ const repos = [
     }
     .plain {
         padding-left: 1.2rem;
+    }
+    .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 1.5rem 0 0.75rem;
+    }
+    .small {
+        font-size: 0.9rem;
+        max-width: 40rem;
+    }
+    .steps {
+        list-style: none;
+        padding: 0;
+        counter-reset: step;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+        gap: 1rem;
+    }
+    .steps li {
+        counter-increment: step;
+    }
+    .steps h3::before {
+        content: counter(step) ". ";
+        color: var(--accent);
+    }
+    a.button {
+        display: inline-block;
+        padding: 9px 16px;
+        border-radius: var(--radius);
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        text-decoration: none;
+    }
+    a.button.secondary {
+        background: transparent;
+        color: var(--accent);
     }
 </style>
