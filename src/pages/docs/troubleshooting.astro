@@ -1,0 +1,164 @@
+---
+import Docs from "../../layouts/Docs.astro";
+
+const fw = "https://github.com/ternmesh/firmware";
+---
+
+<Docs
+    title="Troubleshooting"
+    description="What to do when flashing, pairing, finding other nodes or delivering a message does not go as it should."
+>
+    <h1>Troubleshooting</h1>
+    <p class="lede">The usual snags, and what gets past each.</p>
+
+    <h2 id="flashing">Flashing</h2>
+    <details>
+        <summary>The browser shows no port for the board</summary>
+        <p>
+            Try another USB cable: many only charge, and carry no data. On Windows or an older Mac, the Heltec V3's USB
+            chip, a CP2102, may need Silicon Labs' driver. Use Chrome or Edge on a computer; Safari and Firefox cannot
+            reach a serial port.
+        </p>
+    </details>
+    <details>
+        <summary>The port is there, but the flash page cannot open it</summary>
+        <p>
+            Something else has it open: the browser app in another tab, a serial terminal, the Arduino IDE. Close it
+            and try again.
+        </p>
+    </details>
+    <details>
+        <summary>It stops before writing, or says the board did not answer</summary>
+        <p>
+            Put the board in its bootloader by hand: hold <strong>PRG</strong>, press and let go of{" "}
+            <strong>RST</strong>, let go of PRG, and flash again.
+        </p>
+    </details>
+    <details>
+        <summary>The screen says <em>Did not start</em></summary>
+        <p>
+            The node says why underneath, and what to do. Most often it is a transmit power more than the region
+            allows with the antenna's gain, or saved data from firmware too different to read: then flash it again
+            as a new board, from <a href="/flash">the flash page</a>, which gives it a new address.
+        </p>
+    </details>
+
+    <h2 id="pairing">Connecting an app</h2>
+    <details>
+        <summary>The app does not find the node</summary>
+        <p>
+            The node must be on and running Tern; it shows as <strong>Tern</strong>. It takes one Bluetooth client at a
+            time, so a phone already connected to it hides it from another: disconnect that one. On Android, the app
+            needs its Bluetooth permission, which Android 11 and earlier ask for as location: allow it when asked,
+            or in the app's settings.
+        </p>
+    </details>
+    <details>
+        <summary>Pairing fails</summary>
+        <p>
+            Type the passkey the node's screen shows now: it is new each time. If the node was reset, or the app
+            reinstalled, the phone may still hold the old pairing: remove the node from the phone's Bluetooth settings,
+            and on the node forget its phones (the <em>Phones</em> page, or <code>forget</code> on the console), then
+            pair again.
+        </p>
+    </details>
+    <details>
+        <summary>The browser app cannot use Bluetooth</summary>
+        <p>
+            Web Bluetooth is in Chrome and Edge, on a computer and on Android, and not in Safari or Firefox. On Linux,
+            Chrome may need it turned on at <code>chrome://flags</code>. USB works where Bluetooth does not.
+        </p>
+    </details>
+
+    <h2 id="reach">Reaching other nodes</h2>
+    <details>
+        <summary>Two nodes do not hear each other</summary>
+        <ul>
+            <li>Both must be set to the same region.</li>
+            <li>
+                Both should run the same release. Tern is an alpha, and a release may not talk to an earlier one: update
+                both.
+            </li>
+            <li>
+                Give them a minute: a node announces itself every few seconds when it starts, and less often after. The
+                node's <em>Nearby</em> page shows whom it hears.
+            </li>
+            <li>Check both antennas are fitted, and that the transmit power is not set at its least.</li>
+        </ul>
+        <p>Tern nodes do not hear Meshtastic or MeshCore nodes, and these do not hear Tern: that is by design.</p>
+    </details>
+    <details>
+        <summary>A message stays <em>Waiting</em></summary>
+        <p>The app says what it waits for:</p>
+        <ul>
+            <li>
+                <strong>Looking for a route</strong>: your node has not yet heard of a way to theirs. It goes once a route
+                appears; if theirs is far, a relay between you helps.
+            </li>
+            <li>
+                <strong>Setting up a secure session</strong>: the first message to someone waits two or three seconds for
+                the handshake.
+            </li>
+            <li>
+                <strong>The region's transmit limit</strong>: in EU868 a node may send for 10% of any hour, and has used
+                it. The app says about how long until it may send again.
+            </li>
+            <li><strong>The radio is busy</strong>: another frame is on the air. It goes in a moment.</li>
+        </ul>
+    </details>
+    <details id="not-delivered">
+        <summary>A message is <em>Not delivered</em></summary>
+        <ul>
+            <li>Their node may be off, out of reach, or on another region or release.</li>
+            <li>
+                If it is someone you have not written to before, your node may be full of sessions: it holds a fixed
+                number. End one you no longer need, from that conversation in the app, and send again.
+            </li>
+            <li>
+                If they have not saved you as a contact, their node may turn you away. Their app tells them you asked: ask
+                them to add you.
+            </li>
+        </ul>
+    </details>
+    <details>
+        <summary>Messages to someone stop arriving after they reset their node</summary>
+        <p>
+            A reset gives their node a new address, so it is a different node now. Add their new address as a contact,
+            and remove the old one.
+        </p>
+    </details>
+
+    <h2 id="node">The node itself</h2>
+    <details>
+        <summary>The screen is dark</summary>
+        <p>
+            It sleeps a minute after the last thing worth seeing, to save the battery: press PRG once to wake it. If a
+            press does nothing, the node may be off: press again, or plug it in, since it turns itself off when its
+            battery is empty.
+        </p>
+    </details>
+    <details>
+        <summary>The battery reading looks wrong</summary>
+        <p>
+            It is an estimate from the voltage, good to about ten percent, and reads high while charging.{" "}
+            <em>Chg</em> is a guess from the voltage too: a full battery that is plugged in may not show it.
+        </p>
+    </details>
+    <details>
+        <summary>Starting again from nothing</summary>
+        <p>
+            The <em>Reset</em> page erases the node: hold PRG, then hold it again within ten seconds. Its contacts,
+            messages, groups and paired phones go, and it starts with a new address.
+        </p>
+    </details>
+
+    <h2 id="more">Still stuck</h2>
+    <p>
+        Open an issue on the repository it belongs to: <a href={`${fw}/issues`}>the firmware</a>, the{" "}
+        <a href="https://github.com/ternmesh/android/issues">Android app</a>, the{" "}
+        <a href="https://github.com/ternmesh/apple/issues">Apple app</a> or{" "}
+        <a href="https://github.com/ternmesh/site/issues">this site and its browser app</a>. Say which board and
+        release, and what the node's console printed if you can: <code>status</code> on it, over USB at 115200
+        baud, says most of what helps.
+    </p>
+</Docs>

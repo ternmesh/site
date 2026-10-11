@@ -1,0 +1,187 @@
+---
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import Docs from "../../layouts/Docs.astro";
+import release from "../../data/firmware.json";
+import { boards, makers } from "../../data/boards.ts";
+import { boardsOf } from "../../lib/boards.ts";
+import { parseSums } from "../../lib/flash/images.ts";
+
+const fw = "https://github.com/ternmesh/firmware";
+const notes = `${fw}/releases/tag/v${release.version}`;
+
+// What the pinned release carries, as tools/firmware.ts left its checksums.
+const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
+const released = boardsOf(release.version, sums);
+
+const how = (b: (typeof boards)[number]) => {
+    if (!released.has(b.name)) {
+        return "Not in this release";
+    }
+    if (b.name === "heltec-v3") {
+        return "Flash page";
+    }
+    return b.chip === "nRF52840" ? "Release .uf2" : "Release .bin";
+};
+const running = boards.filter((b) => b.status === "runs");
+---
+
+<Docs
+    title="Hardware"
+    description="Every board Tern's firmware is built for, which run today, and how each is flashed."
+>
+    <h1>Hardware</h1>
+    <p class="lede">
+        Tern runs on small LoRa boards of the kind Meshtastic and MeshCore use. Today{" "}
+        {running.length === 1 ? "one has" : `${running.length} have`} been run and checked:{" "}
+        <strong>{running.map((b) => b.title).join(", ")}</strong>. The rest are built for, and wait for someone to
+        try one.
+    </p>
+
+    <h2 id="choosing">Choosing a board</h2>
+    <ul>
+        <li>
+            <strong>For now, a Heltec WiFi LoRa 32 V3.</strong> It is the board Tern is tested on, it costs little,
+            and <a href="/flash">the flash page</a> puts Tern on it from a browser.
+        </li>
+        <li>
+            <strong>The right band.</strong> Every region Tern has is in 863 to 928 MHz: buy that version, not the
+            433 or 470 MHz one.
+        </li>
+        <li>
+            <strong>An antenna, fitted before it is powered.</strong> The one sold with the board is fine to start.
+        </li>
+        <li>
+            <strong>A battery</strong> if it is to be carried: most of these boards take a single 3.7 V lithium cell
+            and charge it over USB. An nRF52840 board runs for days on a cell where an ESP32 runs for hours.
+        </li>
+    </ul>
+
+    <h2 id="boards">Every board</h2>
+    <p>
+        <strong>Runs</strong> means someone has flashed a release onto one and checked it: the radio, the screen, the
+        battery, the button and a message both ways. <strong>Built</strong> means the firmware is built for it on every
+        change, from its maker's documents, but nobody has yet run it on the board. A built board may well work; if
+        you try one, <a href={`${fw}/issues`}>say how it went</a>.
+    </p>
+    <div class="scroll">
+        <table class="boards">
+            <thead>
+                <tr>
+                    <th>Board</th>
+                    <th>Chip, radio</th>
+                    <th>Status</th>
+                    <th>Get it from v{release.version}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {
+                    boards.map((b) => (
+                        <tr>
+                            <td>
+                                {b.title}
+                                <br />
+                                <span class="muted small">
+                                    <a href={makers[b.maker]}>{b.maker}</a>
+                                    {b.note && <> · {b.note}</>}
+                                </span>
+                            </td>
+                            <td data-label="Chip">
+                                {b.chip}
+                                <br />
+                                <span class="muted small">{b.radio}</span>
+                            </td>
+                            <td data-label="Status">{b.status === "runs" ? <strong>Runs</strong> : "Built"}</td>
+                            <td data-label="Get it">{how(b)}</td>
+                        </tr>
+                    ))
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small">
+        This follows the firmware's <a href={`${fw}/blob/main/docs/boards.md`}>board list</a>, which also says what
+        each board in waiting is waiting on.
+    </p>
+
+    <h2 id="flashing">Flashing each kind</h2>
+    <h3>Heltec V3: from this site</h3>
+    <p>
+        <a href="/flash">The flash page</a> writes the release over USB from Chrome or Edge, with nothing to install,
+        and can update a board that runs Tern already without losing its address.
+    </p>
+    <h3>Other ESP32 boards: the release's .bin</h3>
+    <p>
+        From <a href={notes}>the release</a>, download <code>tern-&lt;board&gt;-&lt;region&gt;-{release.version}.bin</code>,
+        with the board's name from the firmware's list (<code>heltec-v4</code>, for one) and your region. Open
+        Espressif's <a href="https://espressif.github.io/esptool-js/">esptool-js</a> in Chrome or Edge, connect the
+        board, and write the file at address <code>0x0</code>. The{" "}
+        <a href={`${fw}/tree/main/ports/esp32#flashing`}>firmware's instructions</a> say how to update one later and
+        keep its address.
+    </p>
+    <h3>nRF52840 boards: copy a file</h3>
+    <p>
+        From <a href={notes}>the release</a>, download the board's <code>.uf2</code> for your region. Plug the board in
+        and press its reset button twice, quickly: it shows up as a USB drive. Copy the file onto it; the board writes
+        it and restarts. Its bootloader stays, so going back to other firmware is copying another file on.
+    </p>
+    <h3>A board the release has no image for</h3>
+    <p>
+        Every change to the firmware is built for every board, and each build's images are kept with it on GitHub,
+        under <em>Artifacts</em>. Or build it yourself: the{" "}
+        <a href={`${fw}/tree/main/ports/esp32`}>ESP32</a> and <a href={`${fw}/tree/main/ports/nrf52`}>nRF52840</a> ports
+        each say how.
+    </p>
+
+    <h2 id="next">What comes next</h2>
+    <p>
+        Most boards Meshtastic and MeshCore run on fall into a few families of chip and radio, and the firmware is
+        brought up a family at a time: more ESP32-S3 and nRF52840 boards, LR1110 and LR1121 radios (driven, waiting
+        for a board), then the RP2040, the STM32WL and a Raspberry Pi with a LoRa hat. A board's pins come only from
+        its maker's own documents, so some wait on a maker to publish a detail. The firmware's{" "}
+        <a href={`${fw}/blob/main/docs/boards.md#every-board-meshtastic-and-meshcore-run-on`}>board list</a> keeps the
+        plan.
+    </p>
+</Docs>
+
+<style>
+    .small {
+        font-size: 0.875rem;
+    }
+    /* On a phone each board is a card: its name, then a line for each of the other columns. */
+    @media (max-width: 40rem) {
+        .boards thead {
+            display: none;
+        }
+        .boards,
+        .boards tbody,
+        .boards tr,
+        .boards td {
+            display: block;
+        }
+        .boards tr {
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .boards td {
+            border: 0;
+            padding: 2px 0;
+        }
+        .boards td[data-label] {
+            display: flex;
+            gap: 8px;
+        }
+        .boards td[data-label]::before {
+            content: attr(data-label);
+            flex: 0 0 7.5rem;
+            color: var(--muted);
+        }
+        .boards td[data-label] br {
+            display: none;
+        }
+        .boards td[data-label] .small {
+            margin-left: 6px;
+        }
+    }
+</style>

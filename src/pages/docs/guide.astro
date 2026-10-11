@@ -1,0 +1,254 @@
+---
+import Docs from "../../layouts/Docs.astro";
+
+const fw = "https://github.com/ternmesh/firmware";
+---
+
+<Docs
+    title="Using Tern"
+    description="Connecting an app to a Tern node, contacts, messages and their states, groups, sharing a position, the node's screen and button, and firmware updates."
+>
+    <h1>Using Tern</h1>
+    <p class="lede">
+        What each part of Tern does, from the first connection on. It assumes a board with Tern on it: if yours
+        has none yet, <a href="/flash">flash it</a> first.
+    </p>
+
+    <nav aria-label="On this page">
+        <ul>
+            <li><a href="#connect">Connecting an app</a></li>
+            <li><a href="#settings">Region, role and power</a></li>
+            <li><a href="#contacts">Contacts</a></li>
+            <li><a href="#messages">Messages</a></li>
+            <li><a href="#sessions">Secure sessions, and how many</a></li>
+            <li><a href="#groups">Groups</a></li>
+            <li><a href="#about">Who is about</a></li>
+            <li><a href="#positions">Sharing your position</a></li>
+            <li><a href="#node">The node's screen and button</a></li>
+            <li><a href="#updates">Updating the firmware</a></li>
+            <li><a href="#console">The serial console</a></li>
+        </ul>
+    </nav>
+
+    <h2 id="connect">Connecting an app</h2>
+    <p>
+        The node does the radio; the app is its keyboard and screen. The phone apps and the browser app reach it
+        over Bluetooth, and the browser app over USB too. The node takes one Bluetooth client and one USB client
+        at a time, and both see the same contacts and messages.
+    </p>
+    <ol>
+        <li>Turn the node on, and open the app. It looks for nodes nearby: each shows as <strong>Tern</strong>.</li>
+        <li>
+            Choose yours. The node's screen shows a six-digit <strong>passkey</strong>: type it into the app. The
+            pairing is remembered, so this is once per phone. A passkey can also be fixed in the app's node
+            settings, for a board without a screen.
+        </li>
+        <li>
+            A node new to the app asks three things: its <strong>region</strong>, which it must have; whether it is a{" "}
+            <strong>leaf</strong> or a <strong>relay</strong>; and, if you like, a first contact.
+        </li>
+    </ol>
+    <p>
+        The phone apps keep the link up in the background and notify you of new messages, and you can reply from
+        the notification. The browser app works only while its page is open. The node keeps your recent messages
+        itself, so an app that was away catches up when it connects again.
+    </p>
+
+    <h2 id="settings">Region, role and power</h2>
+    <dl>
+        <dt>Region</dt>
+        <dd>
+            The frequency and the rules the node sends by: US915 (the United States and Canada), EU868 (Europe),
+            AU915 (Australia) or NZ915 (New Zealand). It must be the one where the node is used, and nodes only hear
+            others in the same region. In EU868 a node may send for at most 10% of any hour, and counts its time on
+            the air to keep to it.
+        </dd>
+        <dt>Role</dt>
+        <dd>
+            A <strong>leaf</strong> sends and receives its own messages only: best for a node you carry. A{" "}
+            <strong>relay</strong> also passes on messages for others, which lets the mesh reach further but uses
+            more battery: best for a node left somewhere high, on power. You can change it at any time.
+        </dd>
+        <dt>Transmit power</dt>
+        <dd>
+            How loud the node sends. It starts low, enough for a desk; raise it for distance. The node refuses a
+            power that, with the antenna's gain, is more than the region allows.
+        </dd>
+    </dl>
+    <p>Each is changed from the app's node screen.</p>
+
+    <h2 id="contacts">Contacts</h2>
+    <p>
+        A node's address is its public key: sixty-four hex digits, which nobody types. People exchange them instead
+        as a <strong>link</strong> (<code>ternmesh.org/a/…</code>) or its <strong>QR code</strong>, which the node's{" "}
+        <em>Share</em> screen and every app show. To add someone, scan their code, open their link, or paste it into
+        the app's add form, and give them a name. The name is yours: it never goes on the air.
+    </p>
+    <p>
+        Beside every address is its <strong>short code</strong>, twelve digits. Compare it with the person, face to
+        face or on a call: if it matches, the address you hold is really theirs. It is a quick check; the full
+        address in the QR code is the strong one.
+    </p>
+    <p>
+        Your node takes a first message from anyone you have saved as a contact. Someone you have not saved may be
+        turned away once your node has conversations going; the app tells you who asked, so you can add them and
+        try again.
+    </p>
+
+    <h2 id="messages">Messages</h2>
+    <p>
+        A message holds up to 128 bytes of text: about 128 letters of English, fewer with accents or emoji. Each one
+        you send shows where it is:
+    </p>
+    <div class="scroll">
+        <table>
+            <thead>
+                <tr><th>State</th><th>What it means</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Waiting</td>
+                    <td>
+                        Not on the air yet, and the app says why: looking for a route to them, setting up a secure
+                        session, the region's transmit limit, or the radio busy. It goes by itself once it can.
+                    </td>
+                </tr>
+                <tr>
+                    <td>Sent</td>
+                    <td>A node on the way was heard passing it on. It has left your node, and not yet arrived.</td>
+                </tr>
+                <tr>
+                    <td>Delivered</td>
+                    <td>Their node says it has it: the acknowledgement came back all the way.</td>
+                </tr>
+                <tr>
+                    <td>Not delivered</td>
+                    <td>
+                        Your node tried for a while and gave up. It may be out of reach, off, or unable to set up a
+                        session: see <a href="/docs/troubleshooting#not-delivered">Troubleshooting</a>.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p>
+        A message is delivered to their node, which keeps it until their app collects it, so they need not be
+        connected when you write.
+    </p>
+
+    <h2 id="sessions">Secure sessions, and how many</h2>
+    <p>
+        The first time two nodes write, they set up a <strong>secure session</strong>: four short frames, two or three
+        seconds, after which only those two nodes can read what passes between them. It happens by itself, and the
+        message waits for it.
+    </p>
+    <p>
+        A node holds a session with each person it writes to, and has room for a fixed number: 8 on the current
+        release. Once it is full, writing to someone new is <em>not delivered</em> until you end a session you no
+        longer need, from that conversation in the app (<strong>End session</strong>). Ending one costs nothing but a
+        new handshake the next time you write. The next release raises this to 16 sessions on ESP32-S3 and nRF52840
+        boards, with 32 contacts and 8 groups.
+    </p>
+
+    <h2 id="groups">Groups</h2>
+    <p>
+        A group is a conversation among everyone who holds its secret. Make one in the app and invite contacts to
+        it, over their sessions; or show its <strong>join code</strong>, a link and a QR code, and let people join
+        from that.
+    </p>
+    <p class="note">
+        Anyone who sees a join code can read the group, now and later. Show it only to people you mean to let in,
+        and make a new group if it leaks.
+    </p>
+    <p>
+        In a group, each message carries who wrote it as that node claims, and the app shows a contact's name where
+        it knows the writer. Leaving a group is quiet: the others are not told. Tern has no public channel that
+        everyone is in; to find people nearby, see the next section.
+    </p>
+
+    <h2 id="about">Who is about</h2>
+    <p>
+        A node can send a <strong>presence card</strong> now and then: its address and a name, so that people near it
+        can find it and add it. The app lists the cards your node has heard, each name shown as its sender's claim
+        beside the address's short code.
+    </p>
+    <p>
+        Your own card is off until you turn it on. On, it puts your node's address and the name you give it on the
+        air in clear, every couple of hours, for anyone listening. Turn it off again from the same switch.
+    </p>
+
+    <h2 id="positions">Sharing your position</h2>
+    <p>
+        You choose who sees where you are, and how exactly: share with a contact or a group, at a precision from a
+        few metres to a whole region, for a time or until you stop. The phone gives the node its location only while
+        the node shares with someone, and the node rounds it to each person's precision before anything goes on the
+        air. Positions shared with you appear on the app's map.
+    </p>
+    <p>
+        The map's tiles come from <a href="https://openfreemap.org">OpenFreeMap</a> on Android and from Apple on
+        iPhone, so those servers see which area the map shows. The <a href="/privacy">privacy page</a> has the
+        rest.
+    </p>
+
+    <h2 id="node">The node's screen and button</h2>
+    <p>
+        The node works on its own too. Its screen has a few pages, and one button, marked <strong>PRG</strong> on a
+        Heltec V3:
+    </p>
+    <ul>
+        <li><strong>Press</strong> it to show the next page. A press while the screen is dark only wakes it.</li>
+        <li><strong>Hold</strong> it for a second to act on the page shown: the next message, the next nodes, a
+            group's join code.</li>
+        <li><strong>Hold</strong> it for five seconds to turn the node off; the screen counts down from the second,
+            and letting go keeps it on. A press turns it on again.</li>
+    </ul>
+    <dl>
+        <dt>Home</dt>
+        <dd>New messages, how many nodes it hears, the battery and the region.</dd>
+        <dt>Messages</dt>
+        <dd>One at a time, newest first, with what became of those you sent.</dd>
+        <dt>Nearby</dt>
+        <dd>The nodes it hears directly, and how well.</dd>
+        <dt>Air</dt>
+        <dd>How much of the region's limit on the air is used.</dd>
+        <dt>Share</dt>
+        <dd>Its address as a QR code, and its short code: what someone scans to add you.</dd>
+        <dt>This node</dt>
+        <dd>Its short code and address, role, region, power and firmware version.</dd>
+        <dt>Groups</dt>
+        <dd>The groups it holds; hold PRG to show one's join code.</dd>
+        <dt>Phones</dt>
+        <dd>The phones paired with it; hold PRG twice to forget them all.</dd>
+        <dt>Reset</dt>
+        <dd>
+            Erases the node for a new owner: hold PRG, then hold it again within ten seconds. It starts again with a
+            new address, and everything it held is gone.
+        </dd>
+    </dl>
+    <p>
+        The LED blinks for every frame sent or heard, and briefly every four seconds while a message is unread. At
+        10% battery Home says <strong>Low</strong>, and below 3.3 V the node turns itself off rather than run the cell
+        flat. Boards without a screen or a button, listed on <a href="/docs/hardware">Hardware</a>, are used from an
+        app alone.
+    </p>
+
+    <h2 id="updates">Updating the firmware</h2>
+    <p>
+        When a newer release is out, the apps offer it on the node screen and send it over Bluetooth: a few minutes,
+        with the node working as usual meanwhile. If the link drops, it goes on from where it stopped. The node keeps
+        its address, contacts, sessions, groups, messages and settings, and goes back to the old firmware by itself if
+        the new one will not start.
+    </p>
+    <p>
+        Updating over Bluetooth works on ESP32 boards that were flashed with release 0.2.0 or later. An older one is
+        updated once from <a href="/flash">the flash page</a>, choosing <em>Update</em>, which keeps its address; nRF52840
+        boards are updated by copying the release's <code>.uf2</code> file onto them, as when they were first flashed.
+    </p>
+
+    <h2 id="console">The serial console</h2>
+    <p>
+        For the curious: a node plugged in over USB has a text console at 115200 baud, where <code>status</code>,{" "}
+        <code>routes</code>, <code>peers</code> and a dozen more commands show and do what the apps do, and some they
+        do not. The list is in the <a href={`${fw}/tree/main/ports/esp32#using-it`}>firmware's README</a>.
+    </p>
+</Docs>

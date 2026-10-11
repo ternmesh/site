@@ -1,0 +1,144 @@
+---
+import Base from "./Base.astro";
+
+interface Props {
+    title: string;
+    description: string;
+}
+
+const { title, description } = Astro.props;
+
+// The docs, in the order a newcomer reads them.
+const pages = [
+    { href: "/docs", label: "Start here" },
+    { href: "/docs/guide", label: "Using Tern" },
+    { href: "/docs/hardware", label: "Hardware" },
+    { href: "/docs/troubleshooting", label: "Troubleshooting" },
+    { href: "/docs/faq", label: "FAQ" },
+];
+const here = Astro.url.pathname.replace(/\/$/, "") || "/";
+---
+
+<Base title={title} description={description}>
+    <div class="docs wrap">
+        <nav class="side" aria-label="Docs">
+            <ul>
+                {
+                    pages.map((p) => (
+                        <li>
+                            <a href={p.href} aria-current={p.href === here ? "page" : undefined}>
+                                {p.label}
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
+        </nav>
+        <article class="body">
+            <slot />
+        </article>
+    </div>
+</Base>
+
+<style>
+    .docs {
+        display: grid;
+        grid-template-columns: 12rem minmax(0, 1fr);
+        gap: 32px;
+        padding-top: 32px;
+        padding-bottom: 48px;
+    }
+    .side ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        position: sticky;
+        top: 16px;
+    }
+    .side a {
+        display: block;
+        padding: 6px 10px;
+        border-radius: var(--radius);
+        color: var(--muted);
+        text-decoration: none;
+    }
+    .side a:hover {
+        color: var(--text);
+    }
+    .side a[aria-current="page"] {
+        background: var(--accent-soft);
+        color: var(--text);
+        font-weight: 600;
+    }
+    /* On a phone the menu is a row of links above the page. */
+    @media (max-width: 48rem) {
+        .docs {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 16px;
+            padding-top: 16px;
+        }
+        .side ul {
+            position: static;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+    }
+    .body {
+        max-width: 44rem;
+    }
+    .body :global(h1) {
+        font-size: clamp(1.8rem, 4vw, 2.4rem);
+        margin: 0 0 12px;
+    }
+    .body :global(h2) {
+        margin-top: 2.2rem;
+        scroll-margin-top: 16px;
+    }
+    .body :global(h3) {
+        margin-top: 1.6rem;
+        scroll-margin-top: 16px;
+    }
+    .body :global(.lede) {
+        font-size: 1.1rem;
+    }
+    .body :global(.note) {
+        border-left: 3px solid var(--accent);
+        background: var(--accent-soft);
+        padding: 10px 14px;
+        border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .body :global(table) {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.95rem;
+    }
+    .body :global(th),
+    .body :global(td) {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+    }
+    .body :global(.scroll) {
+        overflow-x: auto;
+    }
+    .body :global(dt) {
+        font-weight: 600;
+        margin-top: 1rem;
+    }
+    .body :global(dd) {
+        margin: 4px 0 0;
+    }
+    .body :global(details) {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 0;
+    }
+    .body :global(summary) {
+        cursor: pointer;
+        font-weight: 600;
+    }
+    .body :global(details > :not(summary)) {
+        margin-top: 8px;
+    }
+</style>
