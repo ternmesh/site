@@ -18,10 +18,21 @@ const ota = layoutOf(release.version, sums) === "ota";
 // Only the regions the release has an image for: a profile can reach the firmware before a release.
 const regions = regionsOf(release.version, sums);
 const where: Record<Region, { place: string; profile: string }> = {
-    us915: { place: "United States or Canada", profile: "US915: 921.25 MHz" },
-    eu868: { place: "Europe", profile: "EU868: 869.475 MHz, at most 10% of any hour" },
+    us915: {
+        place: "United States, Canada, Mexico, Brazil, Argentina or Peru",
+        profile: "US915: 921.25 MHz",
+    },
+    eu868: {
+        place: "Europe, the UK, Ukraine or South Africa",
+        profile: "EU868: 869.475 MHz, at most 10% of any hour",
+    },
     au915: { place: "Australia", profile: "AU915: 921.25 MHz, at most 30 dBm EIRP" },
     nz915: { place: "New Zealand", profile: "NZ915: 921.25 MHz" },
+    cl915: { place: "Chile", profile: "CL915: 921.25 MHz, at most 26 dBm EIRP" },
+    my919: { place: "Malaysia", profile: "MY919: 920.25 MHz, at most 26 dBm EIRP" },
+    th920: { place: "Thailand", profile: "TH920: 921.25 MHz, at most 10% of any hour, at least 17 dBm EIRP" },
+    ru868: { place: "Russia", profile: "RU868: 868.775 MHz, at most 10% of any hour" },
+    kz863: { place: "Kazakhstan", profile: "KZ863: 864.375 MHz, at most 13 dBm EIRP" },
 };
 ---
 
