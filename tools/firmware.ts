@@ -15,7 +15,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import release from "../src/data/firmware.json" with { type: "json" };
-import { check, imageNames, layoutOf, manifest, parseSums } from "../src/lib/flash/images.ts";
+import { check, imageNames, layoutOf, manifest, parseSums, regionsOf } from "../src/lib/flash/images.ts";
 
 const out = join(import.meta.dirname, "..", "public", "firmware");
 const from = process.env.TERN_FIRMWARE_DIR;
@@ -38,8 +38,12 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, "SHA256SUMS"), sumsFile);
 const layout = layoutOf(release.version, sums);
+const regions = regionsOf(release.version, sums);
+if (regions.length === 0) {
+    throw new Error(`SHA256SUMS names no image of ${release.version} for any region`);
+}
 const images = new Map<string, Uint8Array>();
-for (const name of imageNames(release.version, layout)) {
+for (const name of imageNames(release.version, layout, regions)) {
     const image = await get(name);
     await check(name, image, sums);
     writeFileSync(join(out, name), image);
@@ -47,10 +51,10 @@ for (const name of imageNames(release.version, layout)) {
     console.log(`${name}  ${image.length} bytes  ${sums.get(name)}`);
 }
 if (layout === "ota") {
-    const latest = await manifest(release.version, images);
+    const latest = await manifest(release.version, regions, images);
     writeFileSync(join(out, "latest.json"), `${JSON.stringify(latest, null, 4)}\n`);
     console.log("latest.json");
 } else {
     console.log(`no latest.json: ${release.version} is from before the OTA layout`);
 }
-console.log(`firmware ${release.version} (${layout} layout) from ${from ?? release.source}`);
+console.log(`firmware ${release.version} (${layout} layout, ${regions.join(", ")}) from ${from ?? release.source}`);

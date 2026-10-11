@@ -1,7 +1,17 @@
 ---
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import Base from "../layouts/Base.astro";
+import release from "../data/firmware.json";
+import { parseSums, regionsOf } from "../lib/flash/images.ts";
 
 const org = "https://github.com/ternmesh";
+
+// The regions the pinned release has images for, as tools/firmware.ts left its checksums.
+const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
+const regions = regionsOf(release.version, sums).map((r) => r.toUpperCase());
+const regionList = new Intl.ListFormat("en", { type: "conjunction" }).format(regions);
 
 const ideas = [
     {
@@ -85,7 +95,7 @@ const repos = [
             </li>
         </ol>
         <p class="muted">
-            Where you are matters: the firmware has images for the US915 and EU868 regions only.
+            Where you are matters: the firmware has images for the {regionList} regions only.
         </p>
     </section>
 

@@ -2,7 +2,8 @@
 // where this site keeps its copy of them: tools/firmware.ts fetches them at build time, since a
 // page cannot read a GitHub release's files itself.
 
-export const REGIONS = ["us915", "eu868"] as const;
+/** Every region the firmware has a profile for. A release has images for some of them: regionsOf. */
+export const REGIONS = ["au915", "eu868", "nz915", "us915"] as const;
 export type Region = (typeof REGIONS)[number];
 
 /** `new` writes the whole flash; `update` everything but NVS, and the board keeps its keys. */
@@ -36,11 +37,19 @@ export function layoutOf(version: string, sums: Map<string, string>): Layout {
     return REGIONS.some((r) => named(r, "boot") || named(r, "update")) ? "ota" : "single";
 }
 
+/**
+ * The regions a release has images for, which its checksums name: the firmware gained a region's
+ * profile before a release carried it, and a release from before then has none for it.
+ */
+export function regionsOf(version: string, sums: Map<string, string>): Region[] {
+    return REGIONS.filter((r) => sums.has(imageName(version, r, "whole")));
+}
+
 const PARTS: Record<Layout, Part[]> = { ota: ["whole", "boot", "update", "app"], single: ["whole", "app"] };
 
-/** Every image a release of this layout has, which is what the site keeps a copy of. */
-export function imageNames(version: string, layout: Layout): string[] {
-    return REGIONS.flatMap((r) => PARTS[layout].map((p) => imageName(version, r, p)));
+/** Every image a release of this layout has for these regions, which is what the site keeps a copy of. */
+export function imageNames(version: string, layout: Layout, regions: readonly Region[]): string[] {
+    return regions.flatMap((r) => PARTS[layout].map((p) => imageName(version, r, p)));
 }
 
 export interface Write {
@@ -72,7 +81,7 @@ export function sparesNvs(name: string, address: number, length: number): void {
 /** One app image in latest.json: what the Tern phone apps read to update a node over Bluetooth. */
 export interface ManifestImage {
     board: "heltec-v3";
-    /** As the node reports its region: US915, EU868. */
+    /** As the node reports its region: US915, EU868, AU915, NZ915. */
     region: string;
     /** Relative to /firmware/. */
     file: string;
@@ -85,10 +94,14 @@ export interface Manifest {
     images: ManifestImage[];
 }
 
-/** latest.json for an `ota` release, from the app images themselves. */
-export async function manifest(version: string, images: Map<string, Uint8Array>): Promise<Manifest> {
+/** latest.json for an `ota` release, from the app images of the regions it has. */
+export async function manifest(
+    version: string,
+    regions: readonly Region[],
+    images: Map<string, Uint8Array>,
+): Promise<Manifest> {
     const list: ManifestImage[] = [];
-    for (const region of [...REGIONS].sort()) {
+    for (const region of [...regions].sort()) {
         const file = imageName(version, region, "app");
         const data = images.get(file);
         if (!data) {

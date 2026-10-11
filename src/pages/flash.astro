@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
-import { layoutOf, parseSums } from "../lib/flash/images.ts";
+import { layoutOf, parseSums, regionsOf } from "../lib/flash/images.ts";
+import type { Region } from "../lib/flash/images.ts";
 
 const org = "https://github.com/ternmesh";
 const notes = `${org}/firmware/releases/tag/v${release.version}`;
@@ -13,6 +14,15 @@ const notes = `${org}/firmware/releases/tag/v${release.version}`;
 // cannot be updated from a phone, so the page only says it can for one that can.
 const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
 const ota = layoutOf(release.version, sums) === "ota";
+
+// Only the regions the release has an image for: a profile can reach the firmware before a release.
+const regions = regionsOf(release.version, sums);
+const where: Record<Region, { place: string; profile: string }> = {
+    us915: { place: "United States or Canada", profile: "US915: 921.25 MHz" },
+    eu868: { place: "Europe", profile: "EU868: 869.475 MHz, at most 10% of any hour" },
+    au915: { place: "Australia", profile: "AU915: 921.25 MHz, at most 30 dBm EIRP" },
+    nz915: { place: "New Zealand", profile: "NZ915: 921.25 MHz" },
+};
 ---
 
 <Base
@@ -53,14 +63,14 @@ const ota = layoutOf(release.version, sums) === "ota";
                     It sends on this region's frequency from the moment it starts, so the wrong one breaks the
                     rules of the place you are in.
                 </p>
-                <label>
-                    <input type="radio" name="region" value="us915" required />
-                    United States or Canada <span class="muted">US915: 921.25 MHz</span>
-                </label>
-                <label>
-                    <input type="radio" name="region" value="eu868" required />
-                    Europe <span class="muted">EU868: 869.475 MHz, at most 10% of any hour</span>
-                </label>
+                {
+                    regions.map((r) => (
+                        <label>
+                            <input type="radio" name="region" value={r} required />
+                            {where[r].place} <span class="muted">{where[r].profile}</span>
+                        </label>
+                    ))
+                }
                 <p class="muted">Anywhere else: there is no image yet. Do not use one of these.</p>
             </fieldset>
 
