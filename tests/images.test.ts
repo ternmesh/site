@@ -9,6 +9,7 @@ import {
     manifest,
     NVS,
     parseSums,
+    regionsOf,
     sha256,
     sparesNvs,
     writes,
@@ -21,13 +22,22 @@ test("an image's name is the release's", () => {
     assert.equal(imageName("0.1.0-alpha.1", "eu868", "app"), "tern-heltec-v3-eu868-0.1.0-alpha.1-app.bin");
     assert.equal(imageName("1.0.0", "eu868", "boot"), "tern-heltec-v3-eu868-1.0.0-boot.bin");
     assert.equal(imageName("1.0.0", "us915", "update"), "tern-heltec-v3-us915-1.0.0-update.bin");
-    assert.equal(imageNames("1.0.0", "ota").length, 8);
-    assert.equal(imageNames("1.0.0", "single").length, 4);
+    assert.equal(imageNames("1.0.0", "ota", ["us915", "eu868"]).length, 8);
+    assert.equal(imageNames("1.0.0", "single", ["us915", "eu868"]).length, 4);
+    assert.equal(imageNames("1.0.0", "ota", ["au915", "eu868", "nz915", "us915"]).length, 16);
+});
+
+test("a release offers the regions its checksums name, and no others", () => {
+    const sums = (regions: ("au915" | "eu868" | "nz915" | "us915")[]) =>
+        parseSums(imageNames("1.0.0", "ota", regions).map((n) => `${abc}  ${n}`).join("\n"));
+    assert.deepEqual(regionsOf("1.0.0", sums(["us915", "eu868"])), ["eu868", "us915"]);
+    assert.deepEqual(regionsOf("1.0.0", sums(["au915", "eu868", "nz915", "us915"])), ["au915", "eu868", "nz915", "us915"]);
+    assert.deepEqual(regionsOf("2.0.0", sums(["us915"])), []);
 });
 
 test("a release's layout is what its checksums name", () => {
     const names = (layout: "ota" | "single") =>
-        parseSums(imageNames("1.0.0", layout).map((n) => `${abc}  ${n}`).join("\n"));
+        parseSums(imageNames("1.0.0", layout, ["us915", "eu868"]).map((n) => `${abc}  ${n}`).join("\n"));
     assert.equal(layoutOf("1.0.0", names("ota")), "ota");
     assert.equal(layoutOf("1.0.0", names("single")), "single");
     assert.equal(layoutOf("2.0.0", names("ota")), "single");
@@ -60,7 +70,7 @@ test("latest.json names each region's app image, its size and its SHA-256", asyn
         ["tern-heltec-v3-eu868-1.0.0-app.bin", abcd],
         ["tern-heltec-v3-eu868-1.0.0.bin", new Uint8Array(8)],
     ]);
-    assert.deepEqual(await manifest("1.0.0", images), {
+    assert.deepEqual(await manifest("1.0.0", ["us915", "eu868"], images), {
         release: "1.0.0",
         images: [
             {
@@ -74,7 +84,7 @@ test("latest.json names each region's app image, its size and its SHA-256", asyn
         ],
     });
     images.delete("tern-heltec-v3-us915-1.0.0-app.bin");
-    await assert.rejects(manifest("1.0.0", images), /needs tern-heltec-v3-us915-1.0.0-app.bin/);
+    await assert.rejects(manifest("1.0.0", ["us915", "eu868"], images), /needs tern-heltec-v3-us915-1.0.0-app.bin/);
 });
 
 test("checksums are read as sha256sum and shasum write them", () => {
