@@ -17,6 +17,8 @@ test("the demo node takes every region a node has, and TH920 raises its power as
     assert.equal(c.self?.region, "TH920");
     assert.equal(c.self?.power, 14);
     await assert.rejects(c.set("region", "XX999"));
+    await assert.rejects(c.set("region", "toString"));
+    await assert.rejects(c.set("region", "__proto__"));
     // A power the region does not allow is refused, as a node refuses it.
     await assert.rejects(c.set("power", 2));
     await c.set("power", 20);

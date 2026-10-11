@@ -259,7 +259,7 @@ export function openDemo(): Transport {
                     self.cards = value;
                 } else if (x.setting === 6 && typeof value === "string") {
                     self.card_name = value;
-                } else if (x.setting === 1 && typeof value === "string" && value in DEMO_POWER) {
+                } else if (x.setting === 1 && typeof value === "string" && Object.hasOwn(DEMO_POWER, value)) {
                     self.region = value;
                     // As a node does: the power moves into the new region's limits, up or down.
                     const { least, most } = DEMO_POWER[value]!;
