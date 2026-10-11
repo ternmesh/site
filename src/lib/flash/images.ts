@@ -3,7 +3,17 @@
 // page cannot read a GitHub release's files itself.
 
 /** Every region the firmware has a profile for. A release has images for some of them: regionsOf. */
-export const REGIONS = ["au915", "eu868", "nz915", "us915"] as const;
+export const REGIONS = [
+    "au915",
+    "cl915",
+    "eu868",
+    "kz863",
+    "my919",
+    "nz915",
+    "ru868",
+    "th920",
+    "us915",
+] as const;
 export type Region = (typeof REGIONS)[number];
 
 /** `new` writes the whole flash; `update` everything but NVS, and the board keeps its keys. */
@@ -81,7 +91,7 @@ export function sparesNvs(name: string, address: number, length: number): void {
 /** One app image in latest.json: what the Tern phone apps read to update a node over Bluetooth. */
 export interface ManifestImage {
     board: "heltec-v3";
-    /** As the node reports its region: US915, EU868, AU915, NZ915. */
+    /** As the node reports its region: US915, EU868, AU915 and the rest of REGIONS, upper case. */
     region: string;
     /** Relative to /firmware/. */
     file: string;

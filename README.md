@@ -95,8 +95,9 @@ board will be used and whether it runs Tern already, fetches the images, checks 
 release's SHA-256 checksums, and writes them with Espressif's
 [esptool-js](https://github.com/espressif/esptool-js).
 
-A release has four images for each region `<r>` it carries (`us915`, `eu868`, and from the release
-after 0.3.0-alpha.1 `au915` and `nz915`) and version `<v>`, and one `SHA256SUMS` over all of them;
+A release has four images for each region `<r>` it carries (`us915`, `eu868`, from the release
+after 0.3.0-alpha.1 `au915` and `nz915`, and once ternmesh/firmware#82 is released `cl915`, `my919`,
+`th920`, `ru868` and `kz863`) and version `<v>`, and one `SHA256SUMS` over all of them;
 the site offers the regions that names. The board's flash is NVS at 0x9000 to 0xF000 (its address,
 contacts, sessions and bonds), otadata at 0xF000, and two 2 MB app slots at 0x20000 and 0x220000.
 
@@ -150,7 +151,7 @@ over Bluetooth. It is a contract with them: change it only with them.
 ```
 
 * `release` is the version `src/data/firmware.json` pins, without the `v`.
-* One entry per board and region. `region` is as the node reports it (`US915`, `EU868`, `AU915`, `NZ915`): an app
+* One entry per board and region. `region` is as the node reports it (`US915`, `EU868`, `AU915`, `NZ915` and the rest): an app
   sends a node only the image for its own board and region. The order means nothing.
 * `file` is relative to `/firmware/`, the app image alone. `size` is its length in bytes and
   `sha256` its SHA-256 in lowercase hex, both of the file this site serves, which is the
