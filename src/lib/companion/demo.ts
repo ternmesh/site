@@ -6,6 +6,23 @@ import type { Transport } from "./client.ts";
 import { STATE, decode, encode } from "./protocol.ts";
 import type { Fields } from "./protocol.ts";
 
+/**
+ * The profiles a node has (draft/phy.md in ternmesh/spec), with the power into the antenna each
+ * allows a demo board: an SX1262's -9 to +22 dBm, into the 3 dBi antenna the demo pretends to,
+ * within what the profile lets it radiate.
+ */
+const DEMO_POWER: Record<string, { least: number; most: number }> = {
+    AU915: { least: -9, most: 22 },
+    CL915: { least: -9, most: 22 },
+    EU868: { least: -9, most: 22 },
+    KZ863: { least: -9, most: 10 }, // 13 dBm radiated at most
+    MY919: { least: -9, most: 22 },
+    NZ915: { least: -9, most: 22 },
+    RU868: { least: -9, most: 19 }, // 22 dBm radiated at most
+    TH920: { least: 14, most: 22 }, // 17 dBm radiated at least
+    US915: { least: -9, most: 22 },
+};
+
 const SELF = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 const ROBIN = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 const SAM = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
@@ -242,11 +259,19 @@ export function openDemo(): Transport {
                     self.cards = value;
                 } else if (x.setting === 6 && typeof value === "string") {
                     self.card_name = value;
-                } else if (x.setting === 1 && (value === "US915" || value === "EU868")) {
+                } else if (x.setting === 1 && typeof value === "string" && Object.hasOwn(DEMO_POWER, value)) {
                     self.region = value;
+                    // As a node does: the power moves into the new region's limits, up or down.
+                    const { least, most } = DEMO_POWER[value]!;
+                    self.power = Math.min(most, Math.max(least, self.power));
                 } else if (x.setting === 2 && (value === 0 || value === 1)) {
                     self.role = value;
-                } else if (x.setting === 3 && typeof value === "number" && value >= -9 && value <= 22) {
+                } else if (
+                    x.setting === 3 &&
+                    typeof value === "number" &&
+                    value >= DEMO_POWER[self.region]!.least &&
+                    value <= DEMO_POWER[self.region]!.most
+                ) {
                     self.power = value;
                 } else {
                     answer("ERROR", f.seq, { code: 3 });
