@@ -1,0 +1,206 @@
+---
+import Docs from "../../layouts/Docs.astro";
+
+const org = "https://github.com/ternmesh";
+---
+
+<Docs
+    title="FAQ"
+    description="How Tern differs from Meshtastic and MeshCore, whether they talk to each other, what is private, what is legal, and what Tern does not do yet."
+>
+    <h1>Questions</h1>
+
+    <h2 id="compared">Tern, Meshtastic and MeshCore</h2>
+    <details>
+        <summary>How is Tern different from Meshtastic and MeshCore?</summary>
+        <p>All three are LoRa meshes on the same kinds of board. Tern is built around a few choices of its own:</p>
+        <ul>
+            <li>
+                <strong>Airtime is the thing to save.</strong> A LoRa channel is slow and shared, so Tern routes each
+                message along a path instead of flooding it everywhere, and is designed to give each node a budget of time
+                on the air. <a href="/why">Why Tern</a> has what the simulator measured, beside Meshtastic and MeshCore.
+            </li>
+            <li>
+                <strong>An address is a public key.</strong> Who you are writing to is something you can check, with the
+                short code, not a number you are told.
+            </li>
+            <li>
+                <strong>No public channel.</strong> Every conversation is with a contact or a group you joined. People
+                find each other nearby through presence cards, which are off until you turn yours on.
+            </li>
+            <li>
+                <strong>An open specification first.</strong> The protocol is a written{" "}
+                <a href={`${org}/spec`}>specification</a> with test vectors; the firmware and apps are implementations of
+                it, and anyone may write another.
+            </li>
+        </ul>
+        <p>
+            Meshtastic and MeshCore are far more mature: many more boards, years of use, large communities. Tern is an
+            alpha.
+        </p>
+    </details>
+    <details>
+        <summary>Can a Tern node talk to Meshtastic or MeshCore nodes?</summary>
+        <p>
+            No. The protocols are different, and Tern uses its own sync word, so the radios do not even decode each
+            other's frames; they only hear each other as noise on the channel.
+        </p>
+    </details>
+    <details>
+        <summary>Will my Meshtastic or MeshCore board run Tern?</summary>
+        <p>
+            Perhaps: <a href="/docs/hardware">Hardware</a> lists every board the firmware is built for. The Heltec V3 runs
+            today; many others are built and wait for someone to try one.
+        </p>
+    </details>
+    <details>
+        <summary>Can I go back to Meshtastic or MeshCore?</summary>
+        <p>
+            Yes. Flash their firmware again the way they say to. Flashing replaces what is on the board, and its
+            settings, both ways.
+        </p>
+    </details>
+
+    <h2 id="private">Privacy and security</h2>
+    <details>
+        <summary>Are my messages encrypted?</summary>
+        <p>
+            Yes. A message to a contact goes over a session only your two nodes hold the keys to, set up with a
+            handshake that proves each holds the key behind its address; each new session has new keys. A group's
+            messages are sealed with the group's secret, which every member holds.
+        </p>
+        <p>
+            Tern is an alpha, and nobody outside the project has yet reviewed its cryptography. Do not trust it with
+            anything that matters.
+        </p>
+    </details>
+    <details>
+        <summary>What can someone nearby with a radio learn?</summary>
+        <ul>
+            <li>
+                That nodes are there, and roughly how they are linked: each node announces itself in clear, with a short
+                routing id, its role and the neighbours it hears. Its address goes to its neighbours this way too, so
+                anyone nearby can learn it.
+            </li>
+            <li>
+                Which node a message is going to, by routing id, but not what it says, and not who sent it, but for
+                the first frame of the handshake two nodes make the first time they write.
+            </li>
+            <li>Your node's address and the name you chose, if you turn your presence card on.</li>
+        </ul>
+        <p>
+            Your position goes only to the contacts and groups you share it with, at the precision you choose. The
+            specification's <a href={`${org}/spec/blob/main/draft/routing.md#what-an-observer-learns`}>routing draft</a>{" "}
+            has the full list.
+        </p>
+    </details>
+    <details>
+        <summary>What do the apps send to the internet?</summary>
+        <p>
+            Nothing of your messages. The apps fetch the firmware release list from this site, and the map fetches its
+            tiles, which tells the tile server which area you are looking at. The <a href="/privacy">privacy page</a>{" "}
+            has all of it. There are no accounts, and no analytics.
+        </p>
+    </details>
+    <details>
+        <summary>Why is there no public channel?</summary>
+        <p>
+            A channel everyone shares is a channel everyone can read, and one where every message reaches every node,
+            which costs the whole mesh airtime. Tern keeps conversations to the people in them. To meet people nearby,
+            turn on your presence card, or exchange QR codes.
+        </p>
+    </details>
+
+    <h2 id="radio">The radio</h2>
+    <details>
+        <summary>Is it legal to use?</summary>
+        <p>
+            Tern uses the licence-free bands each region sets aside, at settings chosen to follow that region's rules as
+            written, and in EU868 it keeps to the 10% limit on sending. But nothing here is certified, and whoever runs a
+            radio answers for it: keep the power within what your region allows, and keep an antenna fitted.
+        </p>
+    </details>
+    <details>
+        <summary>Which countries can use it?</summary>
+        <p>
+            The firmware has settings for the United States and Canada (US915), Europe (EU868), Australia (AU915) and
+            New Zealand (NZ915). Each release says which it has images for. Other countries wait on settings for them in
+            the specification.
+        </p>
+    </details>
+    <details>
+        <summary>How far does it reach?</summary>
+        <p>
+            That depends far more on where the antennas are than on the protocol: LoRa links of several kilometres are
+            ordinary between nodes with a clear line between them, and a few hundred metres among buildings. A relay up
+            high carries messages further. Tern's own reach on real radios has not been measured yet.
+        </p>
+    </details>
+    <details>
+        <summary>How long does a battery last?</summary>
+        <p>
+            Not measured yet. As a rule, an nRF52840 board runs for days on a cell where an ESP32 board runs for hours,
+            and a relay uses more than a leaf. Sleeping leaves are in the design and not yet built.
+        </p>
+    </details>
+
+    <h2 id="using">Using it</h2>
+    <details>
+        <summary>Does it need a phone signal or the internet?</summary>
+        <p>
+            No. Nodes talk to each other by radio, and the app talks to its node over Bluetooth or USB. The internet is
+            needed only to download the apps and firmware updates.
+        </p>
+    </details>
+    <details>
+        <summary>How many contacts, groups and conversations can a node hold?</summary>
+        <p>
+            On the current release, 16 contacts, 4 groups and secure sessions with 8 people at once, and its latest 32
+            messages; the apps keep the whole history. The next release raises that to 32 contacts, 8 groups and 16
+            sessions on ESP32-S3 and nRF52840 boards.
+        </p>
+    </details>
+    <details>
+        <summary>Does it cost anything?</summary>
+        <p>
+            No. The firmware, the apps and this site are open source, under the Apache License 2.0, and the specification
+            under CC-BY 4.0. There is nothing to sign up for.
+        </p>
+    </details>
+    <details>
+        <summary>What does Tern not do yet?</summary>
+        <ul>
+            <li>Telemetry and sensors, and a view of the path a message took.</li>
+            <li>Holding messages for a node that is away, beyond what its own node keeps.</li>
+            <li>Bridges to the internet or to other meshes.</li>
+            <li>Managing another node remotely.</li>
+            <li>The airtime budget itself, which is still being specified; the region's limit is kept today.</li>
+        </ul>
+    </details>
+
+    <h2 id="involved">Getting involved</h2>
+    <details>
+        <summary>Where can I ask a question or report a problem?</summary>
+        <p>
+            On GitHub, in the repository it is about: the <a href={`${org}/firmware/issues`}>firmware</a>, the{" "}
+            <a href={`${org}/android/issues`}>Android</a> or <a href={`${org}/apple/issues`}>Apple</a> app, or{" "}
+            <a href={`${org}/site/issues`}>this site</a>. A question about the protocol goes to the{" "}
+            <a href={`${org}/spec/issues`}>specification</a>.
+        </p>
+    </details>
+    <details>
+        <summary>How can I help?</summary>
+        <ul>
+            <li>
+                Try a board marked <em>Built</em> on <a href="/docs/hardware">Hardware</a>, and say how it went: that is how
+                a board becomes one that runs.
+            </li>
+            <li>Try Tern with friends, and report what was confusing or broke.</li>
+            <li>
+                Contribute code or text: each repository's CONTRIBUTING file says how, and every commit is signed off under
+                the Developer Certificate of Origin. The{" "}
+                <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>governance</a> says who decides what goes in.
+            </li>
+        </ul>
+    </details>
+</Docs>

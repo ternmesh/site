@@ -24,7 +24,11 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 ## Where the pages are
 
 `src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the pages a node's
-link and a group's join code open, privacy, and the 404, in `src/layouts/Base.astro`.
+link and a group's join code open, privacy, and the 404, in `src/layouts/Base.astro`; and the docs
+under `src/pages/docs/`, in `src/layouts/Docs.astro`: start here, using Tern, hardware,
+troubleshooting and the FAQ. The hardware page's boards are `src/data/boards.ts`, which follows the
+firmware's `docs/boards.md`, and which of them the pinned release has an image for it reads from the
+release's `SHA256SUMS` (`src/lib/boards.ts`).
 `@astrojs/sitemap` writes `sitemap-index.xml`, which `robots.txt` names, of every page but those
 two and the 404.
 When the specification has a first draft, it will be rendered here from

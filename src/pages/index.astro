@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
+import { boards } from "../data/boards.ts";
 import { parseSums, regionsOf } from "../lib/flash/images.ts";
 
 const org = "https://github.com/ternmesh";
@@ -67,8 +68,8 @@ const repos = [
                 <h3>A board</h3>
                 <p>
                     A <strong>Heltec WiFi LoRa 32 V3</strong>, the 863-928 MHz kind, with its antenna. It is the one
-                    board Tern runs on today. The Heltec V4 and the Heltec Mesh Node T114 are built but not yet run
-                    on a board.
+                    board Tern runs on today. <a href="/docs/hardware">{boards.filter((b) => b.status === "built").length} more</a> are built but not yet run on
+                    a board.
                 </p>
             </li>
             <li class="card">
@@ -95,7 +96,8 @@ const repos = [
             </li>
         </ol>
         <p class="muted">
-            Where you are matters: the firmware has images for the {regionList} regions only.
+            Where you are matters: the firmware has images for the {regionList} regions only.{" "}
+            <a href="/docs">The docs</a> go through each step, and what comes after.
         </p>
     </section>
 

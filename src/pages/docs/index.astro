@@ -1,0 +1,72 @@
+---
+import Docs from "../../layouts/Docs.astro";
+---
+
+<Docs
+    title="Docs"
+    description="How to get a Tern node running and use it: a board, the firmware, an app, and your first contact."
+>
+    <h1>Start here</h1>
+    <p class="lede">
+        Tern is a LoRa mesh: small radios that pass short messages to each other over kilometres, with no phone
+        network or internet. You carry or place a <strong>node</strong>, a board running Tern's firmware, and
+        use it from an <strong>app</strong> on your phone or computer.
+    </p>
+
+    <div class="note">
+        <p>
+            Tern is early. The firmware is an alpha, a later release may not talk to an earlier one, and nobody
+            outside the project has yet reviewed its cryptography. It is for trying out, not for anything you depend
+            on.
+        </p>
+    </div>
+
+    <h2>In five steps</h2>
+    <ol>
+        <li>
+            <strong>Get a board.</strong> A Heltec WiFi LoRa 32 V3, the 863-928 MHz kind, is the one that runs today.
+            Others are built and waiting to be tried: see <a href="/docs/hardware">Hardware</a>.
+        </li>
+        <li>
+            <strong>Fit its antenna</strong> before you power it. A board sends as soon as it starts, and a radio
+            sending with no antenna can damage itself.
+        </li>
+        <li>
+            <strong>Flash it</strong> from <a href="/flash">the flash page</a>, in Chrome or Edge on a computer, over
+            USB. Choose the region you are in.
+        </li>
+        <li>
+            <strong>Get an app</strong>: <a href="/apps">Android, iPhone, iPad, Mac</a>, or <a href="/app">the
+            browser</a>. Connect to the node over Bluetooth and type the passkey its screen shows.
+        </li>
+        <li>
+            <strong>Add someone.</strong> Scan the QR code on their node's screen or app, or open their node's link.
+            Check the twelve-digit code with them, then write.
+        </li>
+    </ol>
+    <p>
+        With two boards of your own you can try all of it on a desk: drive one from a phone and the other from
+        the browser app, add each as the other's contact, and write. <a href="/docs/guide">Using Tern</a> goes through each step.
+    </p>
+
+    <h2>The docs</h2>
+    <dl>
+        <dt><a href="/docs/guide">Using Tern</a></dt>
+        <dd>Connecting an app, contacts, messages and what their states mean, groups, sharing a position, the
+            node's own screen and button, and updating its firmware.</dd>
+        <dt><a href="/docs/hardware">Hardware</a></dt>
+        <dd>Every board the firmware is built for, which run today, and how each is flashed.</dd>
+        <dt><a href="/docs/troubleshooting">Troubleshooting</a></dt>
+        <dd>When flashing, pairing or a message does not go as it should.</dd>
+        <dt><a href="/docs/faq">FAQ</a></dt>
+        <dd>How Tern differs from Meshtastic and MeshCore, what is private, what is legal where, and more.</dd>
+    </dl>
+
+    <h2>Going deeper</h2>
+    <p>
+        The protocol itself is defined by the <a href="https://github.com/ternmesh/spec">specification</a>, and{" "}
+        <a href="/why">Why Tern</a> sets out what the simulator measured against Meshtastic and MeshCore. The
+        firmware's own documentation, for building it and for its serial console, is in{" "}
+        <a href="https://github.com/ternmesh/firmware">ternmesh/firmware</a>.
+    </p>
+</Docs>
