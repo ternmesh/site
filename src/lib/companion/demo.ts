@@ -6,6 +6,9 @@ import type { Transport } from "./client.ts";
 import { STATE, decode, encode } from "./protocol.ts";
 import type { Fields } from "./protocol.ts";
 
+/** The profiles a node has (draft/phy.md in ternmesh/spec), which the demo accepts by name. */
+const DEMO_REGIONS = ["AU915", "CL915", "EU868", "KZ863", "MY919", "NZ915", "RU868", "TH920", "US915"];
+
 const SELF = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 const ROBIN = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 const SAM = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
@@ -242,8 +245,12 @@ export function openDemo(): Transport {
                     self.cards = value;
                 } else if (x.setting === 6 && typeof value === "string") {
                     self.card_name = value;
-                } else if (x.setting === 1 && (value === "US915" || value === "EU868")) {
+                } else if (x.setting === 1 && typeof value === "string" && DEMO_REGIONS.includes(value)) {
                     self.region = value;
+                    // As a node does: TH920 takes the power up to 17 dBm radiated, here into 3 dBi.
+                    if (value === "TH920" && self.power < 14) {
+                        self.power = 14;
+                    }
                 } else if (x.setting === 2 && (value === 0 || value === 1)) {
                     self.role = value;
                 } else if (x.setting === 3 && typeof value === "number" && value >= -9 && value <= 22) {
