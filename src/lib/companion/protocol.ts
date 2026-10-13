@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 7 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 9 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 7;
+export const VERSION = 9;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
@@ -40,7 +40,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 7, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 9, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -49,6 +49,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x03: ["PING", [], 0],
     0x04: ["SET_TIME", [["time", "u32"]], 0],
     0x05: ["SET", [["setting", "u8"]], 0],
+    0x06: ["OFF", [], 9],
     0x10: ["SEND", [["ref", "u32"], ["to", "addr"], ["text", "str", TEXT_MAX]], 0],
     0x11: ["READ", [["through", "u32"]], 0],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
@@ -162,6 +163,20 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x91: ["GROUP_SHARING", [["group", "gid"], ...sharing], 5],
     0x92: ["CARD", [["address", "addr"], ["heard", "u32"], ["name", "str", NAME_MAX]], 6],
     0x93: ["CARD_GONE", [["address", "addr"]], 6],
+    0x94: [
+        "FIX",
+        [
+            ["receiver", "u8"],
+            ["source", "u8"],
+            ["lat", "i32"],
+            ["lon", "i32"],
+            ["altitude", "i16"],
+            ["accuracy", "u16"],
+            ["age", "u32"],
+            ["satellites", "u8"],
+        ],
+        8,
+    ],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -176,11 +191,17 @@ const SETTINGS: Readonly<Record<number, readonly [Field, number]>> = {
     4: [["value", "u32"], 0],
     5: [["value", "u8"], 6],
     6: [["value", "str", NAME_MAX], 6],
+    7: [["value", "u8"], 8],
 };
 
-export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6 } as const;
+export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6, receiver: 7 } as const;
 /** Why a node refused first contact: ASKED's `why`. */
 export const ASKED = { notContact: 1, noRoom: 2 } as const;
+
+/** The node's satellite receiver, as FIX's `receiver` says it is now. */
+export const RECEIVER = { none: 0, off: 1, searching: 2, fixed: 3 } as const;
+/** Whose fix a FIX carries: FIX's `source`. */
+export const FIX_SOURCE = { none: 0, receiver: 1, client: 2 } as const;
 
 export const STATE = { waiting: 0, sent: 1, delivered: 2, notDelivered: 3, received: 4 } as const;
 

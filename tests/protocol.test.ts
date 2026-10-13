@@ -103,10 +103,49 @@ test("an INFO is read by the lesser of the two versions, and so is all after it"
 });
 
 test("unknown_to_older: news and answers of a later version are not read by an earlier one", () => {
-    assert.ok(v.unknown_to_older.length >= 15);
+    assert.ok(v.unknown_to_older.length >= 21);
     for (const c of v.unknown_to_older) {
         assert.equal(decode(bytes(c.frame), c.version), null, `${c.type}, version ${c.version}`);
         assert.ok(decode(bytes(c.frame)), `${c.type} is read by version ${VERSION}`);
+    }
+});
+
+test("the node's own fix, its receiver and turning it off: versions 8 and 9", () => {
+    // Each of FIX, SET 7 and OFF is among the frames, read by this version and built back.
+    for (const type of ["FIX", "OFF"]) {
+        assert.ok(v.frames.some((c) => c.type === type), type);
+    }
+    assert.ok(v.frames.some((c) => c.type === "SET" && c.fields.setting === 7));
+    for (const c of v.frames) {
+        const fix = c.type === "FIX";
+        const receiver = c.type === "SET" && c.fields.setting === 7;
+        const off = c.type === "OFF";
+        if (!fix && !receiver && !off) {
+            continue;
+        }
+        // A FIX and the receiver setting are version 8's, OFF is version 9's.
+        const added = off ? 9 : 8;
+        assert.equal(decode(bytes(c.frame), added - 1), null, `${c.type}, version ${added - 1}`);
+        assert.deepEqual(decode(bytes(c.frame), added), { type: c.type, seq: c.seq, fields: c.fields });
+    }
+    // The exchange ends with the node turned off: OFF, answered OK, and nothing after.
+    const last = v.exchange.slice(-2).map((c) => [c.from, c.type]);
+    assert.deepEqual(last, [
+        ["client", "OFF"],
+        ["node", "OK"],
+    ]);
+    // The clients of versions 7 and 8 are sent no FIX and asked for no OFF respectively: each's
+    // last request is the one its version lacks, and the node refuses it with ERROR 1.
+    for (const [version, type] of [
+        [7, "SET"],
+        [8, "OFF"],
+    ] as const) {
+        const older = v.older.find((o) => o.version === version)!;
+        assert.equal(older.frames.some((c) => c.type === "FIX"), version === 8, `FIX to version ${version}`);
+        const [asked, refused] = older.frames.slice(-2);
+        assert.equal(asked!.type, type);
+        assert.equal(decode(bytes(asked!.frame), version), null);
+        assert.deepEqual(decode(bytes(refused!.frame), version)?.fields, { code: 1 });
     }
 });
 
@@ -125,6 +164,8 @@ test("encode refuses what is not a frame", () => {
     assert.throws(() => encode("SEND", 1, { ref: 1, to: "00", text: "x" }));
     assert.throws(() => encode("SEND", 1, { ref: 1, to: "00".repeat(32), text: "x".repeat(129) }));
     assert.throws(() => encode("SET", 1, { setting: 9, value: 1 }));
+    assert.throws(() => encode("SET", 1, { setting: 7, value: "on" }));
+    assert.throws(() => encode("FIX", 0, { receiver: 3, source: 1, lat: 0, lon: 0, altitude: 0, accuracy: 0, age: 0 }));
     assert.throws(() => encode("HELLO", 1, {}));
     assert.throws(() => encode("UPDATE_DATA", 1, { offset: 0, data: "00".repeat(173) }));
     assert.throws(() => encode("SELF", 0, { address: "00".repeat(32), role: 0, region: "", power: 0, time: 0, card_name: "x" }));
