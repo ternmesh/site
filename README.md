@@ -44,7 +44,7 @@ Serial, which Chrome and Edge on a computer have, and over Web Bluetooth, which 
 computer and on an Android phone. Nothing is sent anywhere but to the board, and nothing runs on
 a server.
 
-It speaks version 7 of the protocol, and any earlier version a node speaks:
+It speaks version 9 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
@@ -61,6 +61,13 @@ not define, saying on the node's card what an update would bring.
   conversation, at the precisions the specification lists. While the node shares with anyone, the
   page gives it the browser's location from `navigator.geolocation`, at most every 15 seconds, and
   only while the page is open.
+* **The node itself:** where it takes itself to be (version 8's `FIX`): the fix it shares from,
+  its GPS's or the last an app gave it, on the node's card with a Map link like a position's, and
+  what its GPS is doing. A node with a GPS has it turned on and off under **Settings** (`SET` 7).
+  While the node's GPS has a fix, the page does not give it the browser's location.
+* **Turning it off:** **Turn off**, beside Disconnect, for a node of version 9 (`OFF`). It asks
+  first, saying that only the node itself turns it on again; once the node says OK the page closes
+  the link, says so, and does not try to reach it again until the user connects.
 * **Updates:** a node with a board and a release is offered the release in `/firmware/latest.json`
   for its board and region when it is later, by Semantic Versioning. The image is checked against
   the manifest's size and SHA-256 and sent over the same link, going on from where the node says
@@ -79,8 +86,8 @@ not define, saying on the node's card what an update would bring.
 | `src/lib/app/` | The page: what is drawn, and the conversations it keeps in the browser. |
 
 `tests/vectors/companion.json` is a copy of the specification's
-[`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), and
-`npm test` holds the client to it: every frame, every stream, and the specification's exchange
+[`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as of
+[ternmesh/spec#50](https://github.com/ternmesh/spec/pull/50) (version 9), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
 byte for byte, the older clients' frames read by their versions, and the update as its client.
 When the specification's vectors change, copy the new file here in the pull
 request that changes the code to match.

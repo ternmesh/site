@@ -5,10 +5,10 @@
 // every string goes in as a text node.
 
 import { Client, Refused } from "../companion/client.ts";
-import type { Message, Position, Sharing, Transport } from "../companion/client.ts";
+import type { Fix, Message, Position, Sharing, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
-import { ASKED, NAME_MAX, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { ASKED, FIX_SOURCE, NAME_MAX, RECEIVER, STATE, TEXT_MAX } from "../companion/protocol.ts";
 import { fetchImage, offerFor } from "../companion/release.ts";
 import { readJoinCode, shortCode } from "../companion/share.ts";
 import { linkSegments, qrEncode, qrPath } from "../qr.ts";
@@ -65,6 +65,8 @@ let drawing = false;
 let reading = false;
 /** A group's join code the user asked to see, while it is shown: in memory, and nowhere else. */
 let shownCode: { group: string; link: string } | null = null;
+/** The last node connected to was turned off from here: it is not connected to again until asked. */
+let turnedOff = false;
 /** Routing ids of the addresses the page knows, to put names to neighbours. */
 const ids = new Map<string, number>();
 
@@ -202,8 +204,13 @@ function drawNode(): void {
         el("p", { class: "muted facts" }, facts.join(" · ")),
         el("p", { class: "muted facts" }, [c.firmware, c.board].filter((x) => x !== "").join(" · ")),
     );
+    if (c.fix) {
+        box.append(...fixFacts(c.fix));
+    }
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
     const missing = [
+        [9, "be turned off from here"],
+        [8, "say where it is, or have its GPS turned off"],
         [7, "share a group by its join code, or join from one"],
         [6, "show who is about"],
         [5, "share positions"],
@@ -226,6 +233,44 @@ function drawNode(): void {
     }
 }
 
+/** What a node's GPS receiver is doing, in a few words; null for a node with none. */
+function receiverText(f: Fix): string | null {
+    switch (f.receiver) {
+        case RECEIVER.none:
+            return null;
+        case RECEIVER.off:
+            return "Its GPS is off.";
+        case RECEIVER.fixed:
+            return f.source === FIX_SOURCE.receiver && f.satellites > 0
+                ? `Its GPS has a fix, from ${f.satellites} satellite${f.satellites === 1 ? "" : "s"}.`
+                : "Its GPS has a fix.";
+        default:
+            return "Its GPS is on, looking for satellites.";
+    }
+}
+
+/**
+ * Where the node takes itself to be, which is where it shares its position from, and its GPS.
+ * The fix goes no further than this page: what goes on the air is what sharing sends.
+ */
+function fixFacts(f: Fix): HTMLElement[] {
+    const gps = receiverText(f);
+    if (f.source === FIX_SOURCE.none) {
+        return [el("p", { class: "muted facts" }, [gps, "It does not know where it is."].filter((x) => x !== null).join(" "))];
+    }
+    const facts = [
+        `${f.lat.toFixed(5)}, ${f.lon.toFixed(5)}`,
+        f.altitude !== null ? `${f.altitude} m up` : null,
+        f.accuracy !== null ? `within ${f.accuracy} m` : null,
+        f.source === FIX_SOURCE.receiver ? "from its GPS" : "as an app gave it",
+        ago(f.fixedAt),
+    ].filter((x): x is string => x !== null);
+    return [
+        el("p", { class: "muted facts" }, `Where it is: ${facts.join(", ")} `, osmLink(f.lat, f.lon, 15)),
+        gps !== null && el("p", { class: "muted facts" }, gps),
+    ].filter((x): x is HTMLParagraphElement => x instanceof HTMLElement);
+}
+
 /** "a, b and c". */
 function listed(items: string[]): string {
     return items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
@@ -239,11 +284,14 @@ function drawSettings(): void {
     if (!self) {
         return;
     }
-    const key = `${self.region}/${self.power}/${self.role}`;
+    const receiver = receiverSettable(client!);
+    const key = `${self.region}/${self.power}/${self.role}/${receiver && client!.fix!.receiver !== RECEIVER.off}`;
     if (key === settingsShown) {
         return;
     }
     settingsShown = key;
+    $("receiver-setting").hidden = !receiver;
+    $<HTMLInputElement>("set-receiver").checked = receiver && client!.fix!.receiver !== RECEIVER.off;
     $<HTMLInputElement>("set-power").value = String(self.power);
     $<HTMLSelectElement>("set-role").value = String(self.role);
     const region = $<HTMLSelectElement>("set-region");
@@ -254,6 +302,11 @@ function drawSettings(): void {
         region.prepend(other);
     }
     region.value = self.region;
+}
+
+/** Whether the node has a GPS receiver this page may turn on and off: version 8's SET 7. */
+function receiverSettable(c: Client): boolean {
+    return c.can("SET", 7) && c.fix !== null && c.fix.receiver !== RECEIVER.none;
 }
 
 function drawAsked(): void {
@@ -470,9 +523,13 @@ function sharingText(s: Sharing): string {
 
 /** A link that opens a position on OpenStreetMap, zoomed to about its cell. Opened only if clicked. */
 function mapLink(p: Position): HTMLAnchorElement {
-    const zoom = Math.max(3, Math.min(18, p.precision - 2));
-    const lat = p.lat.toFixed(6);
-    const lon = p.lon.toFixed(6);
+    return osmLink(p.lat, p.lon, Math.max(3, Math.min(18, p.precision - 2)));
+}
+
+/** A link that opens a place on OpenStreetMap at a zoom. Opened only if clicked. */
+function osmLink(latitude: number, longitude: number, zoom: number): HTMLAnchorElement {
+    const lat = latitude.toFixed(6);
+    const lon = longitude.toFixed(6);
     return el(
         "a",
         {
@@ -640,7 +697,9 @@ const TELL_EVERY_MS = 15000;
 
 function feedPosition(): void {
     const c = client;
-    const want = c !== null && !c.closed && c.ready && c.sharing.size > 0 && !demo && "geolocation" in navigator;
+    // A node whose own GPS has a fix shares from that, and need not be given the browser's.
+    const own = c?.fix?.receiver === RECEIVER.fixed;
+    const want = c !== null && !c.closed && c.ready && c.sharing.size > 0 && !own && !demo && "geolocation" in navigator;
     if (want && watching === null) {
         watching = navigator.geolocation.watchPosition(
             (fix) => {
@@ -1258,6 +1317,7 @@ function draw(): void {
         drawing = false;
         const up = client !== null && !client.closed;
         $("gate").hidden = up;
+        $("turned-off").hidden = up || !turnedOff;
         $("live").hidden = !up || !client?.ready;
         $("demo-note").hidden = !up || !demo;
         $("console").hidden = !up || !hasConsole;
@@ -1277,6 +1337,8 @@ function draw(): void {
         learnIds();
         askOffer(client);
         drawNode();
+        // Not while an update is under way: the node would be left between two images.
+        $("turn-off").hidden = !client.can("OFF") || (updating !== null && updating.node === client.self?.address);
         drawUpdate();
         drawSettings();
         drawCard();
@@ -1381,6 +1443,7 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
         return;
     }
     demo = by === "demo";
+    turnedOff = false;
     hasConsole = by === "serial";
     selected = null;
     shownCode = null;
@@ -1446,6 +1509,43 @@ async function bringUp(c: Client): Promise<unknown> {
 }
 
 /**
+ * Turns the node off, once the user has been told that only the node itself turns it on again.
+ * Once it says OK the connection is closed, and the page does not try to reach it again: the gate
+ * says it is off, and its buttons connect again when the user asks.
+ */
+async function turnOff(c: Client): Promise<void> {
+    const sure = window.confirm(
+        "Turn this node off? Only the node itself turns it on again: its button, its reset or its power. " +
+            "Until then it sends and receives nothing, and neither this page nor an app can reach it.",
+    );
+    if (!sure) {
+        return;
+    }
+    try {
+        await c.turnOff();
+    } catch (e) {
+        if (!(e instanceof Refused && e.code === 0)) {
+            say(explain(e), true); // refused, and still on
+            return;
+        }
+        // No answer: a node that is already off does not answer, and is taken as gone.
+        await c.close();
+        if (client === c) {
+            client = null;
+        }
+        say("The node did not answer, and may be off already. Connect to it again once it is on.", true);
+        draw();
+        return;
+    }
+    if (client === c) {
+        client = null;
+    }
+    turnedOff = true;
+    say("");
+    draw();
+}
+
+/**
  * Applies the settings that differ from the node's, one at a time: the region first, since what
  * power is allowed depends on it. A node restarts to apply each, so each is followed by starting
  * the connection again.
@@ -1459,6 +1559,9 @@ async function applySettings(c: Client): Promise<void> {
     const power = Number($<HTMLInputElement>("set-power").value);
     const role = Number($<HTMLSelectElement>("set-role").value);
     const changes: [setting: "region" | "power" | "role", value: number | string][] = [];
+    // The GPS receiver: applied first, and with nothing to wait for, since it changes nothing on the air.
+    const receiver = receiverSettable(c) ? $<HTMLInputElement>("set-receiver").checked : null;
+    const receiverChanged = receiver !== null && receiver !== (c.fix!.receiver !== RECEIVER.off);
     if (region !== self.region) {
         changes.push(["region", region]);
     }
@@ -1468,7 +1571,7 @@ async function applySettings(c: Client): Promise<void> {
     if (role !== self.role) {
         changes.push(["role", role]);
     }
-    if (changes.length === 0) {
+    if (changes.length === 0 && !receiverChanged) {
         say("Nothing to change.");
         return;
     }
@@ -1478,6 +1581,9 @@ async function applySettings(c: Client): Promise<void> {
     live.inert = true;
     live.classList.add("busy");
     try {
+        if (receiver !== null && receiverChanged) {
+            await c.setReceiver(receiver);
+        }
         for (const [setting, value] of changes) {
             await c.set(setting, value);
             say("Applied. Waiting for the board to restart…");
@@ -1527,6 +1633,11 @@ function start(): void {
     serialButton.addEventListener("click", () => void connect(openSerial, "serial"));
     bluetoothButton.addEventListener("click", () => void connect(() => openBluetooth(), "bluetooth"));
     $("connect-demo").addEventListener("click", () => void connect(openDemo, "demo"));
+    $("turn-off").addEventListener("click", () => {
+        if (client) {
+            void turnOff(client);
+        }
+    });
     $("disconnect").addEventListener("click", () => {
         const c = client;
         client = null;

@@ -185,6 +185,11 @@ const fw = "https://github.com/ternmesh/firmware";
         air. Positions shared with you appear on the app's map.
     </p>
     <p>
+        A node with a GPS of its own knows where it is without the phone. The browser app shows that fix on the node's
+        card, with how many satellites it came from, and can turn the GPS off under Settings to save the battery; the
+        node keeps its last fix, and shares it, like any position, only with those you share with.
+    </p>
+    <p>
         The map's tiles come from <a href="https://openfreemap.org">OpenFreeMap</a> on Android and from Apple on
         iPhone, so those servers see which area the map shows. The <a href="/privacy">privacy page</a> has the
         rest.
@@ -202,6 +207,11 @@ const fw = "https://github.com/ternmesh/firmware";
         <li><strong>Hold</strong> it for five seconds to turn the node off; the screen counts down from the second,
             and letting go keeps it on. A press turns it on again.</li>
     </ul>
+    <p>
+        The browser app can turn the node off too, with <strong>Turn off</strong> beside Disconnect, once its firmware
+        speaks version 9 of the companion protocol. Nothing reaches a node that is off: it is turned on again only at
+        the node, by its button, its reset or its power.
+    </p>
     <dl>
         <dt>Home</dt>
         <dd>New messages, how many nodes it hears, the battery and the region.</dd>
