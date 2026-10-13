@@ -285,13 +285,16 @@ function drawSettings(): void {
         return;
     }
     const receiver = receiverSettable(client!);
-    const key = `${self.region}/${self.power}/${self.role}/${receiver && client!.fix!.receiver !== RECEIVER.off}`;
+    const receiverOn = receiver && client!.fix!.receiver !== RECEIVER.off;
+    // Whether there is a receiver and whether it is on, apart: a FIX that comes after SELF, saying
+    // a receiver is there but off, is a change to the form even though the box stays unticked.
+    const key = `${self.region}/${self.power}/${self.role}/${receiver}/${receiverOn}`;
     if (key === settingsShown) {
         return;
     }
     settingsShown = key;
     $("receiver-setting").hidden = !receiver;
-    $<HTMLInputElement>("set-receiver").checked = receiver && client!.fix!.receiver !== RECEIVER.off;
+    $<HTMLInputElement>("set-receiver").checked = receiverOn;
     $<HTMLInputElement>("set-power").value = String(self.power);
     $<HTMLSelectElement>("set-role").value = String(self.role);
     const region = $<HTMLSelectElement>("set-region");
