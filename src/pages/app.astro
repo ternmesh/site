@@ -20,6 +20,10 @@ import Base from "../layouts/Base.astro";
                 <button id="connect-bluetooth" type="button">Connect over Bluetooth</button>
                 <button id="connect-demo" type="button">Try it without a board</button>
             </p>
+            <p id="turned-off" class="note" hidden>
+                Turned off. The node stays off until it is turned on at the node itself, by its button,
+                its reset or its power; then connect to it again.
+            </p>
             <p id="unsupported" class="note" hidden></p>
             <ul class="muted notes">
                 <li>
@@ -78,6 +82,14 @@ import Base from "../layouts/Base.astro";
                             <option value="1">Relay: passes others' frames on</option>
                             <option value="0">Leaf: sends and receives its own</option>
                         </select>
+                        <div id="receiver-setting" hidden>
+                            <label class="check"><input id="set-receiver" type="checkbox" /> Run its GPS</label>
+                            <p class="muted small-print">
+                                The GPS tells the node where it is, which it shares from only if you
+                                share your position. Off, it saves the battery, and the node keeps
+                                its last fix.
+                            </p>
+                        </div>
                         <p class="muted small-print">
                             The board sends on its region's frequency: choose the one you are in.
                             It restarts to apply a change, and refuses a power its region does not
@@ -101,7 +113,10 @@ import Base from "../layouts/Base.astro";
                         <button type="submit">Apply</button>
                     </form>
                 </details>
-                <p><button id="disconnect" type="button" class="small">Disconnect</button></p>
+                <p class="buttons">
+                    <button id="disconnect" type="button" class="small">Disconnect</button>
+                    <button id="turn-off" type="button" class="small" hidden>Turn off</button>
+                </p>
                 <ul id="asked" class="list plain"></ul>
                 <h2>People</h2>
                 <ul id="people" class="list"></ul>

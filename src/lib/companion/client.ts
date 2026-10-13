@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 6 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 9 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -9,8 +9,10 @@
 
 import {
     ANSWER_WAIT_MS,
+    FIX_SOURCE,
     GAP_MS,
     IDLE_MS,
+    RECEIVER,
     SETTING,
     STATE,
     StreamReader,
@@ -120,6 +122,25 @@ export interface Sharing {
     /** When the node turns it off, by this client's clock, in milliseconds; 0 for when it is told to. */
     endsAt: number;
 }
+/**
+ * The node's own fix: where it takes itself to be, which is where it shares its position from, and
+ * what its satellite receiver is doing. `receiver` is one of RECEIVER, a value this client does not
+ * know taken as searching; `source` one of FIX_SOURCE, and with none the rest says nothing.
+ */
+export interface Fix {
+    receiver: number;
+    source: number;
+    /** Degrees, WGS 84. */
+    lat: number;
+    lon: number;
+    /** In metres above the ellipsoid, or null if the fix gave none. */
+    altitude: number | null;
+    accuracy: number | null;
+    /** How many satellites the receiver's fix was made from: 0 if it does not say, or the fix is a client's. */
+    satellites: number;
+    /** When the fix was taken, by this client's clock, in milliseconds. */
+    fixedAt: number;
+}
 /** A presence card the node holds: who is about, by their own account. */
 export interface Card {
     address: string;
@@ -173,6 +194,7 @@ interface Seen {
     positions: Set<string>;
     sharing: Set<string>;
     cards: Set<string>;
+    fix: boolean;
 }
 
 /** After a whole list: what the list did not send is no longer the node's. */
@@ -217,6 +239,13 @@ export class Client {
     readonly asked = new Map<string, number>();
     airtime: Airtime | null = null;
     power: Power | null = null;
+    /** The node's own fix: null from a node before version 8, which tells of none. */
+    fix: Fix | null = null;
+    /**
+     * The node said OK to OFF, and is turning off: the connection is closed, and nothing in the
+     * protocol turns the node on again, so it is not to be connected to until the user asks.
+     */
+    turnedOff = false;
     /** Up: the node has answered HELLO and a sync has finished. */
     ready = false;
     closed = false;
@@ -330,6 +359,7 @@ export class Client {
             positions: new Set(),
             sharing: new Set(),
             cards: new Set(),
+            fix: false,
         };
         this.syncSeen = seen;
         try {
@@ -349,6 +379,10 @@ export class Client {
             forgetUnseen(this.positions, seen.positions);
             forgetUnseen(this.sharing, seen.sharing);
             forgetUnseen(this.cards, seen.cards);
+            // From version 8 every sync sends one FIX; a node that sent none tells of no fix.
+            if (!seen.fix) {
+                this.fix = null;
+            }
         } finally {
             this.syncSeen = null;
         }
@@ -426,6 +460,31 @@ export class Client {
     async setCardName(name: string): Promise<void> {
         await this.request("SET", { setting: SETTING.cardName, value: name });
     }
+    /**
+     * Runs the node's satellite receiver, or turns it off to save the power it draws. Nothing goes
+     * on the air either way, and the node keeps its last fix.
+     */
+    async setReceiver(on: boolean): Promise<void> {
+        await this.request("SET", { setting: SETTING.receiver, value: on ? 1 : 0 });
+    }
+    /**
+     * Turns the node off, and closes the connection once it says OK: only the node itself, by its
+     * button, its reset or its power, turns it on again. Only ever because the user asked, having
+     * been told so. A try the node never answered is made once more, since OFF does no harm sent
+     * twice; a node that is already off does not answer, and is taken as gone.
+     */
+    async turnOff(): Promise<void> {
+        try {
+            await this.request("OFF");
+        } catch (e) {
+            if (!(e instanceof Refused && e.code === 0 && !this.closed)) {
+                throw e;
+            }
+            await this.request("OFF");
+        }
+        this.turnedOff = true;
+        await this.close();
+    }
 
     /** Makes a group on the node, which draws its secret, and returns its id. */
     async makeGroup(name: string): Promise<string> {
@@ -500,7 +559,7 @@ export class Client {
      * Changes a setting. A node may restart to apply it once it has answered: the caller starts
      * the connection again.
      */
-    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName">, value: number | string): Promise<void> {
+    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName" | "receiver">, value: number | string): Promise<void> {
         await this.request("SET", { setting: SETTING[setting], value });
     }
     /** Lets go of an address the node said had asked. */
@@ -798,6 +857,25 @@ export class Client {
             case "CARD_GONE":
                 this.cards.delete(String(x.address));
                 break;
+            case "FIX": {
+                const receiver = Number(x.receiver);
+                const source = Number(x.source);
+                const known = Object.values(RECEIVER) as number[];
+                this.fix = {
+                    receiver: known.includes(receiver) ? receiver : RECEIVER.searching,
+                    source,
+                    lat: source === FIX_SOURCE.none ? 0 : Number(x.lat) / 1e7,
+                    lon: source === FIX_SOURCE.none ? 0 : Number(x.lon) / 1e7,
+                    altitude: source === FIX_SOURCE.none || x.altitude === -32768 ? null : Number(x.altitude),
+                    accuracy: source === FIX_SOURCE.none || x.accuracy === 0 ? null : Number(x.accuracy),
+                    satellites: Number(x.satellites),
+                    fixedAt: this.now() - 1000 * Number(x.age),
+                };
+                if (this.syncSeen) {
+                    this.syncSeen.fix = true;
+                }
+                break;
+            }
             case "POWER":
                 this.power = {
                     millivolts: Number(x.millivolts),

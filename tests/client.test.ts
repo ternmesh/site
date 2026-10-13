@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { routingId } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
-import { STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import { FIX_SOURCE, RECEIVER, STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
@@ -75,6 +75,8 @@ for (const framed of [false, true]) {
         assert.equal(c.neighbours.size, 1);
         assert.equal(c.airtime?.allowed, 360000);
         assert.equal(c.power?.percent, 81);
+        // Its receiver is on, and has found no fix yet: a record with no source says nothing more.
+        assert.deepEqual([c.fix?.receiver, c.fix?.source, c.fix?.altitude], [RECEIVER.searching, FIX_SOURCE.none, null]);
 
         const read = c.read(17);
         await expect();
@@ -139,6 +141,17 @@ for (const framed of [false, true]) {
         const placed = c.setPosition(45.8325, 6.8644, 4806, 4, 3);
         await expect();
         await placed;
+        // The node takes the user's position as its own fix, its receiver having none.
+        assert.deepEqual(c.fix, {
+            receiver: RECEIVER.searching,
+            source: FIX_SOURCE.client,
+            lat: 45.8325,
+            lon: 6.8644,
+            altitude: 4806,
+            accuracy: 4,
+            satellites: 0,
+            fixedAt: quick.now() - 3000,
+        });
         const shared = c.share(BOB, 20, { interval: 900, minutes: 60 });
         await expect();
         await shared;
@@ -204,8 +217,34 @@ for (const framed of [false, true]) {
         const typo = c.joinLink(String(decode(unhex(steps[at]!.frame)!)!.fields.link));
         await expect();
         await assert.rejects(typo, (e: unknown) => e instanceof Refused && e.code === 3);
+
+        // The receiver finds the sky: the fix is its own now, from nine satellites.
+        assert.deepEqual(
+            [c.fix?.receiver, c.fix?.source, c.fix?.lat, c.fix?.lon, c.fix?.altitude, c.fix?.accuracy, c.fix?.satellites],
+            [RECEIVER.fixed, FIX_SOURCE.receiver, 45.8325412, 6.8643871, 4809, 3, 9],
+        );
+        // Turned off, it keeps its last fix, which grows older; a value that is neither is refused.
+        const gpsOff = c.setReceiver(false);
+        await expect();
+        await gpsOff;
+        assert.deepEqual([c.fix?.receiver, c.fix?.source, c.fix?.fixedAt], [RECEIVER.off, FIX_SOURCE.receiver, quick.now() - 20_000]);
+        const either = c.request("SET", { setting: 7, value: 2 });
+        await expect();
+        await assert.rejects(either, (e: unknown) => e instanceof Refused && e.code === 3);
+        const gpsOn = c.setReceiver(true);
+        await expect();
+        await gpsOn;
+        assert.deepEqual([c.fix?.receiver, c.fix?.satellites], [RECEIVER.searching, 9]);
+
+        // Turned off: the node answers, and the client closes the connection and does not open
+        // it again, nor say the node has gone.
+        let gone = "";
+        c.onClosed = (why) => (gone = why);
+        const off2 = c.turnOff();
+        await expect();
+        await off2;
         assert.equal(at, steps.length);
-        await c.close();
+        assert.deepEqual([c.turnedOff, c.closed, wire.closedByClient, gone], [true, true, true, ""]);
     });
 }
 
@@ -589,5 +628,82 @@ test("a sync is the whole list of positions, sharing and cards, and a record of 
     wire.say("SYNCED", sync.seq, { news: 9 });
     await again;
     assert.deepEqual([c.positions.size, [...c.sharing.keys()], [...c.cards.keys()]], [0, [hut], [CAROL]]);
+    await c.close();
+});
+
+test("a node of version 7 is asked for no receiver setting, nor to turn off, and its FIX is not read", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [], 7);
+    assert.equal(c.version, 7);
+    assert.deepEqual([c.can("SET", 7), c.can("OFF")], [false, false]);
+    await assert.rejects(c.setReceiver(false), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.turnOff(), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0, "nothing was asked of it");
+    assert.equal(c.turnedOff, false);
+    wire.say("FIX", 0, { receiver: 3, source: 1, lat: 1, lon: 2, altitude: 3, accuracy: 4, age: 5, satellites: 6 });
+    assert.equal(c.fix, null);
+    await c.close();
+});
+
+test("a node of version 8 tells of its fix and takes the receiver setting, but is not asked to turn off", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const fix = { receiver: 9, source: 1, lat: 458325412, lon: 68643871, altitude: -32768, accuracy: 0, age: 4, satellites: 7 };
+    await bringUp(wire, c, [["FIX", fix]], 8);
+    // A receiver of a value this client does not know is taken as on, without a fix.
+    assert.deepEqual(
+        [c.fix?.receiver, c.fix?.altitude, c.fix?.accuracy, c.fix?.fixedAt],
+        [RECEIVER.searching, null, null, quick.now() - 4000],
+    );
+    assert.deepEqual([c.can("SET", 7), c.can("OFF")], [true, false]);
+    await assert.rejects(c.turnOff(), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0);
+    const set = c.setReceiver(false);
+    const f = decode(await wire.next())!;
+    assert.deepEqual([f.type, f.fields], ["SET", { setting: 7, value: 0 }]);
+    wire.say("OK", f.seq);
+    await set;
+
+    // A sync that sends no FIX is from a node that tells of none.
+    const again = c.sync();
+    const sync = decode(await wire.next())!;
+    wire.say("SYNCED", sync.seq, { news: 1 });
+    await again;
+    assert.equal(c.fix, null);
+    await c.close();
+});
+
+test("turned off, the node is not connected to again, and an OFF unanswered is sent once more", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, { ...quick, idleMs: 20 });
+    let gone = "";
+    c.onClosed = (why) => (gone = why);
+    await bringUp(wire, c, [], 9);
+    const off = c.turnOff();
+    const first = decode(await wire.next())!;
+    assert.equal(first.type, "OFF");
+    const second = decode(await wire.next())!; // after answerWaitMs of silence
+    assert.deepEqual([second.type, second.seq !== first.seq], ["OFF", true]);
+    wire.say("OK", second.seq);
+    await off;
+    assert.deepEqual([c.turnedOff, c.closed, wire.closedByClient], [true, true, true]);
+    // The link dropping as the node goes is not news, and nothing more is written: no PING, no HELLO.
+    wire.onClose("the node went out of reach");
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(wire.wrote.length, 0);
+    assert.equal(gone, "");
+    await assert.rejects(c.read(1), (e: unknown) => e instanceof Refused && e.code === 0);
+});
+
+test("a node that never answers OFF is taken as gone, not as turned off", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [], 9);
+    const off = c.turnOff();
+    await wire.next();
+    await wire.next();
+    await assert.rejects(off, (e: unknown) => e instanceof Refused && e.code === 0);
+    assert.equal(c.turnedOff, false);
     await c.close();
 });
