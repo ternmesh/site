@@ -81,6 +81,15 @@ function start(): void {
     const download = $<HTMLAnchorElement>("download");
     const offers: Offer[] = JSON.parse($("offers").textContent ?? "[]");
     const offer = () => offers.find((o) => o.name === select.value) ?? offers[0]!;
+    // While a board is being written, nothing on the form may change or start another write.
+    let busy = false;
+    const lock = (on: boolean) => {
+        busy = on;
+        for (const set of form.querySelectorAll("fieldset")) {
+            set.disabled = on;
+        }
+        go.disabled = on || !serial;
+    };
 
     // A link from the hardware page names its board: /flash?board=rak4631.
     const asked = new URLSearchParams(location.search).get("board");
@@ -116,7 +125,7 @@ function start(): void {
         download.href = file ? `/firmware/${file}` : "#";
         download.setAttribute("aria-disabled", String(!file));
         download.nextElementSibling?.toggleAttribute("hidden", Boolean(file));
-        go.disabled = !serial;
+        go.disabled = busy || !serial;
     };
     select.addEventListener("change", show);
     form.addEventListener("change", show);
@@ -136,7 +145,7 @@ function start(): void {
         const o = offer();
         const region = chosen("region", REGIONS);
         const kind = chosen<Kind>("kind", ["new", "update"]);
-        if (!serial || o.family !== "esp32" || o.chip === "nRF52840" || !region || !kind) {
+        if (busy || !serial || o.family !== "esp32" || o.chip === "nRF52840" || !region || !kind) {
             return;
         }
         // The browser's list of ports, which only a click may open. Closing it is not an error.
@@ -146,8 +155,7 @@ function start(): void {
         } catch {
             return;
         }
-        go.disabled = true;
-        select.disabled = true;
+        lock(true);
         $("working").hidden = false;
         $("done").hidden = true;
         $("failed").hidden = true;
@@ -182,8 +190,7 @@ function start(): void {
             say(`It did not work: ${e instanceof Error ? e.message : String(e)}`, true);
             $("failed").hidden = false;
         } finally {
-            go.disabled = false;
-            select.disabled = false;
+            lock(false);
         }
     });
 }
