@@ -1,6 +1,6 @@
 // Renders tools/og/card.html into public/og.png, the image a shared link shows.
 // Not part of the build: run it by hand after changing the card, and commit the PNG.
-//   npx -y playwright@1.56.1 install chromium   (once, if no Chromium is installed)
+//   npx playwright install chromium   (once, if no Chromium is installed)
 //   node tools/og/render.mjs
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
