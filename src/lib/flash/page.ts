@@ -1,10 +1,28 @@
-// The flash page: choose a region and what is on the board, pick the port, and watch it written.
+// The flash page: choose a board, a region and what is on the board, pick the port, and watch it
+// written; or, for a UF2 board, download its image to copy onto it.
 
 import release from "../../data/firmware.json";
 import { flash } from "./flash.ts";
 import type { Image, Stage } from "./flash.ts";
 import { check, layoutOf, parseSums, REGIONS, sparesNvs, writes } from "./images.ts";
-import type { Kind, Region } from "./images.ts";
+import type { Family, Kind, Region } from "./images.ts";
+
+/** A board the page offers, as flash.astro writes it into the page from the release's checksums. */
+export interface Offer {
+    name: string;
+    title: string;
+    maker: string;
+    chip: "ESP32" | "ESP32-S3" | "nRF52840";
+    family: Family;
+    /** Flashed with a release and checked on a board, or only built for. */
+    checked: boolean;
+    note: string;
+    /** An ESP32 board whose release has the OTA layout, which a phone can update afterwards. */
+    ota: boolean;
+    regions: Region[];
+    /** A UF2 board's file for each region, under /firmware/. */
+    files: Partial<Record<Region, string>>;
+}
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -32,9 +50,9 @@ async function fetchBytes(path: string): Promise<Uint8Array> {
  * The images for a choice, every one checked against the release's checksums before any is
  * written. An update leaves NVS alone, so a board keeps its address, contacts and sessions.
  */
-async function images(region: Region, kind: Kind): Promise<Image[]> {
+async function images(board: string, region: Region, kind: Kind): Promise<Image[]> {
     const sums = parseSums(new TextDecoder().decode(await fetchBytes("/firmware/SHA256SUMS")));
-    const plan = writes(release.version, region, kind, layoutOf(release.version, sums));
+    const plan = writes(release.version, board, region, kind, layoutOf(release.version, board, sums));
     return Promise.all(
         plan.map(async ({ name, address }) => {
             const data = await fetchBytes(`/firmware/${name}`);
@@ -59,11 +77,53 @@ function start(): void {
     const bar = $<HTMLProgressElement>("bar");
     const log = $("log");
     const lines: string[] = [];
+    const select = $<HTMLSelectElement>("board");
+    const download = $<HTMLAnchorElement>("download");
+    const offers: Offer[] = JSON.parse($("offers").textContent ?? "[]");
+    const offer = () => offers.find((o) => o.name === select.value) ?? offers[0]!;
+
+    // A link from the hardware page names its board: /flash?board=rak4631.
+    const asked = new URLSearchParams(location.search).get("board");
+    if (asked && offers.some((o) => o.name === asked)) {
+        select.value = asked;
+    }
+
+    // What the page shows follows the board: whether it is checked, its regions, and how it is flashed.
+    const show = () => {
+        const o = offer();
+        $("checked").hidden = !o.checked;
+        $("unchecked").hidden = o.checked;
+        $("note").hidden = o.note === "";
+        $("note").textContent = o.note;
+        for (const label of form.querySelectorAll<HTMLLabelElement>("label[data-region]")) {
+            const offered = o.regions.includes(label.dataset.region as Region);
+            label.hidden = !offered;
+            const input = label.querySelector("input")!;
+            input.disabled = !offered;
+            if (!offered) {
+                input.checked = false;
+            }
+        }
+        const uf2 = o.family === "uf2";
+        $("serial").hidden = uf2;
+        $("uf2").hidden = !uf2;
+        $("ota").hidden = !o.ota;
+        for (const input of form.querySelectorAll<HTMLInputElement>("input[name=kind]")) {
+            input.disabled = uf2;
+        }
+        const region = chosen("region", REGIONS);
+        const file = region ? o.files[region] : undefined;
+        download.href = file ? `/firmware/${file}` : "#";
+        download.setAttribute("aria-disabled", String(!file));
+        download.nextElementSibling?.toggleAttribute("hidden", Boolean(file));
+        go.disabled = !serial;
+    };
+    select.addEventListener("change", show);
+    form.addEventListener("change", show);
+    show();
 
     if (!serial) {
         $("unsupported").hidden = false;
-        go.disabled = true;
-        return;
     }
 
     const say = (text: string, bad = false) => {
@@ -73,9 +133,10 @@ function start(): void {
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
+        const o = offer();
         const region = chosen("region", REGIONS);
         const kind = chosen<Kind>("kind", ["new", "update"]);
-        if (!region || !kind) {
+        if (!serial || o.family !== "esp32" || o.chip === "nRF52840" || !region || !kind) {
             return;
         }
         // The browser's list of ports, which only a click may open. Closing it is not an error.
@@ -86,6 +147,7 @@ function start(): void {
             return;
         }
         go.disabled = true;
+        select.disabled = true;
         $("working").hidden = false;
         $("done").hidden = true;
         $("failed").hidden = true;
@@ -94,7 +156,7 @@ function start(): void {
         log.textContent = "";
         try {
             say("Fetching the firmware…");
-            await flash(port, await images(region, kind), {
+            await flash(port, await images(o.name, region, kind), { chip: o.chip, title: o.title }, {
                 onStage: (stage) => {
                     say(STAGES[stage]);
                     if (stage !== "writing") {
@@ -112,7 +174,7 @@ function start(): void {
             });
             bar.max = 1;
             bar.value = 1;
-            say(`Done: the board runs Tern ${release.version} for ${region.toUpperCase()}.`);
+            say(`Done: the ${o.title} runs Tern ${release.version} for ${region.toUpperCase()}.`);
             $("done").hidden = false;
         } catch (e) {
             bar.max = 1;
@@ -121,6 +183,7 @@ function start(): void {
             $("failed").hidden = false;
         } finally {
             go.disabled = false;
+            select.disabled = false;
         }
     });
 }

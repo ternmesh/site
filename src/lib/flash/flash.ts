@@ -1,4 +1,4 @@
-// Writes images to an ESP32-S3 over Web Serial, with Espressif's own esptool-js: the board is
+// Writes images to an ESP32 or ESP32-S3 over Web Serial, with Espressif's own esptool-js: the board is
 // reset into its ROM bootloader by the port's DTR and RTS lines, the way esptool.py does it.
 
 import { ESPLoader, Transport } from "esptool-js";
@@ -12,9 +12,6 @@ export interface FlashOptions {
     onProgress: (written: number, total: number) => void;
     onLog?: (line: string) => void;
 }
-
-/** The chip a Heltec V3 has. Another's image would not start, so nothing is written to one. */
-const CHIP = "ESP32-S3";
 
 /** 115200 is slow, about a minute for an image, but every USB-to-serial chip keeps up with it. */
 const BAUD = 115200;
@@ -38,12 +35,19 @@ export interface Image {
     address: number;
 }
 
+/** The board being written: its chip, as esptool-js names it, and what to call it if the chip is not that. */
+export interface Target {
+    chip: "ESP32" | "ESP32-S3";
+    title: string;
+}
+
 /**
  * Writes each image at its address, in one session, checks the board holds what was sent, and
  * restarts it. `port` is a Web Serial port that is not open. It is closed again when this returns
- * or throws. Progress is of all of them together, in their bytes before compression.
+ * or throws. Progress is of all of them together, in their bytes before compression. Nothing is
+ * written to a chip that is not the target's, whose image would not start on it.
  */
-export async function flash(port: unknown, images: Image[], options: FlashOptions): Promise<void> {
+export async function flash(port: unknown, images: Image[], target: Target, options: FlashOptions): Promise<void> {
     const transport = new Transport(port as ConstructorParameters<typeof Transport>[0], false);
     const log = (line: string) => options.onLog?.(line);
     const loader = new ESPLoader({
@@ -55,8 +59,8 @@ export async function flash(port: unknown, images: Image[], options: FlashOption
         options.onStage("connecting");
         await loader.main();
         const chip = loader.chip.CHIP_NAME;
-        if (chip !== CHIP) {
-            throw new Error(`this is an ${chip}, not the ${CHIP} a Heltec V3 has: nothing was written`);
+        if (chip !== target.chip) {
+            throw new Error(`this is an ${chip}, not the ${target.chip} a ${target.title} has: nothing was written`);
         }
         options.onStage("writing", chip);
         let done = false;

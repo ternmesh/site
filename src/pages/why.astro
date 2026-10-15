@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import { boards } from "../data/boards.ts";
 
 const org = "https://github.com/ternmesh";
 const spec = `${org}/spec/blob/main`;
@@ -28,8 +29,8 @@ const rows = [
         </p>
         <p>
             Meshtastic and MeshCore are working networks, with many users and a hundred boards or so between them.
-            Tern runs on one board today. This page says what it does differently, and what that was measured to
-            be worth.
+            Tern is built for {boards.length} boards, and one of them has been checked on hardware so far. This page
+            says what it does differently, and what that was measured to be worth.
         </p>
 
         <h2 id="measured">What was measured</h2>

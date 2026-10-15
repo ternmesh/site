@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import Docs from "../../layouts/Docs.astro";
 import release from "../../data/firmware.json";
-import { boards, makers } from "../../data/boards.ts";
+import { boards, familyOf, makers } from "../../data/boards.ts";
 import { boardsOf } from "../../lib/boards.ts";
 import { parseSums } from "../../lib/flash/images.ts";
 
@@ -15,15 +15,6 @@ const notes = `${fw}/releases/tag/v${release.version}`;
 const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
 const released = boardsOf(release.version, sums);
 
-const how = (b: (typeof boards)[number]) => {
-    if (!released.has(b.name)) {
-        return "Not in this release";
-    }
-    if (b.name === "heltec-v3") {
-        return "Flash page";
-    }
-    return b.chip === "nRF52840" ? "Release .uf2" : "Release .bin";
-};
 const running = boards.filter((b) => b.status === "runs");
 ---
 
@@ -33,17 +24,19 @@ const running = boards.filter((b) => b.status === "runs");
 >
     <h1>Hardware</h1>
     <p class="lede">
-        Tern runs on small LoRa boards of the kind Meshtastic and MeshCore use. Today{" "}
-        {running.length === 1 ? "one has" : `${running.length} have`} been run and checked:{" "}
-        <strong>{running.map((b) => b.title).join(", ")}</strong>. The rest are built for, and wait for someone to
-        try one.
+        Tern runs on small LoRa boards of the kind Meshtastic and MeshCore use: {boards.length} of them, from Heltec,
+        LilyGo, RAKwireless and Seeed, and <a href="/flash">the flash page</a> offers every one. So far{" "}
+        {running.length === 1 ? "one has" : `${running.length} have`} been checked on hardware:{" "}
+        <strong>{running.map((b) => b.title).join(", ")}</strong>. The rest are built from their makers' documents
+        and wait for someone to try one.
     </p>
 
     <h2 id="choosing">Choosing a board</h2>
     <ul>
         <li>
-            <strong>For now, a Heltec WiFi LoRa 32 V3.</strong> It is the board Tern is tested on, it costs little,
-            and <a href="/flash">the flash page</a> puts Tern on it from a browser.
+            <strong>The surest: a Heltec WiFi LoRa 32 V3.</strong> It is the board Tern is checked on, and it costs
+            little. Any other in the table works the same way if its pins are right, and trying one is how it gets
+            checked.
         </li>
         <li>
             <strong>The right band.</strong> Every region Tern has is in 863 to 928 MHz: buy that version, not the
@@ -53,6 +46,10 @@ const running = boards.filter((b) => b.status === "runs");
             <strong>An antenna, fitted before it is powered.</strong> The one sold with the board is fine to start.
         </li>
         <li>
+            <strong>A screen and a button</strong> to see and use the node without a phone. A board without one works,
+            with an app.
+        </li>
+        <li>
             <strong>A battery</strong> if it is to be carried: most of these boards take a single 3.7 V lithium cell
             and charge it over USB. An nRF52840 board runs for days on a cell where an ESP32 runs for hours.
         </li>
@@ -60,10 +57,10 @@ const running = boards.filter((b) => b.status === "runs");
 
     <h2 id="boards">Every board</h2>
     <p>
-        <strong>Runs</strong> means someone has flashed a release onto one and checked it: the radio, the screen, the
-        battery, the button and a message both ways. <strong>Built</strong> means the firmware is built for it on every
-        change, from its maker's documents, but nobody has yet run it on the board. A built board may well work; if
-        you try one, <a href={`${fw}/issues`}>say how it went</a>.
+        <strong>Checked</strong> means someone has flashed a release onto one and checked it: the radio, the screen,
+        the battery, the button and a message both ways. <strong>Not yet checked</strong> means the firmware is built
+        for it on every change, from its maker's documents, and the release has its images, but nobody has yet said
+        it works. It may well; if you try one, <a href={`${fw}/issues`}>say how it went</a>, and it becomes checked.
     </p>
     <div class="scroll">
         <table class="boards">
@@ -72,7 +69,7 @@ const running = boards.filter((b) => b.status === "runs");
                     <th>Board</th>
                     <th>Chip, radio</th>
                     <th>Status</th>
-                    <th>Get it from v{release.version}</th>
+                    <th>v{release.version}</th>
                 </tr>
             </thead>
             <tbody>
@@ -83,7 +80,8 @@ const running = boards.filter((b) => b.status === "runs");
                                 {b.title}
                                 <br />
                                 <span class="muted small">
-                                    <a href={makers[b.maker]}>{b.maker}</a>
+                                    <a href={b.buy ?? makers[b.maker]}>{b.buy ? `Buy from ${b.maker}` : b.maker}</a>
+                                    {!b.buy && <> · no longer made</>}
                                     {b.note && <> · {b.note}</>}
                                 </span>
                             </td>
@@ -92,8 +90,18 @@ const running = boards.filter((b) => b.status === "runs");
                                 <br />
                                 <span class="muted small">{b.radio}</span>
                             </td>
-                            <td data-label="Status">{b.status === "runs" ? <strong>Runs</strong> : "Built"}</td>
-                            <td data-label="Get it">{how(b)}</td>
+                            <td data-label="Status">
+                                {b.status === "runs" ? <strong>Checked</strong> : "Not yet checked"}
+                            </td>
+                            <td data-label={`v${release.version}`}>
+                                {released.has(b.name) ? (
+                                    <a href={`/flash?board=${b.name}`}>
+                                        {familyOf(b) === "uf2" ? "Download .uf2" : "Flash over USB"}
+                                    </a>
+                                ) : (
+                                    "Not in this release"
+                                )}
+                            </td>
                         </tr>
                     ))
                 }
@@ -106,25 +114,18 @@ const running = boards.filter((b) => b.status === "runs");
     </p>
 
     <h2 id="flashing">Flashing each kind</h2>
-    <h3>Heltec V3: from this site</h3>
+    <h3>ESP32 boards: from this site, over USB</h3>
     <p>
         <a href="/flash">The flash page</a> writes the release over USB from Chrome or Edge, with nothing to install,
-        and can update a board that runs Tern already without losing its address.
-    </p>
-    <h3>Other ESP32 boards: the release's .bin</h3>
-    <p>
-        From <a href={notes}>the release</a>, download <code>tern-&lt;board&gt;-&lt;region&gt;-{release.version}.bin</code>,
-        with the board's name from the firmware's list (<code>heltec-v4</code>, for one) and your region. Open
-        Espressif's <a href="https://espressif.github.io/esptool-js/">esptool-js</a> in Chrome or Edge, connect the
-        board, and write the file at address <code>0x0</code>. The{" "}
-        <a href={`${fw}/tree/main/ports/esp32#flashing`}>firmware's instructions</a> say how to update one later and
-        keep its address.
+        and can update a board that runs Tern already without losing its address. After that, the phone apps update it
+        over Bluetooth. Every image is also in <a href={notes}>the release</a>, to write with Espressif's tools.
     </p>
     <h3>nRF52840 boards: copy a file</h3>
     <p>
-        From <a href={notes}>the release</a>, download the board's <code>.uf2</code> for your region. Plug the board in
+        <a href="/flash">The flash page</a> gives you the board's <code>.uf2</code> for your region. Plug the board in
         and press its reset button twice, quickly: it shows up as a USB drive. Copy the file onto it; the board writes
-        it and restarts. Its bootloader stays, so going back to other firmware is copying another file on.
+        it and restarts. Its bootloader stays, so going back to other firmware is copying another file on. These
+        boards are not yet updated over Bluetooth: copy the next release on the same way.
     </p>
     <h3>A board the release has no image for</h3>
     <p>

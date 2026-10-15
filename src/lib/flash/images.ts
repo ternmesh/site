@@ -1,6 +1,6 @@
-// The firmware images a release carries (ternmesh/firmware, ports/heltec-v3/release.sh), and
-// where this site keeps its copy of them: tools/firmware.ts fetches them at build time, since a
-// page cannot read a GitHub release's files itself.
+// The firmware images a release carries (ternmesh/firmware, ports/esp32/release.sh and
+// ports/nrf52/release.sh), and where this site keeps its copy of them: tools/firmware.ts fetches
+// them at build time, since a page cannot read a GitHub release's files itself.
 
 /** Every region the firmware has a profile for. A release has images for some of them: regionsOf. */
 export const REGIONS = [
@@ -37,29 +37,46 @@ export type Layout = "ota" | "single";
 /** Where NVS is, in both layouts: the node's identity, contacts, sessions and bonds. */
 export const NVS = { start: 0x9000, end: 0xf000 } as const;
 
-export function imageName(version: string, region: Region, part: Part): string {
-    return `tern-heltec-v3-${region}-${version}${part === "whole" ? "" : `-${part}`}.bin`;
+/**
+ * How a board takes an image: `esp32` boards are written over USB serial from this site (ESP32
+ * and ESP32-S3 share one flash layout, ports/esp32/partitions*.csv), and `uf2` boards, the
+ * nRF52840 ones, take a `.uf2` file copied onto the drive their bootloader shows.
+ */
+export type Family = "esp32" | "uf2";
+
+/** An ESP32 board's image of a region: `tern-<board>-<region>-<version>[-<part>].bin`. */
+export function imageName(version: string, board: string, region: Region, part: Part): string {
+    return `tern-${board}-${region}-${version}${part === "whole" ? "" : `-${part}`}.bin`;
 }
 
-/** A release is `ota` if its checksums name a `boot` or `update` part; a missing one is then an error. */
-export function layoutOf(version: string, sums: Map<string, string>): Layout {
-    const named = (r: Region, p: Part) => sums.has(imageName(version, r, p));
+/** A UF2 board's image of a region: `tern-<board>-<region>-<version>.uf2`. */
+export function uf2Name(version: string, board: string, region: Region): string {
+    return `tern-${board}-${region}-${version}.uf2`;
+}
+
+/**
+ * An ESP32 board's release is `ota` if its checksums name a `boot` or `update` part; a missing one
+ * is then an error.
+ */
+export function layoutOf(version: string, board: string, sums: Map<string, string>): Layout {
+    const named = (r: Region, p: Part) => sums.has(imageName(version, board, r, p));
     return REGIONS.some((r) => named(r, "boot") || named(r, "update")) ? "ota" : "single";
 }
 
 /**
- * The regions a release has images for, which its checksums name: the firmware gained a region's
- * profile before a release carried it, and a release from before then has none for it.
+ * The regions a release has a board's images for, which its checksums name: the firmware gained
+ * a region's profile before a release carried it, and a release from before then has none for it.
  */
-export function regionsOf(version: string, sums: Map<string, string>): Region[] {
-    return REGIONS.filter((r) => sums.has(imageName(version, r, "whole")));
+export function regionsOf(version: string, board: string, family: Family, sums: Map<string, string>): Region[] {
+    const name = (r: Region) => (family === "uf2" ? uf2Name(version, board, r) : imageName(version, board, r, "whole"));
+    return REGIONS.filter((r) => sums.has(name(r)));
 }
 
 const PARTS: Record<Layout, Part[]> = { ota: ["whole", "boot", "update", "app"], single: ["whole", "app"] };
 
-/** Every image a release of this layout has for these regions, which is what the site keeps a copy of. */
-export function imageNames(version: string, layout: Layout, regions: readonly Region[]): string[] {
-    return regions.flatMap((r) => PARTS[layout].map((p) => imageName(version, r, p)));
+/** Every image a release of this layout has for an ESP32 board's regions, which is what the site keeps a copy of. */
+export function imageNames(version: string, board: string, layout: Layout, regions: readonly Region[]): string[] {
+    return regions.flatMap((r) => PARTS[layout].map((p) => imageName(version, board, r, p)));
 }
 
 export interface Write {
@@ -67,17 +84,17 @@ export interface Write {
     address: number;
 }
 
-/** What flashing a region's `kind` writes, and where, in one go. */
-export function writes(version: string, region: Region, kind: Kind, layout: Layout): Write[] {
+/** What flashing an ESP32 board's region `kind` writes, and where, in one go. */
+export function writes(version: string, board: string, region: Region, kind: Kind, layout: Layout): Write[] {
     if (kind === "new") {
-        return [{ name: imageName(version, region, "whole"), address: 0x0 }];
+        return [{ name: imageName(version, board, region, "whole"), address: 0x0 }];
     }
     if (layout === "single") {
-        return [{ name: imageName(version, region, "app"), address: 0x10000 }];
+        return [{ name: imageName(version, board, region, "app"), address: 0x10000 }];
     }
     return [
-        { name: imageName(version, region, "boot"), address: 0x0 },
-        { name: imageName(version, region, "update"), address: NVS.end },
+        { name: imageName(version, board, region, "boot"), address: 0x0 },
+        { name: imageName(version, board, region, "update"), address: NVS.end },
     ];
 }
 
@@ -90,7 +107,8 @@ export function sparesNvs(name: string, address: number, length: number): void {
 
 /** One app image in latest.json: what the Tern phone apps read to update a node over Bluetooth. */
 export interface ManifestImage {
-    board: "heltec-v3";
+    /** As the node reports its board in INFO, which is the name its images carry. */
+    board: string;
     /** As the node reports its region: US915, EU868, AU915 and the rest of REGIONS, upper case. */
     region: string;
     /** Relative to /firmware/. */
@@ -104,21 +122,26 @@ export interface Manifest {
     images: ManifestImage[];
 }
 
-/** latest.json for an `ota` release, from the app images of the regions it has. */
+/**
+ * latest.json for a release, from the app images of each `ota` ESP32 board's regions. A UF2 board
+ * is not in it: none of them can be updated over the companion link yet.
+ */
 export async function manifest(
     version: string,
-    regions: readonly Region[],
+    boards: readonly { board: string; regions: readonly Region[] }[],
     images: Map<string, Uint8Array>,
 ): Promise<Manifest> {
     const list: ManifestImage[] = [];
-    for (const region of [...regions].sort()) {
-        const file = imageName(version, region, "app");
-        const data = images.get(file);
-        if (!data) {
-            throw new Error(`latest.json needs ${file}`);
+    for (const { board, regions } of [...boards].sort((a, b) => a.board.localeCompare(b.board))) {
+        for (const region of [...regions].sort()) {
+            const file = imageName(version, board, region, "app");
+            const data = images.get(file);
+            if (!data) {
+                throw new Error(`latest.json needs ${file}`);
+            }
+            const hex = await sha256(data);
+            list.push({ board, region: region.toUpperCase(), file, size: data.length, sha256: hex });
         }
-        const hex = await sha256(data);
-        list.push({ board: "heltec-v3", region: region.toUpperCase(), file, size: data.length, sha256: hex });
     }
     return { release: version, images: list };
 }
