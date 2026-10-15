@@ -18,26 +18,32 @@ const ideas = [
     {
         title: "Airtime is budgeted",
         body: "Every node has an airtime budget, and the network accounts for what it spends. A busy channel degrades fairly instead of collapsing.",
+        built: "In the firmware since 0.5, not yet measured between boards.",
     },
     {
         title: "Addresses are public keys",
         body: "A node is named by its key, so who you are talking to is something you can check, not something you are told.",
+        built: "In the firmware.",
     },
     {
         title: "Each link picks its own speed",
         body: "Close neighbours talk fast and distant ones talk slow, inside a loosely synchronised schedule, so one slow link does not slow the whole mesh.",
+        built: "Not built yet: today every link in a region uses the same speed.",
     },
     {
         title: "Infrastructure and leaves",
         body: "Fixed relays carry the routing. Handhelds and sensors are leaves that can sleep on a schedule and still receive their messages.",
+        built: "Relays and leaves are in the firmware; leaves that sleep are not built yet.",
     },
     {
         title: "Private by default",
         body: "What goes over the air is meant to reveal as little as possible about who is talking to whom.",
+        built: "In the firmware; its cryptography has not been reviewed yet.",
     },
     {
         title: "Gateways are peers",
         body: "Bridges to the internet or to other meshes sit at the application layer, not inside the routing.",
+        built: "Not built yet.",
     },
 ];
 
@@ -113,6 +119,7 @@ const repos = [
                     <li class="card">
                         <h3>{idea.title}</h3>
                         <p>{idea.body}</p>
+                        <p class="muted">{idea.built}</p>
                     </li>
                 ))
             }
