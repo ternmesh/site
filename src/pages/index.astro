@@ -4,14 +4,15 @@ import { join } from "node:path";
 
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
-import { boards } from "../data/boards.ts";
-import { parseSums, regionsOf } from "../lib/flash/images.ts";
+import { boards, familyOf } from "../data/boards.ts";
+import { parseSums, regionsOf, REGIONS } from "../lib/flash/images.ts";
 
 const org = "https://github.com/ternmesh";
 
-// The regions the pinned release has images for, as tools/firmware.ts left its checksums.
+// The regions the pinned release has images for, for any board, as tools/firmware.ts left its checksums.
 const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
-const regions = regionsOf(release.version, sums).map((r) => r.toUpperCase());
+const offered = new Set(boards.flatMap((b) => regionsOf(release.version, b.name, familyOf(b), sums)));
+const regions = REGIONS.filter((r) => offered.has(r)).map((r) => r.toUpperCase());
 const regionList = new Intl.ListFormat("en", { type: "conjunction" }).format(regions);
 
 const ideas = [
@@ -65,6 +66,21 @@ const repos = [
             <a class="button secondary" href="/app">Open the app</a>
             <a class="button secondary" href="/why">Why Tern</a>
         </p>
+        <figure class="shot">
+            <picture>
+                <source srcset="/screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
+                <img
+                    src="/screenshots/chat-light.png"
+                    width="992"
+                    height="573"
+                    alt="The Tern app in a browser: a demo node's address and settings beside a conversation with Robin, one message marked delivered."
+                />
+            </picture>
+            <figcaption class="muted">
+                The app in a browser, talking to a node over USB or Bluetooth. <a href="/app?demo">Try the demo</a>,
+                with no board.
+            </figcaption>
+        </figure>
     </section>
 
     <section class="wrap" id="start">
@@ -73,16 +89,17 @@ const repos = [
             <li class="card">
                 <h3>A board</h3>
                 <p>
-                    A <strong>Heltec WiFi LoRa 32 V3</strong>, the 863-928 MHz kind, with its antenna. It is the one
-                    board Tern runs on today. <a href="/docs/hardware">{boards.filter((b) => b.status === "built").length} more</a> are built but not yet run on
-                    a board.
+                    One of <a href="/docs/hardware">{boards.length} LoRa boards</a> from Heltec, LilyGo, RAKwireless
+                    and Seeed, the 863-928 MHz kind, with its antenna. The <strong>Heltec WiFi LoRa 32 V3</strong> is the
+                    one checked on hardware so far; the rest are built for and waiting to be tried.
                 </p>
             </li>
             <li class="card">
                 <h3>Flash it</h3>
                 <p>
                     <a href="/flash">Put Tern on it</a> from Chrome or Edge on a computer, over USB, with nothing to
-                    install. It replaces Meshtastic or MeshCore if either is on the board.
+                    install, or copy a file onto an nRF52840 board. It replaces Meshtastic or MeshCore if either is on
+                    the board.
                 </p>
             </li>
             <li class="card">
@@ -163,6 +180,20 @@ const repos = [
 </Base>
 
 <style>
+    .shot {
+        margin: 2rem 0 0;
+    }
+    .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+    .shot figcaption {
+        margin-top: 0.5rem;
+        font-size: 0.95rem;
+    }
     .hero {
         padding-top: 4rem;
         padding-bottom: 2rem;

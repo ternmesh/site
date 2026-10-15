@@ -23,12 +23,18 @@ Node 22.18 or later: the build's own tools and the tests are TypeScript, run as 
 
 ## Where the pages are
 
-`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, the pages a node's
-link and a group's join code open, privacy, and the 404, in `src/layouts/Base.astro`; and the docs
+`src/pages/` holds the landing page, the app, the flash page, the apps, why Tern, news, the pages a
+node's link and a group's join code open, privacy, and the 404, in `src/layouts/Base.astro`; and the docs
 under `src/pages/docs/`, in `src/layouts/Docs.astro`: start here, using Tern, hardware,
 troubleshooting and the FAQ. The hardware page's boards are `src/data/boards.ts`, which follows the
 firmware's `docs/boards.md`, and which of them the pinned release has an image for it reads from the
-release's `SHA256SUMS` (`src/lib/boards.ts`).
+release's `SHA256SUMS` (`src/lib/boards.ts`). News is `src/data/news.ts`, newest first: a pull
+request that offers a release adds its entry.
+
+The screenshots of the app (`public/screenshots/`) are of its demo, rendered by
+`tools/screenshots.mjs` against a build, and the link preview (`public/og.png`) by
+`tools/og/render.mjs`. Neither runs in the build: run one by hand after changing what it shows,
+and commit the PNGs.
 `@astrojs/sitemap` writes `sitemap-index.xml`, which `robots.txt` names, of every page but those
 two and the 404.
 When the specification has a first draft, it will be rendered here from
@@ -101,22 +107,27 @@ node tools/board.ts /dev/cu.usbserial-0001 <address> "hello"  # and send a messa
 
 ## The flash page
 
-`/flash` puts the firmware on a Heltec V3 from the browser, over Web Serial: it asks where the
+`/flash` offers every board in `src/data/boards.ts` that the pinned release has images for, each
+saying whether it has been checked on a board. For an ESP32 or ESP32-S3 board it asks where the
 board will be used and whether it runs Tern already, fetches the images, checks them against the
-release's SHA-256 checksums, and writes them with Espressif's
-[esptool-js](https://github.com/espressif/esptool-js).
+release's SHA-256 checksums, checks the chip is the board's, and writes them over Web Serial with
+Espressif's [esptool-js](https://github.com/espressif/esptool-js). For an nRF52840 board it gives
+the region's `.uf2` to copy onto the drive the board's bootloader shows. `/flash?board=<name>`
+opens on a board; the hardware page links each one that way.
 
-A release has four images for each region `<r>` it carries (`us915`, `eu868`, and from
-0.4.0-alpha.1 `au915`, `nz915`, `cl915`, `my919`, `th920`, `ru868` and `kz863`) and version `<v>`,
-and one `SHA256SUMS` over all of them; the site offers the regions that names. The board's flash is NVS at 0x9000 to 0xF000 (its address,
-contacts, sessions and bonds), otadata at 0xF000, and two 2 MB app slots at 0x20000 and 0x220000.
+For each ESP32 board `<b>`, a release has four images for each region `<r>` it carries (`us915`,
+`eu868`, and from 0.4.0-alpha.1 `au915`, `nz915`, `cl915`, `my919`, `th920`, `ru868` and `kz863`)
+and version `<v>`; for each nRF52840 board, one `tern-<b>-<r>-<v>.uf2`; and one `SHA256SUMS` over
+all of them. The site offers each board the regions that names for it. Every ESP32 board's flash
+is laid out alike (the firmware's `ports/esp32/partitions*.csv`): NVS at 0x9000 to 0xF000 (its
+address, contacts, sessions and bonds), otadata at 0xF000, and two app slots from 0x20000.
 
 | | Written | |
 |---|---|---|
-| `tern-heltec-v3-<r>-<v>.bin` | at 0x0 | The whole flash, NVS blank. **New**: the board gets a new address. |
-| `tern-heltec-v3-<r>-<v>-boot.bin` | at 0x0 | The bootloader and partition table, 0x9000 bytes: it stops where NVS starts. |
-| `tern-heltec-v3-<r>-<v>-update.bin` | at 0xF000 | otadata blank, then the app in the first slot. |
-| `tern-heltec-v3-<r>-<v>-app.bin` | over Bluetooth | The app alone, which the phone apps send. Not written over USB. |
+| `tern-<b>-<r>-<v>.bin` | at 0x0 | The whole flash, NVS blank. **New**: the board gets a new address. |
+| `tern-<b>-<r>-<v>-boot.bin` | at 0x0 | The bootloader and partition table, 0x9000 bytes: it stops where NVS starts. |
+| `tern-<b>-<r>-<v>-update.bin` | at 0xF000 | otadata blank, then the app in the first slot. |
+| `tern-<b>-<r>-<v>-app.bin` | over Bluetooth | The app alone, which the phone apps send. Not written over USB. |
 
 **Update** writes `-boot.bin` and `-update.bin` in one session, both checked first, and refuses
 either if it would reach NVS. It works on a board with the old one-app layout as well as the new
@@ -128,8 +139,8 @@ as it used to, and the page does not mention the phone apps.
 A page cannot read a GitHub release's files itself, so the site carries a copy.
 `src/data/firmware.json` names the [firmware release](https://github.com/ternmesh/firmware/releases)
 the site offers, and `tools/firmware.ts`, which `npm run build` and `npm run dev` run first, fetches its images
-into `public/firmware/` (not kept in git) and refuses any that the release's `SHA256SUMS` does
-not match. **To offer a new release, change the version there**; the build fails if no such
+into `public/firmware/` (not kept in git, and about 300 MB for sixteen boards) and refuses any
+that the release's `SHA256SUMS` does not match. **To offer a new release, change the version there**; the build fails if no such
 release exists, or if it names some of the update's images and not all.
 
 | | |
@@ -142,8 +153,9 @@ release exists, or if it names some of the update's images and not all.
 ### latest.json: what the phone apps read
 
 For a release in the two-slot layout, `tools/firmware.ts` also writes
-`https://ternmesh.org/firmware/latest.json`, and the Tern phone apps read it to update a node
-over Bluetooth. It is a contract with them: change it only with them.
+`https://ternmesh.org/firmware/latest.json`, with every ESP32 board's app image for each region,
+and the Tern phone apps read it to update a node over Bluetooth. The nRF52840 boards are not in
+it: none of them can be updated over the link yet. It is a contract with them: change it only with them.
 
 ```json
 {
@@ -171,10 +183,10 @@ over Bluetooth. It is a contract with them: change it only with them.
 * Fields may be added; none will be removed or change meaning without the apps.
 
 To try images that are not released, point the build at the directory
-`ports/heltec-v3/release.sh` leaves in the firmware repository:
+`ports/esp32/release.sh` leaves in the firmware repository:
 
 ```bash
-TERN_FIRMWARE_DIR=../firmware/ports/heltec-v3/release npm run build
+TERN_FIRMWARE_DIR=../firmware/ports/esp32/release npm run build
 ```
 
 ## A node's link

@@ -4,19 +4,41 @@ import { join } from "node:path";
 
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
-import { layoutOf, parseSums, regionsOf } from "../lib/flash/images.ts";
+import { boards, familyOf, makers } from "../data/boards.ts";
+import { layoutOf, parseSums, regionsOf, REGIONS, uf2Name } from "../lib/flash/images.ts";
 import type { Region } from "../lib/flash/images.ts";
+import type { Offer } from "../lib/flash/page.ts";
 
 const org = "https://github.com/ternmesh";
 const notes = `${org}/firmware/releases/tag/v${release.version}`;
+const checklist = `${org}/firmware/blob/main/docs/boards.md#bringing-a-board-up`;
 
-// tools/firmware.ts put the release here before the build: a release from before the OTA layout
-// cannot be updated from a phone, so the page only says it can for one that can.
+// tools/firmware.ts put the release here before the build. A board is offered for the regions
+// the release has its images for; one from before the OTA layout cannot be updated from a phone.
 const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
-const ota = layoutOf(release.version, sums) === "ota";
-
-// Only the regions the release has an image for: a profile can reach the firmware before a release.
-const regions = regionsOf(release.version, sums);
+const offers: Offer[] = boards.flatMap((b) => {
+    const family = familyOf(b);
+    const regions = regionsOf(release.version, b.name, family, sums);
+    if (regions.length === 0) {
+        return [];
+    }
+    return [
+        {
+            name: b.name,
+            title: b.title,
+            maker: b.maker,
+            chip: b.chip,
+            family,
+            checked: b.status === "runs",
+            note: b.note ?? "",
+            ota: family === "esp32" && layoutOf(release.version, b.name, sums) === "ota",
+            regions,
+            files: Object.fromEntries(regions.map((r) => [r, family === "uf2" ? uf2Name(release.version, b.name, r) : ""])),
+        },
+    ];
+});
+const regions = REGIONS.filter((r) => offers.some((o) => o.regions.includes(r)));
+const byMaker = Object.keys(makers).map((m) => ({ maker: m, offers: offers.filter((o) => o.maker === m) }));
 const where: Record<Region, { place: string; profile: string }> = {
     us915: {
         place: "United States, Canada, Mexico, Brazil, Argentina or Peru",
@@ -38,28 +60,20 @@ const where: Record<Region, { place: string; profile: string }> = {
 
 <Base
     title="Flash a board"
-    description="Put Tern's firmware on a Heltec WiFi LoRa 32 V3 from your browser, over USB, with nothing to install."
+    description="Put Tern's firmware on a LoRa board from your browser, over USB, with nothing to install."
 >
     <section class="flash wrap">
         <h1>Put Tern on a board</h1>
         <p class="lede">
-            This writes Tern {release.version} to a <strong>Heltec WiFi LoRa 32 V3</strong> over USB, from this page,
-            with nothing to install. It takes about a minute.
-        </p>
-        <p id="unsupported" class="note" hidden>
-            This browser cannot reach a USB serial port. Chrome and Edge on a computer can; Safari, Firefox and
-            phones cannot yet. The <a href={notes}>release</a> has the images, to write another way.
+            This writes Tern {release.version} to one of {offers.length} boards, from this page, with nothing to
+            install. An ESP32 board is written over USB in about a minute; an nRF52840 board takes a file you copy
+            onto it.
         </p>
 
         <ul class="notes">
             <li>
                 <strong>Fit the antenna first.</strong> The board sends by radio as soon as it starts, and sending
                 with nothing on the antenna connector can damage it.
-            </li>
-            <li>
-                It is for the Heltec V3 only (ESP32-S3 and SX1262, the 863-928 MHz kind). The page can tell that
-                the chip is an ESP32-S3, not that the board is a Heltec: on another ESP32-S3 board the image
-                is written and does not work.
             </li>
             <li>
                 This is an alpha of a draft protocol. Its cryptography has not been reviewed: do not trust it
@@ -69,6 +83,37 @@ const where: Record<Region, { place: string; profile: string }> = {
 
         <form id="flash">
             <fieldset>
+                <legend>Which board?</legend>
+                <select id="board" name="board" aria-describedby="about">
+                    {
+                        byMaker.map(({ maker, offers }) => (
+                            <optgroup label={maker}>
+                                {offers.map((o) => (
+                                    <option value={o.name} selected={o.name === "heltec-v3"}>
+                                        {o.title}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        ))
+                    }
+                </select>
+                <div id="about">
+                    <p id="checked" class="muted">Checked on a board with this release.</p>
+                    <p id="unchecked" class="note" hidden>
+                        <strong>Not yet checked on a board.</strong> The release builds for it, from its maker's pin
+                        map, but nobody has yet said it works. If you try it, <a href={`${org}/firmware/issues`}>say
+                        how it went</a>, with what the <a href={checklist}>checklist</a> asks: that is how a board
+                        becomes one that is checked.
+                    </p>
+                    <p id="note" class="muted" hidden></p>
+                </div>
+                <p class="muted">
+                    The page can tell which chip a board has, not which board it is: an image for another board with
+                    the same chip is written and does not work. Pick the board printed on yours.
+                </p>
+            </fieldset>
+
+            <fieldset>
                 <legend>Where will the board be used?</legend>
                 <p class="muted">
                     It sends on this region's frequency from the moment it starts, so the wrong one breaks the
@@ -76,7 +121,7 @@ const where: Record<Region, { place: string; profile: string }> = {
                 </p>
                 {
                     regions.map((r) => (
-                        <label>
+                        <label data-region={r}>
                             <input type="radio" name="region" value={r} required />
                             {where[r].place} <span class="muted">{where[r].profile}</span>
                         </label>
@@ -85,46 +130,68 @@ const where: Record<Region, { place: string; profile: string }> = {
                 <p class="muted">Anywhere else: there is no image yet. Do not use one of these.</p>
             </fieldset>
 
-            <fieldset>
-                <legend>What is on the board now?</legend>
-                <label>
-                    <input type="radio" name="kind" value="new" required />
-                    Something else, or nothing
-                    <span class="muted">
-                        replaces it, Meshtastic or MeshCore and their settings included; the board gets a new
-                        Tern address
-                    </span>
-                </label>
-                <label>
-                    <input type="radio" name="kind" value="update" required />
-                    Tern already
-                    <span class="muted">keeps its address, its sessions and its contacts</span>
-                    {
-                        ota && (
-                            <span class="muted">
-                                update it this way once, and from then on the Tern phone apps can update it over
-                                Bluetooth
-                            </span>
-                        )
-                    }
-                </label>
-            </fieldset>
+            <div id="serial">
+                <p id="unsupported" class="note" hidden>
+                    This browser cannot reach a USB serial port. Chrome and Edge on a computer can; Safari, Firefox
+                    and phones cannot yet. The <a href={notes}>release</a> has the images, to write another way.
+                </p>
+                <fieldset>
+                    <legend>What is on the board now?</legend>
+                    <label>
+                        <input type="radio" name="kind" value="new" required />
+                        Something else, or nothing
+                        <span class="muted">
+                            replaces it, Meshtastic or MeshCore and their settings included; the board gets a new
+                            Tern address
+                        </span>
+                    </label>
+                    <label>
+                        <input type="radio" name="kind" value="update" required />
+                        Tern already
+                        <span class="muted">keeps its address, its sessions and its contacts</span>
+                        <span id="ota" class="muted">
+                            update it this way once, and from then on the Tern phone apps can update it over Bluetooth
+                        </span>
+                    </label>
+                </fieldset>
 
-            <p>
-                <button id="go" type="submit" class="primary">Flash over USB</button>
-            </p>
-            <p class="muted">
-                The browser asks which port: the board's is usually the one named CP2102 or USB to UART. If
-                the app or a terminal has the port open, close that first.
-            </p>
+                <p>
+                    <button id="go" type="submit" class="primary">Flash over USB</button>
+                </p>
+                <p class="muted">
+                    The browser asks which port: the board's is usually named for its USB chip, such as CP210x, CH340,
+                    CH9102 or USB JTAG/serial. If the app or a terminal has the port open, close that first.
+                </p>
+            </div>
+
+            <div id="uf2" class="card" hidden>
+                <ol>
+                    <li>
+                        <a id="download" class="button" href="#" download>Download the image</a>
+                        <span class="muted">Choose a region first.</span>
+                    </li>
+                    <li>
+                        Plug the board in over USB and press its reset button twice, quickly. A drive appears, named for
+                        the board's bootloader.
+                    </li>
+                    <li>
+                        Copy the <code>.uf2</code> file onto the drive. The board writes it, restarts, and the drive
+                        goes. This replaces Meshtastic or MeshCore if either is on it; copied over Tern, it keeps the
+                        board's address, its sessions and its contacts.
+                    </li>
+                </ol>
+                <p class="muted">
+                    These boards cannot be updated from a phone yet: copy the next release's file on the same way.
+                </p>
+            </div>
         </form>
 
         <div id="working" class="card" hidden>
             <p id="status" role="status"></p>
             <progress id="bar"></progress>
             <p id="failed" class="muted" hidden>
-                If the board would not go into its bootloader, hold its PRG button, press and let go of RST, let
-                go of PRG, and try again. A cable that only charges does this too.
+                If the board would not go into its bootloader, hold its BOOT or PRG button, press and let go of RST,
+                let go of the first, and try again. A cable that only charges does this too.
             </p>
             <p id="done" hidden>
                 <a class="button" href="/app">Open the app</a>
@@ -141,6 +208,7 @@ const where: Record<Region, { place: string; profile: string }> = {
             Espressif's <a href="https://github.com/espressif/esptool-js">esptool-js</a>.
         </p>
     </section>
+    <script id="offers" type="application/json" set:html={JSON.stringify(offers)} />
 </Base>
 
 <script>
@@ -168,6 +236,28 @@ const where: Record<Region, { place: string; profile: string }> = {
     }
     .notes li {
         margin-bottom: 6px;
+    }
+    select {
+        font: inherit;
+        padding: 6px 8px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        max-width: 100%;
+    }
+    #about p {
+        margin: 8px 0;
+    }
+    .card ol {
+        padding-left: 1.2em;
+    }
+    .card li {
+        margin-bottom: 8px;
+    }
+    a.button[aria-disabled="true"] {
+        opacity: 0.5;
+        pointer-events: none;
     }
     .note,
     .card {

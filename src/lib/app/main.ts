@@ -208,6 +208,7 @@ function drawNode(): void {
         box.append(...fixFacts(c.fix));
     }
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
+    // Not of the demo, which has no firmware to update.
     const missing = [
         [9, "be turned off from here"],
         [8, "say where it is, or have its GPS turned off"],
@@ -220,7 +221,7 @@ function drawNode(): void {
     ]
         .filter(([v]) => c.version < Number(v))
         .map(([, what]) => String(what));
-    if (missing.length > 0) {
+    if (missing.length > 0 && !demo) {
         box.append(
             el(
                 "p",

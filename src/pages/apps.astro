@@ -13,7 +13,7 @@ const org = "https://github.com/ternmesh";
         <p class="lede">
             An app is how you use a Tern node: it talks to the node over Bluetooth or USB, and the node does the
             radio. Every one of them needs a node with Tern's firmware, which you can{" "}
-            <a href="/flash">put on a Heltec V3</a> from a browser.
+            <a href="/flash">put on a board</a> from a browser.
         </p>
 
         <ul class="list">
@@ -66,6 +66,16 @@ const org = "https://github.com/ternmesh";
                     <a class="button" href="/app">Open the app</a>
                     <a class="button secondary" href="/app?demo">Try it without a board</a>
                 </p>
+                <picture>
+                    <source srcset="/screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
+                    <img
+                        src="/screenshots/chat-light.png"
+                        width="992"
+                        height="573"
+                        alt="The Tern app in a browser: a demo node's address and settings beside a conversation with Robin, one message marked delivered."
+                        loading="lazy"
+                    />
+                </picture>
             </li>
         </ul>
 
@@ -76,6 +86,14 @@ const org = "https://github.com/ternmesh";
 </Base>
 
 <style>
+    #browser img {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin-top: 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
     .apps {
         padding-top: 32px;
         padding-bottom: 48px;

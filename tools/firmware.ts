@@ -4,18 +4,22 @@
 //
 //     node tools/firmware.ts
 //
-// Which images it fetches depends on the release: one from before the OTA layout (up to
-// 0.1.0-alpha.4) has no -boot.bin or -update.bin, and its SHA256SUMS says so. For a release that
-// has them it also writes latest.json, the manifest the Tern phone apps read to update a node over
-// Bluetooth; for one that has not, there is none, since its app image is not one a phone may send.
+// It fetches the images of every board src/data/boards.ts lists that the release carries: for an
+// ESP32 board each region's .bin and, in the OTA layout, its -boot, -update and -app parts; for an
+// nRF52840 board each region's .uf2. A release from before the OTA layout (up to 0.1.0-alpha.4)
+// has no -boot.bin or -update.bin, and its SHA256SUMS says so. latest.json, the manifest the Tern
+// phone apps read to update a node over Bluetooth, names the -app.bin of every ESP32 board in the
+// OTA layout; a release with none has no latest.json.
 //
 // TERN_FIRMWARE_DIR, if set, is a directory to copy them from instead: the release/ that
-// ports/heltec-v3/release.sh leaves, to try a build that is not released.
+// ports/esp32/release.sh leaves, to try a build that is not released.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { boards, familyOf } from "../src/data/boards.ts";
 import release from "../src/data/firmware.json" with { type: "json" };
-import { check, imageNames, layoutOf, manifest, parseSums, regionsOf } from "../src/lib/flash/images.ts";
+import { check, imageNames, layoutOf, manifest, parseSums, regionsOf, uf2Name } from "../src/lib/flash/images.ts";
+import type { Region } from "../src/lib/flash/images.ts";
 
 const out = join(import.meta.dirname, "..", "public", "firmware");
 const from = process.env.TERN_FIRMWARE_DIR;
@@ -37,24 +41,41 @@ const sums = parseSums(new TextDecoder().decode(sumsFile));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, "SHA256SUMS"), sumsFile);
-const layout = layoutOf(release.version, sums);
-const regions = regionsOf(release.version, sums);
-if (regions.length === 0) {
-    throw new Error(`SHA256SUMS names no image of ${release.version} for any region`);
-}
 const images = new Map<string, Uint8Array>();
-for (const name of imageNames(release.version, layout, regions)) {
-    const image = await get(name);
-    await check(name, image, sums);
-    writeFileSync(join(out, name), image);
-    images.set(name, image);
-    console.log(`${name}  ${image.length} bytes  ${sums.get(name)}`);
+const updatable: { board: string; regions: Region[] }[] = [];
+let count = 0;
+for (const board of boards) {
+    const family = familyOf(board);
+    const regions = regionsOf(release.version, board.name, family, sums);
+    if (regions.length === 0) {
+        console.log(`${board.name}: no image in ${release.version}`);
+        continue;
+    }
+    const layout = family === "esp32" ? layoutOf(release.version, board.name, sums) : undefined;
+    const names =
+        family === "uf2"
+            ? regions.map((r) => uf2Name(release.version, board.name, r))
+            : imageNames(release.version, board.name, layout!, regions);
+    for (const name of names) {
+        const image = await get(name);
+        await check(name, image, sums);
+        writeFileSync(join(out, name), image);
+        images.set(name, image);
+        count++;
+    }
+    if (layout === "ota") {
+        updatable.push({ board: board.name, regions });
+    }
+    console.log(`${board.name}: ${names.length} images (${layout ?? family}, ${regions.join(", ")})`);
 }
-if (layout === "ota") {
-    const latest = await manifest(release.version, regions, images);
+if (count === 0) {
+    throw new Error(`SHA256SUMS names no image of ${release.version} for any board the site lists`);
+}
+if (updatable.length > 0) {
+    const latest = await manifest(release.version, updatable, images);
     writeFileSync(join(out, "latest.json"), `${JSON.stringify(latest, null, 4)}\n`);
-    console.log("latest.json");
+    console.log(`latest.json: ${latest.images.length} images`);
 } else {
-    console.log(`no latest.json: ${release.version} is from before the OTA layout`);
+    console.log(`no latest.json: ${release.version} has no board in the OTA layout`);
 }
-console.log(`firmware ${release.version} (${layout} layout, ${regions.join(", ")}) from ${from ?? release.source}`);
+console.log(`firmware ${release.version}: ${count} images from ${from ?? release.source}`);
