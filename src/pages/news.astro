@@ -1,0 +1,64 @@
+---
+import Base from "../layouts/Base.astro";
+import { news } from "../data/news.ts";
+
+const day = new Intl.DateTimeFormat("en", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+---
+
+<Base title="News" description="What is new in Tern: each release of the firmware and the apps, newest first.">
+    <section class="news wrap">
+        <h1>News</h1>
+        <p class="lede">Each release of the firmware and the apps, newest first. Its notes say the rest.</p>
+        <ol>
+            {
+                news.map((n) => (
+                    <li class="card">
+                        <p class="muted small">
+                            <time datetime={n.date}>{day.format(new Date(n.date))}</time> · {n.what}
+                        </p>
+                        <h2>
+                            <a href={n.link}>{n.title}</a>
+                        </h2>
+                        <p>{n.body}</p>
+                    </li>
+                ))
+            }
+        </ol>
+    </section>
+</Base>
+
+<style>
+    .news {
+        padding-top: 32px;
+        padding-bottom: 48px;
+        max-width: 48rem;
+    }
+    h1 {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        margin: 0 0 12px;
+    }
+    ol {
+        list-style: none;
+        padding: 0;
+    }
+    .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        margin: 12px 0;
+    }
+    .card h2 {
+        font-size: 1.15rem;
+        margin: 2px 0 6px;
+    }
+    .card p {
+        margin: 0;
+    }
+    .card p + h2 + p {
+        margin-top: 4px;
+    }
+    .small {
+        font-size: 0.875rem;
+    }
+</style>
