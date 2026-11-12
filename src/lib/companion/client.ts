@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 9 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 10 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -44,6 +44,8 @@ export interface Self {
     /** Whether the node sends presence cards, and the name they carry: null from a node before cards. */
     cards: boolean | null;
     cardName: string | null;
+    /** Whether the node worked this power out as the most it may send at; null before version 10. */
+    most: boolean | null;
 }
 export interface Contact {
     address: string;
@@ -732,6 +734,7 @@ export class Client {
                     time: Number(x.time),
                     cards: x.cards === undefined ? null : x.cards === 1,
                     cardName: x.card_name === undefined ? null : String(x.card_name),
+                    most: x.most === undefined ? null : x.most === 1,
                 };
                 break;
             case "CONTACT":
