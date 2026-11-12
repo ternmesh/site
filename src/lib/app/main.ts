@@ -8,7 +8,7 @@ import { Client, Refused } from "../companion/client.ts";
 import type { Fix, Message, Position, Sharing, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
-import { ASKED, FIX_SOURCE, NAME_MAX, RECEIVER, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { ASKED, FIX_SOURCE, NAME_MAX, POWER_MOST, RECEIVER, STATE, TEXT_MAX } from "../companion/protocol.ts";
 import { fetchImage, offerFor } from "../companion/release.ts";
 import { readJoinCode, shortCode } from "../companion/share.ts";
 import { linkSegments, qrEncode, qrPath } from "../qr.ts";
@@ -191,7 +191,7 @@ function drawNode(): void {
     });
     const facts = [
         c.self.region || "no region set",
-        `${c.self.power} dBm`,
+        `${c.self.power} dBm${c.self.most ? ", the most it may" : ""}`,
         c.self.role === 1 ? "relay" : "leaf",
         c.power && c.power.percent !== 255 ? `battery ${c.power.percent}%` : null,
         c.airtime && c.airtime.period > 0
@@ -289,7 +289,7 @@ function drawSettings(): void {
     const receiverOn = receiver && client!.fix!.receiver !== RECEIVER.off;
     // Whether there is a receiver and whether it is on, apart: a FIX that comes after SELF, saying
     // a receiver is there but off, is a change to the form even though the box stays unticked.
-    const key = `${self.region}/${self.power}/${self.role}/${receiver}/${receiverOn}`;
+    const key = `${self.region}/${self.power}/${self.most}/${self.role}/${receiver}/${receiverOn}`;
     if (key === settingsShown) {
         return;
     }
@@ -297,6 +297,7 @@ function drawSettings(): void {
     $("receiver-setting").hidden = !receiver;
     $<HTMLInputElement>("set-receiver").checked = receiverOn;
     $<HTMLInputElement>("set-power").value = String(self.power);
+    $("set-power-most").hidden = client!.version < 10 || self.most === true;
     $<HTMLSelectElement>("set-role").value = String(self.role);
     const region = $<HTMLSelectElement>("set-region");
     region.querySelector("option[data-other]")?.remove();
@@ -1554,13 +1555,13 @@ async function turnOff(c: Client): Promise<void> {
  * power is allowed depends on it. A node restarts to apply each, so each is followed by starting
  * the connection again.
  */
-async function applySettings(c: Client): Promise<void> {
+async function applySettings(c: Client, useMostPower = false): Promise<void> {
     const self = c.self;
     if (!self) {
         return;
     }
     const region = $<HTMLSelectElement>("set-region").value;
-    const power = Number($<HTMLInputElement>("set-power").value);
+    const power = useMostPower ? POWER_MOST : Number($<HTMLInputElement>("set-power").value);
     const role = Number($<HTMLSelectElement>("set-role").value);
     const changes: [setting: "region" | "power" | "role", value: number | string][] = [];
     // The GPS receiver: applied first, and with nothing to wait for, since it changes nothing on the air.
@@ -1569,7 +1570,7 @@ async function applySettings(c: Client): Promise<void> {
     if (region !== self.region) {
         changes.push(["region", region]);
     }
-    if (power !== self.power) {
+    if (useMostPower || power !== self.power) {
         changes.push(["power", power]);
     }
     if (role !== self.role) {
@@ -1718,6 +1719,11 @@ function start(): void {
         e.preventDefault();
         if (client) {
             void applySettings(client);
+        }
+    });
+    $("set-power-most").addEventListener("click", () => {
+        if (client) {
+            void applySettings(client, true);
         }
     });
 

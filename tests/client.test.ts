@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { routingId } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
-import { FIX_SOURCE, RECEIVER, STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import { FIX_SOURCE, POWER_MOST, RECEIVER, STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
@@ -66,7 +66,7 @@ for (const framed of [false, true]) {
         assert.equal(c.version, VERSION);
         assert.deepEqual([c.firmware, c.board, c.release], ["tern 0.2.0 heltec-v3", "heltec-v3", "0.2.0"]);
         assert.equal(c.self?.region, "EU868");
-        assert.deepEqual([c.self?.cards, c.self?.cardName], [false, ""]);
+        assert.deepEqual([c.self?.cards, c.self?.cardName, c.self?.most], [false, "", false]);
         // Dave's card was accepted 1260 seconds before the sync: his claim, not a name given him.
         assert.equal(c.cards.get(DAVE)?.name, "Trail crew · ask me");
         assert.equal(c.cards.get(DAVE)?.heardAt, quick.now() - 1260_000);
@@ -235,6 +235,12 @@ for (const framed of [false, true]) {
         await expect();
         await gpsOn;
         assert.deepEqual([c.fix?.receiver, c.fix?.satellites], [RECEIVER.searching, 9]);
+
+        // The node works out its highest permitted transmit power, and says it is using it.
+        const most = c.set("power", POWER_MOST);
+        await expect();
+        await most;
+        assert.deepEqual([c.self?.power, c.self?.most], [22, true]);
 
         // Turned off: the node answers, and the client closes the connection and does not open
         // it again, nor say the node has gone.

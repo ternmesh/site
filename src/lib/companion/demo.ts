@@ -3,7 +3,7 @@
 // frames, as a Bluetooth link would carry them, so the client in front of it is the real one.
 
 import type { Transport } from "./client.ts";
-import { STATE, decode, encode } from "./protocol.ts";
+import { POWER_MOST, STATE, decode, encode } from "./protocol.ts";
 import type { Fields } from "./protocol.ts";
 
 /**
@@ -51,7 +51,7 @@ export function openDemo(): Transport {
         { id: 2, contact: ROBIN, time: now() - 5300, flags: 0, state: STATE.delivered, reason: 0, text: "Half an hour out. Signal is good from the col." },
         { id: 3, contact: ROBIN, time: now() - 600, flags: 0, state: STATE.received, reason: 0, text: "Kettle is on." },
     ];
-    const self = { role: 1, region: "US915", power: 2, cards: 0, card_name: "" };
+    const self = { role: 1, region: "US915", power: 2, cards: 0, card_name: "", most: 0 };
     const tellSelf = () => news("SELF", { address: SELF, ...self, time: now() });
     /** Who is about: each card's name, and when the node accepted it. */
     const cards = new Map<string, { name: string; at: number }>([
@@ -155,7 +155,7 @@ export function openDemo(): Transport {
                 greeted = true;
                 count = 0;
                 // No board: a demo is not a node that can be given firmware.
-                answer("INFO", f.seq, { version: 6, firmware: "a demo, not a node", board: "", release: "" });
+                answer("INFO", f.seq, { version: 10, firmware: "a demo, not a node", board: "", release: "" });
                 break;
             case "SYNC":
                 tellSelf();
@@ -263,9 +263,16 @@ export function openDemo(): Transport {
                     self.region = value;
                     // As a node does: the power moves into the new region's limits, up or down.
                     const { least, most } = DEMO_POWER[value]!;
-                    self.power = Math.min(most, Math.max(least, self.power));
+                    self.power = self.most ? most : Math.min(most, Math.max(least, self.power));
                 } else if (x.setting === 2 && (value === 0 || value === 1)) {
                     self.role = value;
+                } else if (
+                    x.setting === 3 &&
+                    typeof value === "number" &&
+                    value === POWER_MOST
+                ) {
+                    self.power = DEMO_POWER[self.region]!.most;
+                    self.most = 1;
                 } else if (
                     x.setting === 3 &&
                     typeof value === "number" &&
@@ -273,6 +280,7 @@ export function openDemo(): Transport {
                     value <= DEMO_POWER[self.region]!.most
                 ) {
                     self.power = value;
+                    self.most = 0;
                 } else {
                     answer("ERROR", f.seq, { code: 3 });
                     break;

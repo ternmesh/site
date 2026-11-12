@@ -63,6 +63,7 @@ import Base from "../layouts/Base.astro";
                     <form id="settings-form">
                         <label for="set-power">Transmit power, in dBm</label>
                         <input id="set-power" type="number" min="-9" max="22" step="1" required />
+                        <button id="set-power-most" type="button" hidden>Use the most it may send at</button>
                         <label for="set-region">Region</label>
                         <select id="set-region">
                             <option value="US915">
