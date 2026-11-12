@@ -1,10 +1,12 @@
-// The companion protocol's frames: version 9 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 10 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 9;
+export const VERSION = 10;
+/** SET 3's power that asks the node to use the most it may transmit at (version 10). */
+export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
 export const ANSWER_WAIT_MS = 5000;
 export const IDLE_MS = 20000;
@@ -40,7 +42,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 9, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 10, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -100,6 +102,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["time", "u32"],
             ["cards", "u8", undefined, 6],
             ["card_name", "str", NAME_MAX, 6],
+            ["most", "u8", undefined, 10],
         ],
         0,
     ],
