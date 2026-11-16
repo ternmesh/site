@@ -28,8 +28,8 @@ node's link and a group's join code open, privacy, and the 404, in `src/layouts/
 under `src/pages/docs/`, in `src/layouts/Docs.astro`: start here, using Tern, hardware,
 troubleshooting and the FAQ. The hardware page's boards are `src/data/boards.ts`, which follows the
 firmware's `docs/boards.md`, and which of them the pinned release has an image for it reads from the
-release's `SHA256SUMS` (`src/lib/boards.ts`). News is `src/data/news.ts`, newest first: a pull
-request that offers a release adds its entry.
+release's `SHA256SUMS` (`src/lib/boards.ts`). News is `src/data/news.ts`, newest first: a release
+worth a word gets an entry by hand, since the site offers each release by itself (below).
 
 The screenshots of the app (`public/screenshots/`) are of its demo, rendered by
 `tools/screenshots.mjs` against a build, and the link preview (`public/og.png`) by
@@ -143,8 +143,12 @@ A page cannot read a GitHub release's files itself, so the site carries a copy.
 `src/data/firmware.json` names the [firmware release](https://github.com/ternmesh/firmware/releases)
 the site offers, and `tools/firmware.ts`, which `npm run build` and `npm run dev` run first, fetches its images
 into `public/firmware/` (not kept in git, and about 300 MB for sixteen boards) and refuses any
-that the release's `SHA256SUMS` does not match. **To offer a new release, change the version there**; the build fails if no such
-release exists, or if it names some of the update's images and not all.
+that the release's `SHA256SUMS` does not match; the build fails if no such release exists, or if it names some of
+the update's images and not all. **A new release is offered by itself:** every hour,
+`.github/workflows/firmware.yml` looks for a firmware release later than the one named there, by Semantic
+Versioning's order, and if there is one names it, runs the tests and the build, and commits it to `main`, which
+Cloudflare deploys. *Run workflow* on its Actions page does it now. To offer another release by hand, change the
+version there.
 
 | | |
 |---|---|
