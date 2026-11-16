@@ -123,9 +123,10 @@ const running = boards.filter((b) => b.status === "runs");
     <h3>nRF52840 boards: copy a file</h3>
     <p>
         <a href="/flash">The flash page</a> gives you the board's <code>.uf2</code> for your region. Plug the board in
-        and press its reset button twice, quickly: it shows up as a USB drive. Copy the file onto it; the board writes
-        it and restarts. Its bootloader stays, so going back to other firmware is copying another file on. These
-        boards are not yet updated over Bluetooth: copy the next release on the same way.
+        and press its reset button twice, quickly: it shows up as a USB drive. The T1000-E has no reset button: hold
+        its button while plugging the cable in twice, quickly, until its green light stays on. Copy the file onto it;
+        the board writes it and restarts. Its bootloader stays, so going back to other firmware is copying another file
+        on. These boards are not yet updated over Bluetooth: copy the next release on the same way.
     </p>
     <h3>A board the release has no image for</h3>
     <p>
@@ -138,8 +139,8 @@ const running = boards.filter((b) => b.status === "runs");
     <h2 id="next">What comes next</h2>
     <p>
         Most boards Meshtastic and MeshCore run on fall into a few families of chip and radio, and the firmware is
-        brought up a family at a time: more ESP32-S3 and nRF52840 boards, LR1110 and LR1121 radios (driven, waiting
-        for a board), then the RP2040, the STM32WL and a Raspberry Pi with a LoRa hat. A board's pins come only from
+        brought up a family at a time: more ESP32-S3 and nRF52840 boards, LR1121 radios (driven, waiting for a
+        board), then the RP2040, the STM32WL and a Raspberry Pi with a LoRa hat. A board's pins come only from
         its maker's own documents, so some wait on a maker to publish a detail. The firmware's{" "}
         <a href={`${fw}/blob/main/docs/boards.md#every-board-meshtastic-and-meshcore-run-on`}>board list</a> keeps the
         plan.
