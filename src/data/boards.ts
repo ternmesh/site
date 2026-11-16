@@ -10,7 +10,7 @@ export interface Board {
     title: string;
     maker: "Heltec" | "LilyGo" | "RAKwireless" | "Seeed";
     chip: "ESP32-S3" | "ESP32" | "nRF52840";
-    radio: "SX1262" | "SX1276";
+    radio: "SX1262" | "SX1276" | "LR1110";
     /** Runs: flashed with a release and checked on a board. Built: CI builds it, nobody has run it yet. */
     status: "runs" | "built";
     /** What a buyer should know: a missing screen, button or GPS. */
@@ -165,6 +165,16 @@ export const boards: Board[] = [
         radio: "SX1262",
         status: "built",
         buy: "https://www.seeedstudio.com/Wio-Tracker-L1-p-6453.html",
+    },
+    {
+        name: "t1000-e",
+        title: "Seeed SenseCAP T1000-E",
+        maker: "Seeed",
+        chip: "nRF52840",
+        radio: "LR1110",
+        status: "built",
+        note: "No screen and no reset button. Its satellite receiver is not used yet.",
+        buy: "https://www.seeedstudio.com/SenseCAP-Card-Tracker-T1000-E-for-Meshtastic-p-5913.html",
     },
 ];
 
