@@ -1,0 +1,55 @@
+name: Firmware
+
+# Offers each firmware release once it is published, with no pull request: every hour, if
+# ternmesh/firmware has a release later than the one src/data/firmware.json names, this names it
+# there, runs the tests and the build (which fetches every image of it and checks it against its
+# SHA256SUMS, as a pull request's would), and commits it to main. Cloudflare deploys main, and the
+# flash page and the phone apps (/firmware/latest.json) offer the release. If the release fails the
+# build, nothing is committed, and the next hour tries again. 'Run workflow' runs it now.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware
+
+jobs:
+  offer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Find a later release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate repos/ternmesh/firmware/releases --jq '.[] | select(.draft | not) | .tag_name' \
+            >"$RUNNER_TEMP/tags"
+          version=$(node tools/offer-firmware.ts <"$RUNNER_TEMP/tags")
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "${version:-No release later than the one offered.}"
+      - if: steps.release.outputs.version != ''
+        run: npm ci
+      - if: steps.release.outputs.version != ''
+        run: npm test
+      - if: steps.release.outputs.version != ''
+        run: npm run build
+      - if: steps.release.outputs.version != ''
+        name: Offer it
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/firmware.json
+          git commit -s -m "Offer firmware $VERSION"
+          git pull --rebase
+          git push
