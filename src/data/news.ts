@@ -19,6 +19,34 @@ const apple = "https://github.com/ternmesh/apple/releases/tag";
 
 export const news: Entry[] = [
     {
+        date: "2026-11-17",
+        what: "Firmware",
+        title: "0.6.0-alpha.1",
+        body: "A phone can update a Heltec T114 or a Seeed T1000-E over Bluetooth, through the board's bootloader, and the board keeps everything it saved. The T1000-E needs the OTAFIX bootloader installed once. The screen has five pages and a menu, and the T114 a colour layout of its own.",
+        link: `${fw}/v0.6.0-alpha.1`,
+    },
+    {
+        date: "2026-11-17",
+        what: "Android",
+        title: "0.3.0",
+        body: "Updates an nRF52840 node over Bluetooth through its bootloader, as firmware 0.6.0-alpha.1 offers, in about five to eight minutes. Speaks companion version 12.",
+        link: `${android}/v0.3.0`,
+    },
+    {
+        date: "2026-11-17",
+        what: "Apple",
+        title: "0.4.0",
+        body: "Updates an nRF52840 node over Bluetooth through its bootloader, as firmware 0.6.0-alpha.1 offers. Speaks companion version 12.",
+        link: `${apple}/v0.4.0`,
+    },
+    {
+        date: "2026-11-17",
+        what: "Site",
+        title: "Update an nRF52840 node from the browser",
+        body: "/app can update a Heltec T114 or a Seeed T1000-E over Web Bluetooth, through its bootloader, and latest.json lists each nRF52840 board's DFU package for the phone apps.",
+        link: "/app",
+    },
+    {
         date: "2026-10-15",
         what: "Site",
         title: "Every board on the flash page",
