@@ -6,7 +6,7 @@ import Docs from "../../layouts/Docs.astro";
 import release from "../../data/firmware.json";
 import { boards, familyOf, makers } from "../../data/boards.ts";
 import { boardsOf } from "../../lib/boards.ts";
-import { parseSums } from "../../lib/flash/images.ts";
+import { hasPackages, parseSums } from "../../lib/flash/images.ts";
 
 const fw = "https://github.com/ternmesh/firmware";
 const notes = `${fw}/releases/tag/v${release.version}`;
@@ -16,6 +16,9 @@ const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "S
 const released = boardsOf(release.version, sums);
 
 const running = boards.filter((b) => b.status === "runs");
+// Whether the pinned release has the nRF52840 boards' DFU packages, which their bootloaders take
+// over Bluetooth: from 0.6.0 it does.
+const nrfOverBluetooth = boards.some((b) => familyOf(b) === "uf2" && hasPackages(release.version, b.name, sums));
 ---
 
 <Docs
@@ -126,7 +129,12 @@ const running = boards.filter((b) => b.status === "runs");
         and press its reset button twice, quickly: it shows up as a USB drive. The T1000-E has no reset button: hold
         its button while plugging the cable in twice, quickly, until its green light stays on. Copy the file onto it;
         the board writes it and restarts. Its bootloader stays, so going back to other firmware is copying another file
-        on. These boards are not yet updated over Bluetooth: copy the next release on the same way.
+        on.{" "}
+        {
+            nrfOverBluetooth
+                ? "After that, the phone apps and the web app update it over Bluetooth: the node restarts into its bootloader, which takes the new release, and it keeps everything it holds. Copying the next release on the same way works too."
+                : "These boards are not yet updated over Bluetooth: copy the next release on the same way."
+        }
     </p>
     <h3>A board the release has no image for</h3>
     <p>

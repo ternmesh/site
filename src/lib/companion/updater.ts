@@ -1,5 +1,10 @@
-// One firmware image given to a node, as "Updating the firmware" in draft/companion.md has it:
-// UPDATE_BEGIN, the image's bytes from wherever the node says to go on from, and UPDATE_END.
+// One firmware image given to a node, as "Updating the firmware" in draft/companion.md has it.
+// A node is updated one of two ways, as its INFO's `update` says (wayOf): over the link, by the
+// Updater below, or by its bootloader, which askBootloader asks it to restart into and dfu.ts then
+// gives the image.
+//
+// Over the link: UPDATE_BEGIN, the image's bytes from wherever the node says to go on from, and
+// UPDATE_END.
 //
 // It makes its requests through whatever connection it is handed, and keeps no link of its own. A
 // connection that goes leaves it waiting: on the next one, UPDATE_BEGIN says how much of the image
@@ -7,9 +12,43 @@
 // does not hold it, which is safe, since a node takes the same bytes twice without holding them
 // twice. UPDATE_END is never sent again: the node may be restarting into the image.
 
+import type { UpdateWay } from "../flash/images.ts";
 import { Refused } from "./client.ts";
-import { UPDATE_CHUNK, hex } from "./protocol.ts";
+import { UPDATE, UPDATE_CHUNK, hex } from "./protocol.ts";
 import type { Fields, Frame } from "./protocol.ts";
+
+/**
+ * How a node is given new firmware from here, or null if it cannot be: by INFO's `update` from a
+ * node of version 12, and before that over the link if the node names its board at all, since
+ * such a node names it only if it is updated that way.
+ */
+export function wayOf(node: { version: number; update: number | null; board: string }): UpdateWay | null {
+    if (node.board === "") {
+        return null;
+    }
+    if (node.update !== null) {
+        return node.update === UPDATE.link ? "link" : node.update === UPDATE.bootloader ? "bootloader" : null;
+    }
+    return node.version >= 4 ? "link" : null;
+}
+
+/**
+ * Asks the node to restart into its bootloader's update (UPDATE_BOOTLOADER). Resolves once the
+ * node said OK, or said nothing: either way it may be restarting into it, so the request is never
+ * sent again, and the bootloader is looked for. Rejects with Refused if the node refused it: ERROR 5
+ * from a node that is not updated that way.
+ */
+export async function askBootloader(ask: Ask): Promise<"restarting" | "unknown"> {
+    try {
+        await ask("UPDATE_BOOTLOADER");
+        return "restarting";
+    } catch (e) {
+        if (e instanceof Refused && e.code !== 0) {
+            throw e;
+        }
+        return "unknown";
+    }
+}
 
 export type UpdateState =
     /** Not begun, or the link went: run() on a connection goes on. */

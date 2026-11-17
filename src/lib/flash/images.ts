@@ -40,7 +40,8 @@ export const NVS = { start: 0x9000, end: 0xf000 } as const;
 /**
  * How a board takes an image: `esp32` boards are written over USB serial from this site (ESP32
  * and ESP32-S3 share one flash layout, ports/esp32/partitions*.csv), and `uf2` boards, the
- * nRF52840 ones, take a `.uf2` file copied onto the drive their bootloader shows.
+ * nRF52840 ones, take a `.uf2` file copied onto the drive their bootloader shows (and, from
+ * 0.6.0, an update from a phone or this site by their bootloader over Bluetooth: packageName).
  */
 export type Family = "esp32" | "uf2";
 
@@ -52,6 +53,23 @@ export function imageName(version: string, board: string, region: Region, part: 
 /** A UF2 board's image of a region: `tern-<board>-<region>-<version>.uf2`. */
 export function uf2Name(version: string, board: string, region: Region): string {
     return `tern-${board}-${region}-${version}.uf2`;
+}
+
+/**
+ * A UF2 board's DFU package of a region, `tern-<board>-<region>-<version>.zip`: the same firmware
+ * as its `.uf2`, as an init packet and the application, which the board's bootloader takes over
+ * Bluetooth (draft/companion.md, "By the bootloader"). Releases from 0.6.0 carry one.
+ */
+export function packageName(version: string, board: string, region: Region): string {
+    return `tern-${board}-${region}-${version}.zip`;
+}
+
+/**
+ * Whether a UF2 board's release has DFU packages: it has if its checksums name one, and a region
+ * without one is then an error. A release from before 0.6.0 names none.
+ */
+export function hasPackages(version: string, board: string, sums: Map<string, string>): boolean {
+    return REGIONS.some((r) => sums.has(packageName(version, board, r)));
 }
 
 /**
@@ -105,7 +123,14 @@ export function sparesNvs(name: string, address: number, length: number): void {
     }
 }
 
-/** One app image in latest.json: what the Tern phone apps read to update a node over Bluetooth. */
+/**
+ * How a node takes an image: `link` over the companion link itself (UPDATE_BEGIN), as an ESP32
+ * board does, or `bootloader` by its bootloader over Bluetooth, as an nRF52840 board does, which
+ * has no room for a second image (UPDATE_BOOTLOADER). INFO's `update` says which, as 1 or 2.
+ */
+export type UpdateWay = "link" | "bootloader";
+
+/** One image in latest.json: what the Tern phone apps read to update a node over Bluetooth. */
 export interface ManifestImage {
     /** As the node reports its board in INFO, which is the name its images carry. */
     board: string;
@@ -115,6 +140,11 @@ export interface ManifestImage {
     file: string;
     size: number;
     sha256: string;
+    /**
+     * `bootloader` for a DFU package; absent for an app image sent over the link, which is every
+     * entry an app from before version 12 of the companion protocol knows.
+     */
+    update?: "bootloader";
 }
 
 export interface Manifest {
@@ -123,24 +153,31 @@ export interface Manifest {
 }
 
 /**
- * latest.json for a release, from the app images of each `ota` ESP32 board's regions. A UF2 board
- * is not in it: none of them can be updated over the companion link yet.
+ * latest.json for a release: the app image of each `ota` ESP32 board's regions, which a node takes
+ * over the link, and the DFU package of each UF2 board's regions that has them, which its
+ * bootloader takes (`update` is then "bootloader"). An entry for the link has no `update`, so the
+ * file a release with no packages makes is the one it made before there were any.
  */
 export async function manifest(
     version: string,
-    boards: readonly { board: string; regions: readonly Region[] }[],
+    boards: readonly { board: string; regions: readonly Region[]; update?: UpdateWay }[],
     images: Map<string, Uint8Array>,
 ): Promise<Manifest> {
     const list: ManifestImage[] = [];
-    for (const { board, regions } of [...boards].sort((a, b) => a.board.localeCompare(b.board))) {
+    for (const { board, regions, update } of [...boards].sort((a, b) => a.board.localeCompare(b.board))) {
         for (const region of [...regions].sort()) {
-            const file = imageName(version, board, region, "app");
+            const bootloader = update === "bootloader";
+            const file = bootloader ? packageName(version, board, region) : imageName(version, board, region, "app");
             const data = images.get(file);
             if (!data) {
                 throw new Error(`latest.json needs ${file}`);
             }
             const hex = await sha256(data);
-            list.push({ board, region: region.toUpperCase(), file, size: data.length, sha256: hex });
+            const image: ManifestImage = { board, region: region.toUpperCase(), file, size: data.length, sha256: hex };
+            if (bootloader) {
+                image.update = "bootloader";
+            }
+            list.push(image);
         }
     }
     return { release: version, images: list };

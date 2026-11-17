@@ -7,8 +7,14 @@
 // ask the user for the passkey on the node's screen: so the link is opened with a write the node
 // does not answer, tried until one is taken. A link whose MTU is too small is the node's to
 // refuse, at the HELLO.
+//
+// openDfu is the other service a node has over Bluetooth: its bootloader's, once the node has
+// restarted into it to be updated (dfu.ts). It is another device to the browser, with an address
+// of its own, so the user chooses it from the browser's list too.
 
 import type { Transport } from "./client.ts";
+import { DFU_CONTROL, DFU_PACKET, DFU_SERVICE } from "./dfu.ts";
+import type { DfuLink } from "./dfu.ts";
 
 export const SERVICE = "7a280001-eb17-4c1c-889b-1741dd50ff40";
 export const TO_NODE = "7a280002-eb17-4c1c-889b-1741dd50ff40";
@@ -18,6 +24,7 @@ export const FROM_NODE = "7a280003-eb17-4c1c-889b-1741dd50ff40";
 export interface Characteristic extends EventTarget {
     readonly value?: DataView | null;
     writeValueWithResponse(value: Uint8Array): Promise<void>;
+    writeValueWithoutResponse(value: Uint8Array): Promise<void>;
     startNotifications(): Promise<unknown>;
 }
 interface Service {
@@ -30,10 +37,16 @@ export interface GattServer {
     getPrimaryService(uuid: string): Promise<Service>;
 }
 export interface Device extends EventTarget {
+    readonly name?: string;
     readonly gatt?: GattServer;
 }
 export interface Bluetooth {
-    requestDevice(options: { filters: { services: string[] }[] }): Promise<Device>;
+    requestDevice(options: { filters: { services: string[] }[]; optionalServices?: string[] }): Promise<Device>;
+}
+
+/** A link to a node, and the device it is to: the page reaches the same node again with it, unasked. */
+export interface BluetoothTransport extends Transport {
+    readonly device: Device;
 }
 
 /** How long each step may take, in milliseconds. */
@@ -80,16 +93,18 @@ function within<T>(what: Promise<T>, ms: number, late: string): Promise<T> {
  * Asks the user for a node, connects and pairs. It must be called from a click: the browser
  * shows its own list of nodes in reach, and rejects if the user closes it without choosing.
  * It resolves once the node has taken a write, which a node only does from a paired client.
+ * Given a `device` the user chose before, it connects to that, with no list and no click.
  */
 export async function openBluetooth(
     bt: Bluetooth | undefined = bluetooth(),
     timings: Partial<Timings> = {},
-): Promise<Transport> {
-    if (!bt) {
+    known?: Device,
+): Promise<BluetoothTransport> {
+    if (!bt && !known) {
         throw new Error("this browser has no Web Bluetooth");
     }
     const t = { ...TIMINGS, ...timings };
-    const device = await bt.requestDevice({ filters: [{ services: [SERVICE] }] });
+    const device = known ?? (await bt!.requestDevice({ filters: [{ services: [SERVICE] }] }));
     const gatt = device.gatt;
     if (!gatt) {
         throw new Error("the browser will not connect to this device");
@@ -205,7 +220,8 @@ export async function openBluetooth(
         });
     }
 
-    const transport: Transport = {
+    const transport: BluetoothTransport = {
+        device,
         framed: true,
         write: (data) => {
             const next = writes.then(async () => {
@@ -270,4 +286,89 @@ export async function openBluetooth(
         dropped();
     }
     return transport;
+}
+
+/**
+ * Asks the user for a node's bootloader, which advertises the DFU service once the node has
+ * restarted into it, and connects to it. Like openBluetooth it must be called from a click, unless
+ * given the `device` chosen before, as when a transfer is tried again. The bootloader needs no
+ * pairing. One GATT operation goes at a time, as a browser requires.
+ */
+export async function openDfu(
+    bt: Bluetooth | undefined = bluetooth(),
+    timings: Partial<Timings> = {},
+    known?: Device,
+): Promise<DfuLink & { device: Device }> {
+    if (!bt && !known) {
+        throw new Error("this browser has no Web Bluetooth");
+    }
+    const t = { ...TIMINGS, ...timings };
+    const device =
+        known ?? (await bt!.requestDevice({ filters: [{ services: [DFU_SERVICE] }], optionalServices: [DFU_SERVICE] }));
+    const gatt = device.gatt;
+    if (!gatt) {
+        throw new Error("the browser will not connect to this device");
+    }
+    let ended = false;
+    let ops: Promise<void> = Promise.resolve();
+    const one = (what: () => Promise<void>): Promise<void> => {
+        const next = ops.then(() => {
+            if (ended) {
+                throw new Error("the link to the bootloader is down");
+            }
+            return what();
+        });
+        ops = next.catch(() => {});
+        return next;
+    };
+    const heard = (e: Event) => {
+        const value = (e.target as Characteristic).value;
+        if (value) {
+            link.onNotify(new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)));
+        }
+    };
+    const end = (why: string) => {
+        if (ended) {
+            return;
+        }
+        ended = true;
+        device.removeEventListener("gattserverdisconnected", dropped);
+        control?.removeEventListener("characteristicvaluechanged", heard);
+        if (gatt.connected) {
+            gatt.disconnect();
+        }
+        link.onClose(why);
+    };
+    const dropped = () => end("the bootloader went out of reach");
+
+    let control: Characteristic | null = null;
+    let packet: Characteristic | null = null;
+    try {
+        await within(
+            (async () => {
+                await gatt.connect();
+                const service = await gatt.getPrimaryService(DFU_SERVICE);
+                control = await service.getCharacteristic(DFU_CONTROL);
+                packet = await service.getCharacteristic(DFU_PACKET);
+                control.addEventListener("characteristicvaluechanged", heard);
+                await control.startNotifications();
+            })(),
+            t.connect,
+            "the bootloader did not answer over Bluetooth",
+        );
+    } catch (e) {
+        (control as Characteristic | null)?.removeEventListener("characteristicvaluechanged", heard);
+        gatt.disconnect();
+        throw e;
+    }
+    device.addEventListener("gattserverdisconnected", dropped);
+    const link: DfuLink & { device: Device } = {
+        device,
+        control: (data) => one(() => control!.writeValueWithResponse(data)),
+        packet: (data) => one(() => packet!.writeValueWithoutResponse(data)),
+        close: async () => end("closed"),
+        onNotify: () => {},
+        onClose: () => {},
+    };
+    return link;
 }

@@ -245,15 +245,24 @@ const fw = "https://github.com/ternmesh/firmware";
 
     <h2 id="updates">Updating the firmware</h2>
     <p>
-        When a newer release is out, the apps offer it on the node screen and send it over Bluetooth: a few minutes,
-        with the node working as usual meanwhile. If the link drops, it goes on from where it stopped. The node keeps
+        When a newer release is out, the apps offer it on the node screen and send it over Bluetooth. To an ESP32 board
+        that takes a few minutes, with the node working as usual meanwhile. If the link drops, it goes on from where it
+        stopped. The node keeps
         its address, contacts, sessions, groups, messages and settings, and goes back to the old firmware by itself if
         the new one will not start.
     </p>
     <p>
         Updating over Bluetooth works on ESP32 boards that were flashed with release 0.2.0 or later. An older one is
-        updated once from <a href="/flash">the flash page</a>, choosing <em>Update</em>, which keeps its address; nRF52840
-        boards are updated by copying the release's <code>.uf2</code> file onto them, as when they were first flashed.
+        updated once from <a href="/flash">the flash page</a>, choosing <em>Update</em>, which keeps its address.
+    </p>
+    <p>
+        nRF52840 boards running release 0.6.0 or later are updated over Bluetooth too, by their bootloader: the app asks
+        the node to restart into it, and sends the release to the bootloader, which takes about five minutes. Meanwhile
+        the node is off the mesh. In <a href="/app">the web app</a>, choose the bootloader in the browser's list when it
+        asks: its name ends in <code>DFU</code>, such as <code>T114_DFU</code>. If the link drops part of the way, the
+        bootloader waits for the release, and trying again starts it over; the node keeps everything it holds either
+        way. An older nRF52840 board is updated by copying the release's <code>.uf2</code> file onto it, as when it was
+        first flashed, and takes later releases over Bluetooth after that.
     </p>
 
     <h2 id="console">The serial console</h2>

@@ -1,8 +1,9 @@
-// Which firmware a node could be given over its link: the release ternmesh.org offers, read from
+// Which firmware a node could be given: the release ternmesh.org offers, read from
 // /firmware/latest.json (tools/firmware.ts writes it), the image in it for the node's board and
-// region, and whether that release is later than the node's, by Semantic Versioning's order.
+// region and the way the node takes one, and whether that release is later than the node's, by
+// Semantic Versioning's order.
 
-import type { Manifest, ManifestImage } from "../flash/images.ts";
+import type { Manifest, ManifestImage, UpdateWay } from "../flash/images.ts";
 
 /**
  * SemVer 2.0.0's order: negative if `a` comes before `b`, positive after, 0 for the same. A
@@ -49,13 +50,21 @@ function parse(v: string): { core: bigint[]; pre: string[] } | null {
     return { core: [BigInt(m[1]!), BigInt(m[2]!), BigInt(m[3]!)], pre: m[4] ? m[4].split(".") : [] };
 }
 
-/** The manifest's image for a board and region, as the node reports them, or null if there is none. */
-export function imageFor(manifest: Manifest, board: string, region: string): ManifestImage | null {
+/**
+ * The manifest's image for a board and region, as the node reports them, that the node takes the
+ * way it does (an entry without `update` is for the link), or null if there is none.
+ */
+export function imageFor(manifest: Manifest, board: string, region: string, way: UpdateWay = "link"): ManifestImage | null {
     if (board === "" || region === "") {
         return null;
     }
     return (
-        manifest.images.find((i) => i.board === board && i.region.toUpperCase() === region.toUpperCase()) ?? null
+        manifest.images.find(
+            (i) =>
+                i.board === board &&
+                i.region.toUpperCase() === region.toUpperCase() &&
+                (i.update ?? "link") === way,
+        ) ?? null
     );
 }
 
@@ -74,19 +83,23 @@ export function readManifest(json: unknown): Manifest {
             Number.isInteger(i.size) &&
             i.size > 0 &&
             typeof i.sha256 === "string" &&
-            /^[0-9a-f]{64}$/.test(i.sha256),
+            /^[0-9a-f]{64}$/.test(i.sha256) &&
+            // A way of updating this page does not know is one it cannot take.
+            (i.update === undefined || i.update === "bootloader"),
     );
     return { release: m.release, images };
 }
 
 /**
  * What the site offers a node: the release and its image, or null if there is nothing newer for
- * its board and region. A site with no latest.json has nothing a phone or a page may send.
+ * its board and region that it takes the way it does. A site with no latest.json has nothing a
+ * phone or a page may send.
  */
 export async function offerFor(
     board: string,
     region: string,
     release: string,
+    way: UpdateWay = "link",
     fetcher: typeof fetch = fetch,
 ): Promise<{ release: string; image: ManifestImage } | null> {
     const res = await fetcher("/firmware/latest.json", { cache: "no-store" });
@@ -97,7 +110,7 @@ export async function offerFor(
         throw new Error(`the firmware list did not load (${res.status})`);
     }
     const manifest = readManifest(await res.json());
-    const image = imageFor(manifest, board, region);
+    const image = imageFor(manifest, board, region, way);
     if (!image || compareVersions(manifest.release, release) <= 0) {
         return null;
     }

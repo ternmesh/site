@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FROM_NODE, SERVICE, TO_NODE, openBluetooth } from "../src/lib/companion/bluetooth.ts";
+import { FROM_NODE, SERVICE, TO_NODE, openBluetooth, openDfu } from "../src/lib/companion/bluetooth.ts";
+import { DFU_CONTROL, DFU_PACKET, DFU_SERVICE } from "../src/lib/companion/dfu.ts";
 import type { Bluetooth } from "../src/lib/companion/bluetooth.ts";
 
 const FAST = { connect: 200, pair: 400, retry: 5, again: 100 };
@@ -15,9 +16,14 @@ class Char extends EventTarget {
     notifying = false;
     /** What a write does: by default, it is taken. */
     onWrite: (value: Uint8Array) => Promise<void> = () => Promise.resolve();
+    /** Writes without a response, as only the DFU packet characteristic takes them. */
+    unanswered: Uint8Array[] = [];
     async writeValueWithResponse(value: Uint8Array): Promise<void> {
         await this.onWrite(value);
         this.wrote.push(value);
+    }
+    async writeValueWithoutResponse(value: Uint8Array): Promise<void> {
+        this.unanswered.push(value);
     }
     startNotifications(): Promise<unknown> {
         this.notifying = true;
@@ -260,4 +266,87 @@ test("a link made as the connection closes is not kept", async () => {
     t.onData = (d) => got.push(d);
     node.from.notify([1, 1]);
     assert.deepEqual(got, [], "and nothing is heard from it");
+});
+
+/** A node's bootloader as the browser shows it: the DFU service, its control point and packet. */
+class Bootloader extends EventTarget {
+    asked: unknown = null;
+    connected = false;
+    control = new Char();
+    packet = new Char();
+    readonly gatt = {
+        node: this as Bootloader,
+        get connected(): boolean {
+            return this.node.connected;
+        },
+        async connect() {
+            this.node.connected = true;
+            return this;
+        },
+        disconnect() {
+            this.node.connected = false;
+        },
+        async getPrimaryService(uuid: string) {
+            assert.equal(uuid, DFU_SERVICE);
+            const n = this.node;
+            return {
+                async getCharacteristic(c: string) {
+                    assert.ok(c === DFU_CONTROL || c === DFU_PACKET);
+                    return c === DFU_CONTROL ? n.control : n.packet;
+                },
+            };
+        },
+    };
+    browser(): Bluetooth {
+        return {
+            requestDevice: async (options) => {
+                this.asked = options;
+                return this;
+            },
+        };
+    }
+}
+
+test("a bootloader is asked for by the DFU service; the control point is written with a response, packets without", async () => {
+    const b = new Bootloader();
+    const link = await openDfu(b.browser(), FAST);
+    assert.deepEqual(b.asked, { filters: [{ services: [DFU_SERVICE] }], optionalServices: [DFU_SERVICE] });
+    assert.ok(b.control.notifying);
+    await link.control(Uint8Array.of(0x01, 0x04));
+    await link.packet(Uint8Array.of(1, 2, 3));
+    assert.deepEqual(b.control.wrote, [Uint8Array.of(0x01, 0x04)]);
+    assert.deepEqual(b.packet.unanswered, [Uint8Array.of(1, 2, 3)]);
+    assert.deepEqual(b.packet.wrote, []);
+
+    const heard: Uint8Array[] = [];
+    link.onNotify = (d) => heard.push(d);
+    b.control.notify([0x10, 0x01, 0x01]);
+    assert.deepEqual(heard, [Uint8Array.of(0x10, 0x01, 0x01)]);
+
+    // The bootloader going ends the link, and what is written after fails.
+    let why = "";
+    link.onClose = (w) => (why = w);
+    b.connected = false;
+    b.dispatchEvent(new Event("gattserverdisconnected"));
+    assert.match(why, /out of reach/);
+    await assert.rejects(link.packet(Uint8Array.of(4)));
+
+    // Tried again, the same bootloader is reached with no list.
+    b.asked = null;
+    const again = await openDfu(undefined, FAST, link.device);
+    assert.equal(b.asked, null);
+    assert.equal(b.connected, true);
+    await again.close();
+    assert.equal(b.connected, false);
+});
+
+test("a node chosen before is reached again with no list", async () => {
+    const node = new Node();
+    const first = await openBluetooth(node.browser(), FAST);
+    await first.close();
+    node.asked = null;
+    const again = await openBluetooth(undefined, FAST, first.device);
+    assert.equal(node.asked, null);
+    assert.equal(node.connects, 2);
+    await again.close();
 });

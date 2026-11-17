@@ -17,6 +17,8 @@ import Base from "../layouts/Base.astro";
                 nothing else: no account, no server, and what you write leaves this device only by the
                 node's radio.
             </p>
+            <!-- A node's bootloader taking an update: the node has restarted into it, and is not connected. -->
+            <div id="bootloader" class="card update" hidden></div>
             <div class="choices">
                 <button id="connect-serial" type="button" class="choice">
                     <span class="choice-icon" aria-hidden="true">

@@ -54,7 +54,7 @@ Once a node is connected the page has the phone apps' layout: **Chats**, **Peopl
 tabs, down the side on a computer and along the foot on a phone, with the node's name and battery at
 the head of each. Before then, it is where a node is connected from: USB, Bluetooth or the demo.
 
-It speaks version 10 of the protocol, and any earlier version a node speaks:
+It speaks version 12 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
@@ -82,26 +82,40 @@ not define, saying on the node's card what an update would bring.
   works out the highest permitted power for its board, antenna and region, and tells the page when
   that is the power it is using.
 * **Updates:** a node with a board and a release is offered the release in `/firmware/latest.json`
-  for its board and region when it is later, by Semantic Versioning. The image is checked against
-  the manifest's size and SHA-256 and sent over the same link, going on from where the node says
-  after a dropped link.
+  for its board and region when it is later, by Semantic Versioning, the way the node is updated:
+  as its `INFO`'s `update` says from version 12, and over the link before then. The image is
+  checked against the manifest's size and SHA-256 before anything is sent.
+  * **Over the link** (ESP32): the app image is sent over the same link, going on from where the
+    node says after a dropped link.
+  * **By the bootloader** (nRF52840, from firmware 0.6.0): the page asks the node to restart into
+    its bootloader (`UPDATE_BOOTLOADER`), and the user chooses the bootloader in the browser's
+    list (**Choose the node's bootloader**: Web Bluetooth lets a page reach a new device only from
+    a click). The page gives it the release's DFU package by Nordic's legacy DFU, as
+    `tools/ble_dfu.py` in the firmware does, with the erase and the transfer shown as they go, about
+    five minutes in all; then it connects to the node again over Bluetooth and checks the release it
+    runs. A transfer that fails leaves the bootloader waiting, and **Try again** starts it over.
+    An nRF52840 node whose bootloader takes nothing over Bluetooth (`update` 0) is pointed to the
+    flash page.
 
 | | |
 |---|---|
 | `src/lib/companion/protocol.ts` | The protocol's frames: built, read, wrapped for a byte stream and found in one. |
 | `src/lib/companion/client.ts` | One connection: requests one at a time, the node's news, syncing again when some is missed, and keeping the node from taking the client for gone. |
 | `src/lib/companion/serial.ts` | A node on a USB serial port, through Web Serial. |
-| `src/lib/companion/bluetooth.ts` | A node over Bluetooth LE, through Web Bluetooth: pairing, and finding a node again after it restarts. |
-| `src/lib/companion/updater.ts` | One firmware image given to a node: `UPDATE_BEGIN`, the image a chunk at a time from the offset the node gives, `UPDATE_END`, and going on after the link drops. |
-| `src/lib/companion/release.ts` | `latest.json` as the page reads it: the image for a node's board and region, and Semantic Versioning's order. |
+| `src/lib/companion/bluetooth.ts` | A node over Bluetooth LE, through Web Bluetooth: pairing, and finding a node again after it restarts; and a node's bootloader, for an update. |
+| `src/lib/companion/updater.ts` | How a node is updated, and one firmware image given to a node over the link: `UPDATE_BEGIN`, the image a chunk at a time from the offset the node gives, `UPDATE_END`, and going on after the link drops; or `UPDATE_BOOTLOADER`. |
+| `src/lib/companion/dfu.ts` | A DFU package read from its zip, and given to an nRF52840 node's bootloader: Nordic's legacy DFU, with a receipt every ten packets. |
+| `src/lib/companion/release.ts` | `latest.json` as the page reads it: the image for a node's board and region and the way it is updated, and Semantic Versioning's order. |
 | `src/lib/companion/demo.ts` | A made-up node in the page, for "Try it without a board" and `/app?demo`. |
 | `src/lib/companion/ids.ts` | Addresses as typed, and the routing id of one. |
 | `src/lib/app/` | The page: what is drawn, and the conversations it keeps in the browser. |
 
 `tests/vectors/companion.json` is a copy of the specification's
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as of
-[ternmesh/spec#52](https://github.com/ternmesh/spec/pull/52) (version 10), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
-byte for byte, the older clients' frames read by their versions, and the update as its client.
+[ternmesh/spec#56](https://github.com/ternmesh/spec/pull/56) (version 12), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
+byte for byte, the older clients' frames read by their versions, the update as its client, and the
+node that its bootloader updates. `tests/dfu.test.ts` holds the DFU client to a bootloader the test
+plays.
 When the specification's vectors change, copy the new file here in the pull
 request that changes the code to match.
 
@@ -119,13 +133,16 @@ saying whether it has been checked on a board. For an ESP32 or ESP32-S3 board it
 board will be used and whether it runs Tern already, fetches the images, checks them against the
 release's SHA-256 checksums, checks the chip is the board's, and writes them over Web Serial with
 Espressif's [esptool-js](https://github.com/espressif/esptool-js). For an nRF52840 board it gives
-the region's `.uf2` to copy onto the drive the board's bootloader shows. `/flash?board=<name>`
+the region's `.uf2` to copy onto the drive the board's bootloader shows (and, from 0.6.0, the board
+takes later releases over Bluetooth from the phone apps or `/app`). `/flash?board=<name>`
 opens on a board; the hardware page links each one that way.
 
 For each ESP32 board `<b>`, a release has four images for each region `<r>` it carries (`us915`,
 `eu868`, and from 0.4.0-alpha.1 `au915`, `nz915`, `cl915`, `my919`, `th920`, `ru868` and `kz863`)
-and version `<v>`; for each nRF52840 board, one `tern-<b>-<r>-<v>.uf2`; and one `SHA256SUMS` over
-all of them. The site offers each board the regions that names for it. Every ESP32 board's flash
+and version `<v>`; for each nRF52840 board, one `tern-<b>-<r>-<v>.uf2` and, from 0.6.0, the same
+firmware as a DFU package, `tern-<b>-<r>-<v>.zip`, for its bootloader to take over Bluetooth; and
+one `SHA256SUMS` over all of them. A release from before 0.6.0 has no `.zip`, and its `SHA256SUMS`
+says so; one that names a board's package for one region and not another fails the build. The site offers each board the regions that names for it. Every ESP32 board's flash
 is laid out alike (the firmware's `ports/esp32/partitions*.csv`): NVS at 0x9000 to 0xF000 (its
 address, contacts, sessions and bonds), otadata at 0xF000, and two app slots from 0x20000.
 
@@ -163,10 +180,11 @@ version there.
 
 ### latest.json: what the phone apps read
 
-For a release in the two-slot layout, `tools/firmware.ts` also writes
+For a release in the two-slot layout, or with DFU packages, `tools/firmware.ts` also writes
 `https://ternmesh.org/firmware/latest.json`, with every ESP32 board's app image for each region,
-and the Tern phone apps read it to update a node over Bluetooth. The nRF52840 boards are not in
-it: none of them can be updated over the link yet. It is a contract with them: change it only with them.
+which a node takes over the companion link, and every nRF52840 board's DFU package for each region,
+which its bootloader takes; the Tern phone apps and `/app` read it to update a node over Bluetooth.
+It is a contract with the apps: change it only with them.
 
 ```json
 {
@@ -178,6 +196,14 @@ it: none of them can be updated over the link yet. It is a contract with them: c
             "file": "tern-heltec-v3-eu868-0.1.0-app.bin",
             "size": 1234567,
             "sha256": "<64 hex digits>"
+        },
+        {
+            "board": "heltec-t114",
+            "region": "US915",
+            "file": "tern-heltec-t114-us915-0.1.0.zip",
+            "size": 234567,
+            "sha256": "<64 hex digits>",
+            "update": "bootloader"
         }
     ]
 }
@@ -186,15 +212,23 @@ it: none of them can be updated over the link yet. It is a contract with them: c
 * `release` is the version `src/data/firmware.json` pins, without the `v`.
 * One entry per board and region. `region` is as the node reports it (`US915`, `EU868`, `AU915`, `NZ915` and the rest): an app
   sends a node only the image for its own board and region. The order means nothing.
-* `file` is relative to `/firmware/`, the app image alone. `size` is its length in bytes and
-  `sha256` its SHA-256 in lowercase hex, both of the file this site serves, which is the
-  release's (checked against its `SHA256SUMS`).
-* A release from before the two-slot layout has no `latest.json`: its app is not one a phone may
-  send. An app takes a missing file to mean there is nothing to update to.
+* `file` is relative to `/firmware/`: the app image alone, or the DFU package. `size` is its length
+  in bytes and `sha256` its SHA-256 in lowercase hex, both of the file this site serves, which is
+  the release's (checked against its `SHA256SUMS`).
+* `update` is `"bootloader"` for a DFU package, which the node's bootloader takes once the node has
+  restarted into it (`UPDATE_BOOTLOADER`); an entry without it is an app image, sent over the
+  companion link, which is every entry an app from before version 12 knows. An app picks the entry
+  whose board and region match the node's `INFO`, and whose `update` (absent: the link) matches the
+  node's `INFO` `update` (1: the link, 2: the bootloader). An entry with an `update` the app does
+  not know is not one it can send. Before version 12 a node names its board only if it is updated
+  over the link, so an older app is never offered a package.
+* A release from before the two-slot layout, with no DFU package, has no `latest.json`: its app is
+  not one a phone may send. An app takes a missing file to mean there is nothing to update to.
 * Fields may be added; none will be removed or change meaning without the apps.
 
 To try images that are not released, point the build at the directory
-`ports/esp32/release.sh` leaves in the firmware repository:
+`ports/esp32/release.sh` or `ports/nrf52/release.sh` leaves in the firmware repository, named
+for the version `src/data/firmware.json` pins:
 
 ```bash
 TERN_FIRMWARE_DIR=../firmware/ports/esp32/release npm run build

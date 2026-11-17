@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 10 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 12 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 10;
+export const VERSION = 12;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -42,7 +42,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 10, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 12, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -75,6 +75,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     ],
     0x34: ["SHARE", [["contact", "addr"], ...sharing], 5],
     0x35: ["SHARE_GROUP", [["group", "gid"], ...sharing], 5],
+    0x36: ["UPDATE_BOOTLOADER", [], 12],
     0x40: ["OK", [], 0],
     0x41: ["ERROR", [["code", "u8"]], 0],
     0x42: [
@@ -84,6 +85,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["firmware", "str", 31],
             ["board", "str", 31, 4],
             ["release", "str", 31, 4],
+            ["update", "u8", undefined, 12],
         ],
         0,
     ],
@@ -103,6 +105,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["cards", "u8", undefined, 6],
             ["card_name", "str", NAME_MAX, 6],
             ["most", "u8", undefined, 10],
+            ["pairing", "u8", undefined, 11],
         ],
         0,
     ],
@@ -205,6 +208,11 @@ export const ASKED = { notContact: 1, noRoom: 2 } as const;
 export const RECEIVER = { none: 0, off: 1, searching: 2, fixed: 3 } as const;
 /** Whose fix a FIX carries: FIX's `source`. */
 export const FIX_SOURCE = { none: 0, receiver: 1, client: 2 } as const;
+
+/** How a client gives the node new firmware: INFO's `update` (version 12). */
+export const UPDATE = { none: 0, link: 1, bootloader: 2 } as const;
+/** How the node pairs over Bluetooth: SELF's `pairing` (version 11). */
+export const PAIRING = { shown: 0, default: 1, set: 2 } as const;
 
 export const STATE = { waiting: 0, sent: 1, delivered: 2, notDelivered: 3, received: 4 } as const;
 

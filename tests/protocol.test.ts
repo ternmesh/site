@@ -16,6 +16,7 @@ interface Vectors {
     exchange: { from: string; type: string; seq: number; frame: string }[];
     older: { version: number; frames: { from: string; type: string; seq: number; frame: string }[] }[];
     unknown_to_older: { type: string; version: number; frame: string; why: string; answer: number | null }[];
+    bootloader: { from: string; type: string; seq: number; frame: string }[][];
 }
 
 const v: Vectors = JSON.parse(readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"));
@@ -146,6 +147,42 @@ test("the node's own fix, its receiver and turning it off: versions 8 and 9", ()
         assert.equal(asked!.type, type);
         assert.equal(decode(bytes(asked!.frame), version), null);
         assert.deepEqual(decode(bytes(refused!.frame), version)?.fields, { code: 1 });
+    }
+});
+
+test("pairing and updates by the bootloader: versions 11 and 12", () => {
+    // UPDATE_BOOTLOADER is version 12's, with no fields; INFO's update is too, and SELF's pairing
+    // version 11's: each is read by its version, and not by the one before.
+    const request = v.frames.find((c) => c.type === "UPDATE_BOOTLOADER")!;
+    assert.equal(request.frame, "362b");
+    assert.equal(decode(bytes(request.frame), 11), null);
+    const info = v.frames.find((c) => c.type === "INFO" && c.fields.update === 2)!;
+    assert.equal(decode(bytes(info.frame))!.fields.update, 2);
+    assert.equal(decode(bytes(info.frame), 11)!.fields.update, undefined);
+    for (const c of v.frames.filter((f) => f.type === "SELF")) {
+        assert.equal(decode(bytes(c.frame))!.fields.pairing, c.fields.pairing);
+        assert.equal("pairing" in decode(bytes(c.frame), 10)!.fields, false);
+    }
+    // The client of version 11 is sent an INFO without update, and its UPDATE_BOOTLOADER, which
+    // its version does not define, is refused with ERROR 1; that of version 10 a SELF without
+    // pairing.
+    const eleven = v.older.find((o) => o.version === 11)!.frames;
+    const hello = eleven.find((c) => c.type === "INFO")!;
+    assert.equal("update" in decode(bytes(hello.frame), 11)!.fields, false);
+    const [asked, refused] = eleven.slice(-2);
+    assert.equal(asked!.type, "UPDATE_BOOTLOADER");
+    assert.deepEqual(decode(bytes(refused!.frame), 11)?.fields, { code: 1 });
+    const ten = v.older.find((o) => o.version === 10)!.frames.find((c) => c.type === "SELF")!;
+    assert.equal("pairing" in decode(bytes(ten.frame), 10)!.fields, false);
+    assert.equal("most" in decode(bytes(ten.frame), 10)!.fields, true);
+    // Each frame of the bootloader's two connections reads by its client's version, and builds back.
+    for (const [i, version] of [12, 11].entries()) {
+        for (const c of v.bootloader[i]!) {
+            const f = decode(bytes(c.frame), version);
+            assert.ok(f, `${c.type}, version ${version}`);
+            assert.equal(f.type, c.type);
+            assert.equal(hex(encode(f.type, f.seq, f.fields)), c.frame);
+        }
     }
 });
 

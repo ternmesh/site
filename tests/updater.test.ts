@@ -1,16 +1,17 @@
 // The updater as the client in the specification's update (tests/vectors/companion.json): one
-// image over two connections, the link lost between them, and what it does with each refusal.
+// image over two connections, the link lost between them, and what it does with each refusal; and
+// a node that its bootloader updates, asked to restart into it, as the vectors' bootloader has it.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { Client } from "../src/lib/companion/client.ts";
-import { decode, hex, unhex } from "../src/lib/companion/protocol.ts";
-import { Updater } from "../src/lib/companion/updater.ts";
+import { Client, Refused } from "../src/lib/companion/client.ts";
+import { UPDATE, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import { Updater, askBootloader, wayOf } from "../src/lib/companion/updater.ts";
 import { Wire } from "./wire.ts";
 
 type Step = { from: string; type: string; seq: number; frame: string };
-const v: { image: string; image_digest: string; update: Step[][] } = JSON.parse(
+const v: { image: string; image_digest: string; update: Step[][]; bootloader: Step[][] } = JSON.parse(
     readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"),
 );
 const quick = { answerWaitMs: 40, idleMs: 60_000, gapMs: 10, now: () => 1_790_000_000_000 };
@@ -140,4 +141,70 @@ test("a node that took the client for gone leaves the update to go on once greet
         });
         assert.deepEqual([begun, u.state], [true, "restarting"], at);
     }
+});
+
+test("bootloader: a node of version 12 that its bootloader updates refuses the link's update, and restarts into it when asked", async () => {
+    const [mine] = v.bootloader;
+    const steps = mine!;
+    const w = new Wire(true);
+    const c = new Client(w, quick);
+    // The vector leaves out the clock and the sync, which this client sends on starting: they are
+    // answered by hand, and the rest is the vector's, byte for byte.
+    const up = c.start();
+    assert.equal(hex(await w.next()), steps[0]!.frame);
+    w.raw(unhex(steps[1]!.frame)!);
+    w.say("OK", decode(await w.next())!.seq);
+    w.say("SYNCED", decode(await w.next())!.seq, { news: 0 });
+    await up;
+    assert.deepEqual([c.board, c.release, c.update], ["heltec-t114", "0.2.0", UPDATE.bootloader]);
+    assert.equal(wayOf(c), "bootloader");
+
+    // Over the link it is refused: no room for a second image. A page never asks that of such a
+    // node; the vector does, to see it refused.
+    const u = await Updater.of(unhex(v.image)!);
+    const asked = u.run((type, fields) => c.request(type, fields));
+    assert.equal(hex(await w.next()), steps[2]!.frame, "UPDATE_BEGIN");
+    w.raw(unhex(steps[3]!.frame)!);
+    await asked;
+    assert.deepEqual([u.state, u.code], ["refused", 5]);
+
+    const restarting = askBootloader((type, fields) => c.request(type, fields));
+    assert.equal(hex(await w.next()), steps[4]!.frame, "UPDATE_BOOTLOADER");
+    w.raw(unhex(steps[5]!.frame)!);
+    assert.equal(await restarting, "restarting");
+    await c.close();
+});
+
+test("bootloader: to a client of version 11 the same node names no board, and cannot be updated from it", () => {
+    const [, older] = v.bootloader;
+    const info = decode(unhex(older![1]!.frame)!, 11)!;
+    assert.deepEqual(info.fields, { version: 12, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
+    assert.equal(wayOf({ version: 11, update: null, board: "" }), null);
+    // That client's UPDATE_BEGIN is refused as this client's was.
+    assert.deepEqual(decode(unhex(older![3]!.frame)!, 11)!.fields, { code: 5 });
+});
+
+test("how a node is updated: by its INFO's update from version 12, and before by whether it names a board", () => {
+    assert.equal(wayOf({ version: 12, update: UPDATE.link, board: "heltec-v3" }), "link");
+    assert.equal(wayOf({ version: 12, update: UPDATE.bootloader, board: "heltec-t114" }), "bootloader");
+    assert.equal(wayOf({ version: 12, update: UPDATE.none, board: "rak4631" }), null);
+    assert.equal(wayOf({ version: 12, update: 3, board: "heltec-v3" }), null, "a way not known yet");
+    assert.equal(wayOf({ version: 11, update: null, board: "heltec-v3" }), "link");
+    assert.equal(wayOf({ version: 3, update: null, board: "" }), null);
+});
+
+test("an UPDATE_BOOTLOADER unanswered is not sent again; one refused says why", async () => {
+    let sent = 0;
+    const silent = async () => {
+        sent++;
+        throw new Refused(0, "the node did not answer UPDATE_BOOTLOADER");
+    };
+    assert.equal(await askBootloader(silent), "unknown");
+    assert.equal(sent, 1);
+    await assert.rejects(
+        askBootloader(async () => {
+            throw new Refused(5, "the node has no room for more");
+        }),
+        (e: unknown) => e instanceof Refused && e.code === 5,
+    );
 });
