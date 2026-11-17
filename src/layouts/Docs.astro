@@ -53,7 +53,7 @@ const here = Astro.url.pathname.replace(/\/$/, "") || "/";
         margin: 0;
         padding: 0;
         position: sticky;
-        top: 16px;
+        top: calc(var(--header-h) + 16px);
     }
     .side a {
         display: block;
@@ -93,11 +93,11 @@ const here = Astro.url.pathname.replace(/\/$/, "") || "/";
     }
     .body :global(h2) {
         margin-top: 2.2rem;
-        scroll-margin-top: 16px;
+        scroll-margin-top: calc(var(--header-h) + 16px);
     }
     .body :global(h3) {
         margin-top: 1.6rem;
-        scroll-margin-top: 16px;
+        scroll-margin-top: calc(var(--header-h) + 16px);
     }
     .body :global(.lede) {
         font-size: 1.1rem;

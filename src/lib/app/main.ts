@@ -18,6 +18,7 @@ import { bluetoothSupported, openBluetooth } from "../companion/bluetooth.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
+import { boards } from "../../data/boards.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const e = document.getElementById(id);
@@ -69,6 +70,11 @@ let shownCode: { group: string; link: string } | null = null;
 let turnedOff = false;
 /** Routing ids of the addresses the page knows, to put names to neighbours. */
 const ids = new Map<string, number>();
+/** The tab shown: the phone apps' Chats, People and Node. */
+type Tab = "chats" | "people" | "node";
+let tab: Tab = "chats";
+/** How the node is reached, for the Node tab to say. */
+let linkKind: "serial" | "bluetooth" | "demo" = "serial";
 
 function local(): Storage | null {
     try {
@@ -78,10 +84,115 @@ function local(): Storage | null {
     }
 }
 
+/** When the toast showing now goes, if it goes by itself. */
+let sayTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Says something at the foot of the window, until it is said again or dismissed. What is going
+ * well goes by itself after a while; a problem, and anything still under way ("…"), stays.
+ */
 function say(text: string, bad = false): void {
     const status = $("status");
-    status.textContent = text;
+    clearTimeout(sayTimer);
+    $("status-text").textContent = text;
     status.classList.toggle("bad", bad);
+    status.hidden = text === "";
+    if (text !== "" && !bad && !text.endsWith("…")) {
+        sayTimer = setTimeout(() => say(""), 7000);
+    }
+}
+
+function wide(): boolean {
+    return window.matchMedia("(min-width: 48.01rem)").matches;
+}
+
+// ----- Avatars and marks, as the phone apps draw them (apple/App/Design.swift) -----
+
+const AVATAR_HUES = ["#0B4F6C", "#0F766E", "#7C3AED", "#C2410C", "#B45309", "#BE185D", "#4D7C0F", "#1D4ED8"];
+
+/** The letters an avatar shows: the first of each of the first two words, or "?". */
+function initials(name: string): string {
+    const words = name.split(/[\s()·\-_]+/u).filter((w) => /[\p{L}\p{N}]/u.test(w));
+    const letters = words.slice(0, 2).map((w) => (w.match(/[\p{L}\p{N}]/u)?.[0] ?? "").toUpperCase());
+    return letters.join("") || "?";
+}
+
+/** FNV-1a, so that the same key has the same colour on every visit. */
+function hue(key: string): string {
+    let h = 2166136261;
+    for (const b of new TextEncoder().encode(key)) {
+        h = Math.imul(h ^ b, 16777619) >>> 0;
+    }
+    return AVATAR_HUES[h % AVATAR_HUES.length]!;
+}
+
+/** A person's round badge of initials, or a group's rounded square. */
+function avatar(key: string, small = false): HTMLElement {
+    const group = isGroup(key);
+    const named = group ? (client?.groups.get(key)?.name ?? "") : (client?.contacts.get(key)?.name ?? "");
+    const a = el(
+        "span",
+        { class: ["avatar", group && "group", small && "sm", named === "" && "unknown"].filter(Boolean).join(" "), "aria-hidden": "true" },
+        named === "" ? (group ? "#" : "?") : initials(named),
+    );
+    if (named !== "") {
+        a.style.background = hue(group ? `g${key}` : key);
+    }
+    return a;
+}
+
+/** How well a neighbour is heard, as one to four bars: above 5 dB is strong, 0 comfortable, -7 near the edge. */
+function signalBars(snrDb: number): HTMLElement {
+    const on = snrDb >= 5 ? 4 : snrDb >= 0 ? 3 : snrDb >= -7 ? 2 : 1;
+    const bars = el("span", { class: `bars ${on >= 2 ? "good" : "weak"}`, role: "img", "aria-label": `Signal: ${on} of 4 bars` });
+    for (let i = 0; i < 4; i++) {
+        bars.append(el("i", i < on ? { class: "on" } : {}));
+    }
+    return bars;
+}
+
+/** A line drawing, from the paths of a 24-unit square. */
+function icon(...paths: string[]): SVGSVGElement {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    for (const d of paths) {
+        const p = document.createElementNS(ns, "path");
+        p.setAttribute("d", d);
+        svg.append(p);
+    }
+    return svg;
+}
+
+/** What the node is called on the page: its card's name, else its board's, else none. */
+function nodeTitle(): string {
+    const c = client;
+    if (!c) {
+        return "No node";
+    }
+    if (demo) {
+        return "Demo node";
+    }
+    if (c.self?.cardName) {
+        return c.self.cardName;
+    }
+    return boards.find((b) => b.name === c.board)?.title ?? (c.board || "Your node");
+}
+
+function unreadOf(key: string): number {
+    return liveWith(key).filter((m) => m.state === STATE.received && !m.read).length;
+}
+
+/** The latest message of a conversation, live or kept. */
+function lastOf(key: string): Kept | null {
+    const live = liveWith(key);
+    const m = live[live.length - 1];
+    if (m) {
+        return { ...m, incoming: m.state === STATE.received };
+    }
+    const earlier = history?.earlier(key, live) ?? [];
+    return earlier[earlier.length - 1] ?? null;
 }
 
 function explain(e: unknown): string {
@@ -182,28 +293,54 @@ function drawNode(): void {
         return;
     }
     const address = c.self.address;
-    const copy = el("button", { type: "button", class: "small" }, "Copy");
+    const copy = el("button", { type: "button", class: "small" }, "Copy address");
     copy.addEventListener("click", () => {
         navigator.clipboard.writeText(address).then(
             () => say("Address copied. Give it to whoever should write to this node."),
             () => say("The browser would not copy it: select the address and copy it by hand.", true),
         );
     });
-    const facts = [
+    const chips = [
         c.self.region || "no region set",
-        `${c.self.power} dBm${c.self.most ? ", the most it may" : ""}`,
-        c.self.role === 1 ? "relay" : "leaf",
-        c.power && c.power.percent !== 255 ? `battery ${c.power.percent}%` : null,
-        c.airtime && c.airtime.period > 0
-            ? `${Math.round(c.airtime.used / 1000)} of ${Math.round(c.airtime.allowed / 1000)} s on the air`
-            : null,
-    ].filter((x): x is string => x !== null);
+        `${c.self.power} dBm${c.self.most ? " (the most allowed)" : ""}`,
+        c.self.role === 1 ? "Relay: helps the mesh" : "Leaf: just me",
+        demo ? "" : c.release || c.firmware,
+    ].filter((x) => x !== "");
+    const meters = el("div", { class: "meters" });
+    if (c.power && c.power.percent <= 100) {
+        const p = c.power.percent;
+        meters.append(
+            meter(
+                "Battery",
+                `${p}%`,
+                p / 100,
+                p <= 20,
+                c.power.charging ? "charging" : c.power.external ? "on power" : `${(c.power.millivolts / 1000).toFixed(2)} V`,
+            ),
+        );
+    }
+    if (c.airtime && c.airtime.period > 0 && c.airtime.allowed > 0) {
+        const used = c.airtime.used / c.airtime.allowed;
+        meters.append(
+            meter(
+                "Airtime",
+                `${Math.round(c.airtime.used / 1000)} s`,
+                used,
+                used >= 0.8,
+                `of ${Math.round(c.airtime.allowed / 1000)} s allowed`,
+            ),
+        );
+    }
     box.append(
-        el("h2", {}, demo ? "A demo node" : "This node"),
+        el("p", { class: "eyebrow" }, demo ? "A demo, not a node" : "Your node"),
+        el("h2", {}, nodeTitle()),
+        el("p", { class: "sub" }, codeOf(address) ? `Short code ${codeOf(address)}` : short(address)),
         el("p", { class: "address" }, el("code", {}, address), copy),
-        el("p", { class: "muted facts" }, facts.join(" · ")),
-        el("p", { class: "muted facts" }, [c.firmware, c.board].filter((x) => x !== "").join(" · ")),
+        el("ul", { class: "chips" }, ...chips.map((x) => el("li", {}, x))),
     );
+    if (meters.children.length > 0) {
+        box.append(meters);
+    }
     if (c.fix) {
         box.append(...fixFacts(c.fix));
     }
@@ -232,6 +369,19 @@ function drawNode(): void {
             ),
         );
     }
+}
+
+/** A meter on the node's card: what it measures, how much, and a bar of how full. */
+function meter(label: string, value: string, fraction: number, warn: boolean, note: string): HTMLElement {
+    const fill = el("div", { class: warn ? "fill warn" : "fill" });
+    fill.style.width = `${Math.max(2, Math.min(100, Math.round(fraction * 100)))}%`;
+    return el(
+        "div",
+        { class: "meter" },
+        el("div", { class: "label" }, el("span", {}, label), el("span", {}, note)),
+        el("div", { class: "value" }, value),
+        el("div", { class: "track" }, fill),
+    );
 }
 
 /** What a node's GPS receiver is doing, in a few words; null for a node with none. */
@@ -386,35 +536,87 @@ function drawPeople(): void {
     list.replaceChildren();
     const all = people();
     if (all.length === 0) {
-        list.append(el("li", { class: "muted empty" }, "Nobody yet. Add someone by their address, below."));
+        list.append(el("li", { class: "empty" }, "Nobody yet. Add someone by their address, below."));
     }
     for (const address of all) {
-        const session = client?.contacts.get(address)?.session;
+        const contact = client?.contacts.get(address);
         list.append(
             el(
                 "li",
                 {},
-                talkButton(
+                rowButton(
                     address,
-                    session && el("span", { class: "muted session", title: "This node has a session with it" }, "●"),
+                    contact ? (codeOf(address) || short(address)) : "Not a contact",
+                    contact?.session && el("span", { class: "tag good", title: "This node has a session with it" }, "Session"),
                 ),
             ),
         );
     }
 }
 
-/** A conversation in a list: its name, how many of its messages are unread, and a mark. */
-function talkButton(key: string, mark: Child): HTMLButtonElement {
-    const unread = liveWith(key).filter((m) => m.state === STATE.received && !m.read).length;
+/** A person or group in a card's list, that opens its conversation. */
+function rowButton(key: string, sub: string, mark: Child): HTMLButtonElement {
     const button = el(
         "button",
-        { type: "button", class: key === selected ? "person on" : "person" },
-        el("span", { class: "name" }, nameOf(key)),
-        unread > 0 && el("span", { class: "badge" }, String(unread)),
+        { type: "button", class: "row-button" },
+        avatar(key, true),
+        el("span", { class: "row-main" }, el("span", { class: "row-title" }, nameOf(key)), el("span", { class: "row-sub" }, sub)),
         mark,
     );
     button.addEventListener("click", () => select(key));
     return button;
+}
+
+/** Every conversation, most recent first: who, what was said last, when, and how many are unread. */
+function drawTalks(): void {
+    const list = $("talks");
+    list.replaceChildren();
+    const all = talks();
+    if (all.length === 0) {
+        list.append(
+            el(
+                "li",
+                { class: "empty" },
+                "No conversations yet. Add a contact by their address, or make a group, to start one.",
+            ),
+        );
+    }
+    for (const key of all) {
+        const last = lastOf(key);
+        const unread = unreadOf(key);
+        const left = isGroup(key) && !client?.groups.has(key);
+        let preview = "Nothing said yet";
+        if (last) {
+            const words = last.invite ? (last.incoming ? "Invited you to a group" : "You sent an invite") : last.text;
+            preview = last.incoming || last.invite ? words : `You: ${words}`;
+            if (last.incoming && last.from && !last.invite) {
+                preview = `${writer(last.from)}: ${words}`;
+            }
+        }
+        const button = el(
+            "button",
+            { type: "button", class: ["talk-item", key === selected && "on", unread > 0 && "unread"].filter(Boolean).join(" ") },
+            avatar(key),
+            el(
+                "span",
+                { class: "row-main" },
+                el(
+                    "span",
+                    { class: "top" },
+                    el("span", { class: "row-title" }, nameOf(key)),
+                    last && last.time > 0 && el("time", {}, when(last.time)),
+                ),
+                el(
+                    "span",
+                    { class: "bottom" },
+                    el("span", { class: "row-sub" }, left ? "You left this group" : preview),
+                    unread > 0 && el("span", { class: "badge" }, String(unread)),
+                ),
+            ),
+        );
+        button.addEventListener("click", () => select(key));
+        list.append(el("li", {}, button));
+    }
 }
 
 function drawGroups(): void {
@@ -427,7 +629,7 @@ function drawGroups(): void {
     list.replaceChildren();
     const all = groups();
     if (all.length === 0 && able) {
-        list.append(el("li", { class: "muted empty" }, "None yet. Make one below, or be invited to one."));
+        list.append(el("li", { class: "empty" }, "None yet. Make one below, or be invited to one."));
     }
     for (const id of all) {
         const held = client?.groups.has(id);
@@ -435,7 +637,7 @@ function drawGroups(): void {
             el(
                 "li",
                 {},
-                talkButton(id, !held && el("span", { class: "muted session", title: "This node has left it" }, "left")),
+                rowButton(id, held ? "Group" : "This node has left it", !held && el("span", { class: "tag" }, "Left")),
             ),
         );
     }
@@ -446,21 +648,23 @@ function drawNeighbours(): void {
     list.replaceChildren();
     const all = [...(client?.neighbours.values() ?? [])].sort((a, b) => b.snrDb - a.snrDb);
     if (all.length === 0) {
-        list.append(el("li", { class: "muted empty" }, "None heard yet."));
+        list.append(el("li", { class: "empty" }, "None heard yet."));
     }
     for (const n of all) {
         const who = [...ids].find(([, id]) => id === n.routingId)?.[0];
-        const ago = Math.max(0, Math.round((Date.now() - n.heardAt) / 1000));
+        const name = who ? nameOf(who) : routingIdText(n.routingId);
         list.append(
             el(
                 "li",
                 {},
-                el("span", { class: "name" }, who ? nameOf(who) : routingIdText(n.routingId)),
+                who ? avatar(who, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, "?"),
                 el(
                     "span",
-                    { class: "muted" },
-                    ` ${n.role === 1 ? "relay" : "leaf"}, ${n.snrDb.toFixed(1)} dB, ${ago < 90 ? `${ago} s` : `${Math.round(ago / 60)} min`} ago`,
+                    { class: "row-main" },
+                    el("span", { class: "row-title" }, name, " ", el("span", { class: "tag" }, n.role === 1 ? "Relay" : "Leaf")),
+                    el("span", { class: "row-sub" }, `${n.snrDb.toFixed(1)} dB · ${ago(n.heardAt)}`),
                 ),
+                signalBars(n.snrDb),
             ),
         );
     }
@@ -554,9 +758,8 @@ function positionFrom(p: Position): string {
 function drawPlaces(): void {
     const c = client!;
     const able = c.can("SHARE");
-    $("places-head").hidden = !able;
+    $("places-card").hidden = !able;
     const list = $("places");
-    list.hidden = !able;
     list.replaceChildren();
     if (!able) {
         return;
@@ -572,8 +775,13 @@ function drawPlaces(): void {
             el(
                 "li",
                 {},
-                el("span", { class: "name" }, positionFrom(p)),
-                el("span", { class: "muted" }, ` ${facts.join(", ")} `),
+                avatar(p.group === "" ? p.contact : p.group, true),
+                el(
+                    "span",
+                    { class: "row-main" },
+                    el("span", { class: "row-title" }, positionFrom(p)),
+                    el("span", { class: "row-sub" }, facts.join(", ")),
+                ),
                 mapLink(p),
             ),
         );
@@ -583,14 +791,19 @@ function drawPlaces(): void {
             el(
                 "li",
                 {},
-                el("span", { class: "name" }, `You, to ${nameOf(key)}`),
-                el("span", { class: "muted" }, ` ${sharingText(sharing)}`),
+                avatar(key, true),
+                el(
+                    "span",
+                    { class: "row-main" },
+                    el("span", { class: "row-title" }, `You, to ${nameOf(key)}`),
+                    el("span", { class: "row-sub" }, sharingText(sharing)),
+                ),
             ),
         );
     }
     if (list.children.length === 0) {
         list.append(
-            el("li", { class: "muted empty" }, "Nobody shares a position with this node, and it shares none. Share yours from a conversation."),
+            el("li", { class: "empty" }, "Nobody shares a position with this node, and it shares none. Share yours from a conversation."),
         );
     }
 }
@@ -598,16 +811,15 @@ function drawPlaces(): void {
 function drawAbout(): void {
     const c = client!;
     const able = c.can("SET", 5);
-    $("about-head").hidden = !able;
+    $("about-card").hidden = !able;
     const list = $("about");
-    list.hidden = !able;
     list.replaceChildren();
     if (!able) {
         return;
     }
     const all = [...c.cards.values()].sort((a, b) => b.heardAt - a.heardAt);
     if (all.length === 0) {
-        list.append(el("li", { class: "muted empty" }, "No cards heard. Nearby nodes send one only if their user turns it on."));
+        list.append(el("li", { class: "empty" }, "No cards heard. Nearby nodes send one only if their user turns it on."));
     }
     for (const card of all) {
         const contact = c.contacts.get(card.address);
@@ -621,16 +833,24 @@ function drawAbout(): void {
             $<HTMLInputElement>("add-address").value = card.address;
             $<HTMLInputElement>("add-name").value = clip(card.name, NAME_MAX);
             $<HTMLInputElement>("add-name").focus();
-            say("Check the name, and the short code with them if you can, then Add.");
+            say("Check the name, and the short code with them if you can, then Add contact.");
         });
         list.append(
             el(
                 "li",
                 {},
-                el("span", { class: "name" }, card.name === "" ? "No name given" : `“${card.name}”`),
-                contact && el("span", { class: "muted" }, ` (${nameOf(card.address)})`),
-                el("br", {}),
-                el("span", { class: "muted" }, `${codeOf(card.address) || short(card.address)} · ${ago(card.heardAt)} `),
+                contact ? avatar(card.address, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, "?"),
+                el(
+                    "span",
+                    { class: "row-main" },
+                    el(
+                        "span",
+                        { class: "row-title" },
+                        card.name === "" ? "No name given" : `“${card.name}”`,
+                        contact ? el("span", { class: "muted" }, ` (${nameOf(card.address)})`) : "",
+                    ),
+                    el("span", { class: "row-sub" }, `${codeOf(card.address) || short(card.address)} · ${ago(card.heardAt)}`),
+                ),
                 open,
             ),
         );
@@ -889,7 +1109,7 @@ function drawUpdate(): void {
         });
         const progress = el("progress", { max: String(u.size), value: String(u.acknowledged) });
         box.append(
-            el("h2", {}, `Updating to ${mine.offer.release}`),
+            el("h3", {}, `Updating to ${mine.offer.release}`),
             progress,
             el(
                 "p",
@@ -914,7 +1134,7 @@ function drawUpdate(): void {
     const go = el("button", { type: "button", class: "small primary" }, "Update");
     go.addEventListener("click", () => void update(c, offer!));
     box.append(
-        el("h2", {}, "An update"),
+        el("h3", {}, "An update is out"),
         el(
             "p",
             { class: "muted facts" },
@@ -1079,7 +1299,13 @@ function drawTalk(): void {
     head.replaceChildren();
     if (!selected) {
         list.replaceChildren(
-            el("li", { class: "muted empty" }, "Choose someone on the left, or add them by their address."),
+            el(
+                "li",
+                { class: "empty" },
+                el("span", { class: "empty-art" }, icon("M4 5h16v11H9l-5 4z")),
+                el("h3", {}, "No conversation open"),
+                el("p", {}, "Choose one from the list, or add a contact or make a group to start one."),
+            ),
         );
         compose.hidden = true;
         return;
@@ -1093,15 +1319,45 @@ function drawTalk(): void {
     drawMessages(address);
 }
 
+/** Which folded parts of a conversation's head are open, by conversation: kept across redrawing. */
+const unfolded = new Set<string>();
+
+/** A part of a conversation's head that is folded away until asked for. */
+function fold(key: string, summary: string, ...children: Child[]): HTMLDetailsElement {
+    const id = `${key}/${summary}`;
+    const d = el("details", unfolded.has(id) ? { open: "" } : {}, el("summary", {}, summary), ...children);
+    d.addEventListener("toggle", () => {
+        if (d.open) {
+            unfolded.add(id);
+        } else {
+            unfolded.delete(id);
+        }
+    });
+    return d;
+}
+
+/** The top of a conversation: back to the list on a phone, its avatar, its name and a line under it. */
+function talkTitle(key: string, sub: string): HTMLElement {
+    const back = el("button", { type: "button", class: "back", "aria-label": "Back to the chats" }, "‹ Chats");
+    back.addEventListener("click", () => {
+        selected = null;
+        draw();
+    });
+    return el(
+        "div",
+        { class: "talk-title" },
+        back,
+        avatar(key),
+        el("div", { class: "row-main" }, el("h2", {}, nameOf(key)), el("span", { class: "row-sub" }, sub)),
+    );
+}
+
 /** The head of a group's conversation: what it is, what to know of it, and what can be done. */
 function groupHead(id: string): void {
     const head = $("talk-head");
     const held = client?.groups.get(id);
     if (!held) {
-        head.append(
-            el("h2", {}, nameOf(id)),
-            el("p", { class: "muted" }, "This node is not in this group now. What was said is kept in this browser."),
-        );
+        head.append(talkTitle(id, "This node is not in this group now. What was said is kept in this browser."));
         return;
     }
     const rename = el("button", { type: "button", class: "small" }, "Rename");
@@ -1158,22 +1414,18 @@ function groupHead(id: string): void {
         }
     });
     head.append(
-        el("h2", {}, nameOf(id)),
-        el(
-            "p",
-            { class: "muted" },
-            "Everyone in a group holds the same key. Any of them can write under another's name, " +
-                "whoever is given the key can read all that was said, and nobody can be put out. " +
-                "Nothing says a message arrived.",
-        ),
-        el(
-            "p",
-            { class: "actions" },
-            rename,
-            leave,
-            code,
-            whom.options.length > 0 && whom,
-            whom.options.length > 0 && invite,
+        talkTitle(id, "Group · nothing says a message arrived"),
+        fold(
+            id,
+            "Group details and invites",
+            el(
+                "p",
+                { class: "muted" },
+                "Everyone in a group holds the same key. Any of them can write under another's name, " +
+                    "whoever is given the key can read all that was said, and nobody can be put out.",
+            ),
+            el("p", { class: "actions" }, whom.options.length > 0 && whom, whom.options.length > 0 && invite, code),
+            el("p", { class: "actions" }, rename, leave),
         ),
         ...(shownCode?.group === id ? [joinCodePanel(shownCode.link)] : []),
         ...shareControls(id),
@@ -1260,17 +1512,25 @@ function personHead(address: string): void {
             }
         });
     }
+    const code = codeOf(address);
     head.append(
-        el("h2", {}, nameOf(address)),
-        el("p", { class: "muted address" }, el("code", {}, address)),
-        el(
-            "p",
-            { class: "muted" },
-            contact?.session
-                ? "This node has a session with it."
-                : "No session yet: the first message makes first contact, directly or through relays.",
+        talkTitle(
+            address,
+            [contact?.session ? "Session open" : "No session yet", code && `code ${code}`].filter(Boolean).join(" · "),
         ),
-        el("p", { class: "actions" }, rename, remove ?? null, end || null),
+        fold(
+            address,
+            "Contact details",
+            el("p", { class: "muted address" }, el("code", {}, address)),
+            el(
+                "p",
+                { class: "muted" },
+                contact?.session
+                    ? "This node has a session with it."
+                    : "No session yet: the first message makes first contact, directly or through relays.",
+            ),
+            el("p", { class: "actions" }, rename, remove ?? null, end || null),
+        ),
         ...shareControls(address),
     );
 }
@@ -1287,7 +1547,14 @@ function drawMessages(address: string): void {
         ...live.map((m) => shown({ ...m, incoming: m.state === STATE.received })),
     );
     if (earlier.length + live.length === 0) {
-        list.append(el("li", { class: "muted empty" }, "Nothing said yet."));
+        list.append(
+            el(
+                "li",
+                { class: "empty" },
+                el("h3", {}, "Nothing said yet"),
+                el("p", {}, isGroup(address) ? "Write the group's first message below." : "Say hello below. The first message makes first contact."),
+            ),
+        );
     }
     if (atBottom) {
         list.scrollTop = list.scrollHeight;
@@ -1313,6 +1580,48 @@ function drawMessages(address: string): void {
     }
 }
 
+/** Which tab shows, which is marked, and what each tab's badge says. */
+function drawTabs(): void {
+    for (const t of document.querySelectorAll<HTMLButtonElement>(".tabs .tab")) {
+        if (t.dataset.tab === tab) {
+            t.setAttribute("aria-current", "page");
+        } else {
+            t.removeAttribute("aria-current");
+        }
+    }
+    $("pane-chats").hidden = tab !== "chats";
+    $("pane-people").hidden = tab !== "people";
+    $("pane-node").hidden = tab !== "node";
+    // On a phone a conversation opens over the list, and Back closes it.
+    $("pane-chats").classList.toggle("open", selected !== null);
+    $("live").classList.toggle("talking", tab === "chats" && selected !== null);
+    const unread = talks().reduce((n, key) => n + unreadOf(key), 0) + (client?.asked.size ?? 0);
+    const total = $("unread-total");
+    total.hidden = unread === 0;
+    total.textContent = String(unread);
+    $("update-dot").hidden = offer === null && updating === null;
+}
+
+/** The node's name, whether it is there, and its battery, at the head of every tab. */
+function drawPill(): void {
+    const c = client;
+    $("pill-name").textContent = nodeTitle();
+    $("pill-battery").textContent = c?.power && c.power.percent <= 100 ? `· ${c.power.percent}%` : "";
+    const how = linkKind === "serial" ? "Over USB" : linkKind === "bluetooth" ? "Over Bluetooth" : "In this page";
+    $("link-facts").textContent = `${how}${c?.firmware && !demo ? `, running ${c.firmware}` : ""}${c?.board ? ` on a ${nodeTitleOfBoard(c.board)}` : ""}.`;
+}
+
+function nodeTitleOfBoard(board: string): string {
+    return boards.find((b) => b.name === board)?.title ?? board;
+}
+
+/** Shows a tab. */
+function show(t: Tab): void {
+    tab = t;
+    draw();
+    window.scrollTo({ top: 0 });
+}
+
 function draw(): void {
     if (drawing) {
         return;
@@ -1326,6 +1635,7 @@ function draw(): void {
         $("live").hidden = !up || !client?.ready;
         $("demo-note").hidden = !up || !demo;
         $("console").hidden = !up || !hasConsole;
+        drawTabs();
         feedPosition();
         if (!up || !client?.ready) {
             // A join code shown is let go of with the link, whichever way the link went: the panel
@@ -1348,6 +1658,8 @@ function draw(): void {
         drawSettings();
         drawCard();
         drawAsked();
+        drawPill();
+        drawTalks();
         drawPeople();
         drawGroups();
         drawAbout();
@@ -1419,8 +1731,12 @@ function select(address: string): void {
         shownCode = null;
     }
     selected = address;
+    tab = "chats";
     draw();
-    $<HTMLInputElement>("text").focus();
+    // Not on a phone, where focus would bring up the keyboard over the conversation.
+    if (wide()) {
+        requestAnimationFrame(() => $<HTMLInputElement>("text").focus());
+    }
 }
 
 /** Runs a request, and says so if the node refuses it or does not answer. */
@@ -1448,6 +1764,7 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
         return;
     }
     demo = by === "demo";
+    linkKind = by;
     turnedOff = false;
     hasConsole = by === "serial";
     selected = null;
@@ -1638,6 +1955,21 @@ function start(): void {
     serialButton.addEventListener("click", () => void connect(openSerial, "serial"));
     bluetoothButton.addEventListener("click", () => void connect(() => openBluetooth(), "bluetooth"));
     $("connect-demo").addEventListener("click", () => void connect(openDemo, "demo"));
+    for (const t of document.querySelectorAll<HTMLButtonElement>(".tabs .tab")) {
+        t.addEventListener("click", () => show(t.dataset.tab as Tab));
+    }
+    $("node-pill").addEventListener("click", () => show("node"));
+    $("new-contact").addEventListener("click", () => {
+        show("people");
+        $<HTMLInputElement>("add-address").focus();
+    });
+    $("new-group").addEventListener("click", () => {
+        show("people");
+        const make = $("group-add");
+        (make.hidden ? $("groups-card") : $<HTMLInputElement>("group-name")).focus();
+        $("groups-card").scrollIntoView({ block: "start" });
+    });
+    $("status-close").addEventListener("click", () => say(""));
     $("turn-off").addEventListener("click", () => {
         if (client) {
             void turnOff(client);
@@ -1754,12 +2086,14 @@ function start(): void {
     const shared = parseAddress(new URLSearchParams(location.search).get("add") ?? "");
     if (shared) {
         $<HTMLInputElement>("add-address").value = shared;
+        tab = "people";
     }
     // A join code's page (/G) sends its code here after the #, which no request carries, to be
     // joined from once a node is connected and the user says so. It leaves the address bar at once.
     if (location.hash.startsWith("#join=")) {
         $<HTMLInputElement>("join-code").value = decodeURIComponent(location.hash.slice("#join=".length));
         window.history.replaceState(null, "", location.pathname + location.search);
+        tab = "people";
         say("Connect your node, then press Join under Groups.");
     }
     if (new URLSearchParams(location.search).has("demo")) {

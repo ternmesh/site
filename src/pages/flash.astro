@@ -63,6 +63,7 @@ const where: Record<Region, { place: string; profile: string }> = {
     description="Put Tern's firmware on a LoRa board from your browser, over USB, with nothing to install."
 >
     <section class="flash wrap">
+        <p class="eyebrow">Flash · firmware {release.version}</p>
         <h1>Put Tern on a board</h1>
         <p class="lede">
             This writes Tern {release.version} to one of {offers.length} boards, from this page, with nothing to
@@ -70,20 +71,21 @@ const where: Record<Region, { place: string; profile: string }> = {
             onto it.
         </p>
 
-        <ul class="notes">
-            <li>
+        <div class="callout warn" role="note">
+            <span class="callout-icon" aria-hidden="true">!</span>
+            <p>
                 <strong>Fit the antenna first.</strong> The board sends by radio as soon as it starts, and sending
                 with nothing on the antenna connector can damage it.
-            </li>
-            <li>
-                This is an alpha of a draft protocol. Its cryptography has not been reviewed: do not trust it
-                with anything that matters. <a href={notes}>What it does and does not do.</a>
-            </li>
-        </ul>
+            </p>
+        </div>
+        <p class="alpha muted">
+            This is an alpha of a draft protocol. Its cryptography has not been reviewed: do not trust it
+            with anything that matters. <a href={notes}>What it does and does not do.</a>
+        </p>
 
         <form id="flash">
             <fieldset>
-                <legend>Which board?</legend>
+                <legend><span class="step">1</span> Which board?</legend>
                 <select id="board" name="board" aria-describedby="about">
                     {
                         byMaker.map(({ maker, offers }) => (
@@ -114,19 +116,24 @@ const where: Record<Region, { place: string; profile: string }> = {
             </fieldset>
 
             <fieldset>
-                <legend>Where will the board be used?</legend>
-                <p class="muted">
+                <legend><span class="step">2</span> Where will the board be used?</legend>
+                <p class="muted hint">
                     It sends on this region's frequency from the moment it starts, so the wrong one breaks the
                     rules of the place you are in.
                 </p>
+                <div class="options">
                 {
                     regions.map((r) => (
-                        <label data-region={r}>
+                        <label class="option" data-region={r}>
                             <input type="radio" name="region" value={r} required />
-                            {where[r].place} <span class="muted">{where[r].profile}</span>
+                            <span class="option-text">
+                                <span class="option-title">{where[r].place}</span>
+                                <span class="muted">{where[r].profile}</span>
+                            </span>
                         </label>
                     ))
                 }
+                </div>
                 <p class="muted">Anywhere else: there is no image yet. Do not use one of these.</p>
             </fieldset>
 
@@ -136,35 +143,43 @@ const where: Record<Region, { place: string; profile: string }> = {
                     and phones cannot yet. The <a href={notes}>release</a> has the images, to write another way.
                 </p>
                 <fieldset>
-                    <legend>What is on the board now?</legend>
-                    <label>
-                        <input type="radio" name="kind" value="new" required />
-                        Something else, or nothing
-                        <span class="muted">
-                            replaces it, Meshtastic or MeshCore and their settings included; the board gets a new
-                            Tern address
-                        </span>
-                    </label>
-                    <label>
-                        <input type="radio" name="kind" value="update" required />
-                        Tern already
-                        <span class="muted">keeps its address, its sessions and its contacts</span>
-                        <span id="ota" class="muted">
-                            update it this way once, and from then on the Tern phone apps can update it over Bluetooth
-                        </span>
-                    </label>
+                    <legend><span class="step">3</span> What is on the board now?</legend>
+                    <div class="options two">
+                        <label class="option">
+                            <input type="radio" name="kind" value="new" required />
+                            <span class="option-text">
+                                <span class="option-title">Something else, or nothing</span>
+                                <span class="muted">
+                                    Replaces it, Meshtastic or MeshCore and their settings included; the board gets
+                                    a new Tern address.
+                                </span>
+                            </span>
+                        </label>
+                        <label class="option">
+                            <input type="radio" name="kind" value="update" required />
+                            <span class="option-text">
+                                <span class="option-title">Tern already</span>
+                                <span class="muted">Keeps its address, its sessions and its contacts.</span>
+                                <span id="ota" class="muted">
+                                    Update it this way once, and from then on the Tern phone apps can update it over
+                                    Bluetooth.
+                                </span>
+                            </span>
+                        </label>
+                    </div>
                 </fieldset>
 
-                <p>
+                <div class="go-row">
                     <button id="go" type="submit" class="primary">Flash over USB</button>
-                </p>
-                <p class="muted">
+                </div>
+                <p class="muted hint">
                     The browser asks which port: the board's is usually named for its USB chip, such as CP210x, CH340,
                     CH9102 or USB JTAG/serial. If the app or a terminal has the port open, close that first.
                 </p>
             </div>
 
             <div id="uf2" class="card" hidden>
+                <h2 class="card-title"><span class="step">3</span> Copy it onto the board</h2>
                 <ol>
                     <li>
                         <a id="download" class="button" href="#" download>Download the image</a>
@@ -218,95 +233,205 @@ const where: Record<Region, { place: string; profile: string }> = {
 
 <style>
     .flash {
-        padding-top: 32px;
+        padding-top: 40px;
         padding-bottom: 48px;
-        max-width: 48rem;
+        max-width: 50rem;
     }
     [hidden] {
         display: none !important;
     }
     h1 {
-        font-size: clamp(1.8rem, 4vw, 2.6rem);
-        margin: 0 0 12px;
+        font-size: clamp(2rem, 5vw, 2.8rem);
+        margin: 8px 0 12px;
     }
     .lede {
         font-size: 1.1rem;
+        color: var(--muted);
+        margin: 0 0 20px;
     }
-    .notes {
-        padding-left: 1.2em;
+    .callout {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 14px 16px;
+        border-radius: var(--radius-lg);
+        border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+        background: color-mix(in srgb, var(--warn) 10%, var(--surface));
     }
-    .notes li {
-        margin-bottom: 6px;
+    .callout p {
+        margin: 0;
+    }
+    .callout-icon {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--warn);
+        color: #fff;
+        font-weight: 800;
+        font-size: 0.85rem;
+        margin-top: 1px;
+    }
+    .alpha {
+        font-size: 0.92rem;
+        margin: 12px 0 0;
     }
     select {
         font: inherit;
-        padding: 6px 8px;
+        width: 100%;
+        max-width: 28rem;
+        min-height: 44px;
+        padding: 8px 12px;
         border-radius: var(--radius);
         border: 1px solid var(--border);
-        background: var(--surface);
+        background: var(--bg);
         color: var(--text);
-        max-width: 100%;
     }
     #about p {
-        margin: 8px 0;
+        margin: 10px 0;
     }
-    .card ol {
-        padding-left: 1.2em;
-    }
-    .card li {
-        margin-bottom: 8px;
-    }
-    a.button[aria-disabled="true"] {
-        opacity: 0.5;
-        pointer-events: none;
-    }
-    .note,
-    .card {
+    .note {
         background: var(--accent-soft);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 10px 14px;
     }
-    .card {
-        background: var(--surface);
-        margin: 16px 0;
-    }
+    .card,
     fieldset {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        margin: 20px 0;
+        padding: 20px 22px;
+        min-width: 0;
+    }
+    /* A legend sits on a fieldset's border unless floated into the box. */
+    legend {
+        float: left;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+        padding: 0;
+        font-weight: 700;
+        font-size: 1.15rem;
+    }
+    legend + * {
+        clear: both;
+    }
+    .card-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+        font-size: 1.15rem;
+    }
+    .step {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: var(--on-accent);
+        font-size: 0.85rem;
+        font-weight: 700;
+    }
+    .hint,
+    fieldset p {
+        font-size: 0.92rem;
+        margin: 6px 0;
+    }
+    .options {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+        gap: 8px;
+        margin: 12px 0;
+    }
+    .options.two {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    }
+    .option {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 12px 14px;
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        margin: 16px 0;
-        padding: 10px 14px;
-    }
-    legend {
-        font-weight: 600;
-        padding: 0 6px;
-    }
-    fieldset label {
-        display: block;
-        padding: 6px 0;
+        background: var(--bg);
         cursor: pointer;
+        transition:
+            border-color 0.15s,
+            background 0.15s;
     }
-    fieldset label .muted {
-        display: block;
-        margin-left: 1.6em;
-        font-size: 0.9rem;
+    .option:hover {
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
     }
-    fieldset p {
-        margin: 4px 0;
-        font-size: 0.95rem;
+    .option:has(input:checked) {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        box-shadow: 0 0 0 1px var(--accent);
     }
-    button,
-    a.button {
-        display: inline-block;
+    .option:has(input:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .option input {
+        margin-top: 4px;
+        accent-color: var(--accent);
+    }
+    .option-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .option-title {
+        font-weight: 600;
+        line-height: 1.3;
+    }
+    .option-text .muted {
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+    .go-row {
+        margin: 24px 0 8px;
+    }
+    #go {
+        min-height: 50px;
+        padding: 12px 28px;
+        font-size: 1.05rem;
+    }
+    .card ol {
+        padding-left: 1.2em;
+    }
+    .card li {
+        margin-bottom: 10px;
+    }
+    a.button[aria-disabled="true"] {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    button {
+        display: inline-flex;
+        align-items: center;
         font: inherit;
-        padding: 9px 16px;
-        border-radius: var(--radius);
+        padding: 9px 18px;
+        border-radius: 999px;
         border: 1px solid var(--accent);
         background: var(--accent);
-        color: var(--bg);
+        color: var(--on-accent);
         font-weight: 600;
         cursor: pointer;
-        text-decoration: none;
+    }
+    button:hover:not(:disabled) {
+        background: var(--accent-hover);
     }
     button:disabled {
         opacity: 0.5;
@@ -318,12 +443,7 @@ const where: Record<Region, { place: string; profile: string }> = {
         accent-color: var(--accent);
     }
     #status.bad {
-        color: #b3261e;
-    }
-    @media (prefers-color-scheme: dark) {
-        #status.bad {
-            color: #f2b8b5;
-        }
+        color: var(--bad);
     }
     pre {
         font-size: 0.8rem;

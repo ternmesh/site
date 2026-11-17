@@ -18,35 +18,44 @@ const regionList = new Intl.ListFormat("en", { type: "conjunction" }).format(reg
 const ideas = [
     {
         title: "Airtime is budgeted",
+        stage: "partly",
         body: "Every node has an airtime budget, and the network accounts for what it spends. A busy channel degrades fairly instead of collapsing.",
         built: "In the firmware since 0.5, not yet measured between boards.",
     },
     {
         title: "Addresses are public keys",
+        stage: "built",
         body: "A node is named by its key, so who you are talking to is something you can check, not something you are told.",
         built: "In the firmware.",
     },
     {
         title: "Each link picks its own speed",
+        stage: "planned",
         body: "Close neighbours talk fast and distant ones talk slow, inside a loosely synchronised schedule, so one slow link does not slow the whole mesh.",
         built: "Not built yet: today every link in a region uses the same speed.",
     },
     {
         title: "Infrastructure and leaves",
+        stage: "partly",
         body: "Fixed relays carry the routing. Handhelds and sensors are leaves that can sleep on a schedule and still receive their messages.",
         built: "Relays and leaves are in the firmware; leaves that sleep are not built yet.",
     },
     {
         title: "Private by default",
+        stage: "partly",
         body: "What goes over the air is meant to reveal as little as possible about who is talking to whom.",
         built: "In the firmware; its cryptography has not been reviewed yet.",
     },
     {
         title: "Gateways are peers",
+        stage: "planned",
         body: "Bridges to the internet or to other meshes sit at the application layer, not inside the routing.",
         built: "Not built yet.",
     },
 ];
+
+// How far each idea is built: in the firmware, in part, or not yet.
+const stageLabel: Record<string, string> = { built: "In the firmware", partly: "Partly built", planned: "Not built yet" };
 
 const repos = [
     { name: "spec", body: "The specification and conformance test vectors. This is the protocol." },
@@ -56,77 +65,94 @@ const repos = [
 ---
 
 <Base>
-    <section class="hero wrap">
-        <h1>Tern</h1>
-        <p class="lede">
-            An open LoRa mesh protocol that treats airtime as a shared, metered resource.
-        </p>
-        <p class="cta">
-            <a class="button" href="#start">Get started</a>
-            <a class="button secondary" href="/app">Open the app</a>
-            <a class="button secondary" href="/why">Why Tern</a>
-        </p>
-        <figure class="shot">
-            <picture>
-                <source srcset="/screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
-                <img
-                    src="/screenshots/chat-light.png"
-                    width="992"
-                    height="573"
-                    alt="The Tern app in a browser: a demo node's address and settings beside a conversation with Robin, one message marked delivered."
-                />
-            </picture>
-            <figcaption class="muted">
-                The app in a browser, talking to a node over USB or Bluetooth. <a href="/app?demo">Try the demo</a>,
-                with no board.
-            </figcaption>
-        </figure>
+    <section class="hero">
+        <div class="wrap hero-grid">
+            <div class="hero-text">
+                <a class="pill release" href="/news">
+                    <span class="dot"></span>
+                    Alpha · firmware {release.version}
+                    <span aria-hidden="true">→</span>
+                </a>
+                <h1>Tern</h1>
+                <p class="lede">
+                    An open LoRa mesh protocol that treats airtime as a shared, metered resource.
+                </p>
+                <p class="cta">
+                    <a class="button" href="#start">Get started</a>
+                    <a class="button secondary" href="/app?demo">Try the demo</a>
+                    <a class="button ghost" href="/why">Why Tern →</a>
+                </p>
+            </div>
+            <figure class="shot">
+                <picture>
+                    <source srcset="/screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
+                    <img
+                        src="/screenshots/chat-light.png"
+                        width="1100"
+                        height="640"
+                        alt="The Tern app in a browser: a demo node's conversations beside a conversation with Robin, one message marked delivered."
+                    />
+                </picture>
+                <figcaption class="muted">
+                    The web app, talking to a node over USB or Bluetooth. <a href="/app?demo">Try the demo</a>, with
+                    no board.
+                </figcaption>
+            </figure>
+        </div>
     </section>
 
     <section class="wrap" id="start">
-        <h2>Get started</h2>
+        <p class="eyebrow">Get started</p>
+        <h2>From a board to your first message</h2>
         <ol class="steps">
             <li class="card">
-                <h3>A board</h3>
+                <span class="num" aria-hidden="true">1</span>
+                <h3>Get a board</h3>
                 <p>
                     One of <a href="/docs/hardware">{boards.length} LoRa boards</a> from Heltec, LilyGo, RAKwireless
                     and Seeed, the 863-928 MHz kind, with its antenna. The <strong>Heltec WiFi LoRa 32 V3</strong> is the
                     one checked on hardware so far; the rest are built for and waiting to be tried.
                 </p>
+                <a class="more" href="/docs/hardware">See the boards →</a>
             </li>
             <li class="card">
+                <span class="num" aria-hidden="true">2</span>
                 <h3>Flash it</h3>
                 <p>
-                    <a href="/flash">Put Tern on it</a> from Chrome or Edge on a computer, over USB, with nothing to
-                    install, or copy a file onto an nRF52840 board. It replaces Meshtastic or MeshCore if either is on
-                    the board.
+                    Put Tern on it from Chrome or Edge on a computer, over USB, with nothing to install, or copy a file
+                    onto an nRF52840 board. It replaces Meshtastic or MeshCore if either is on the board.
                 </p>
+                <a class="more" href="/flash">Flash a board →</a>
             </li>
             <li class="card">
-                <h3>An app</h3>
+                <span class="num" aria-hidden="true">3</span>
+                <h3>Get an app</h3>
                 <p>
-                    <a href="/apps#android">Android</a>, <a href="/apps#apple">iPhone, iPad or Mac</a> (a TestFlight
-                    beta), or <a href="/app">the app in your browser</a>, in Chrome or Edge. Each talks to the node
-                    over Bluetooth; the browser can use USB too.
+                    Android, iPhone, iPad or Mac (a TestFlight beta), or the app in your browser, in Chrome or Edge.
+                    Each talks to the node over Bluetooth; the browser can use USB too.
                 </p>
+                <a class="more" href="/apps">Get the apps →</a>
             </li>
             <li class="card">
+                <span class="num" aria-hidden="true">4</span>
                 <h3>Add someone</h3>
                 <p>
                     Scan their node's QR code, or open its link, and add them as a contact. Compare the twelve-digit
                     code with them to check it is their node. Then write.
                 </p>
+                <a class="more" href="/docs/guide">Using Tern →</a>
             </li>
         </ol>
-        <p class="muted">
+        <p class="muted small">
             Where you are matters: the firmware has images for the {regionList} regions only.{" "}
             <a href="/docs">The docs</a> go through each step, and what comes after.
         </p>
     </section>
 
     <section class="wrap" id="ideas">
+        <p class="eyebrow">Design</p>
         <h2>What it is built around</h2>
-        <p class="muted">
+        <p class="muted intro">
             These are design goals. Each one is being tested in simulation and on real radios
             before it becomes part of the specification.
         </p>
@@ -134,9 +160,10 @@ const repos = [
             {
                 ideas.map((idea) => (
                     <li class="card">
+                        <span class={`stage ${idea.stage}`}>{stageLabel[idea.stage]}</span>
                         <h3>{idea.title}</h3>
                         <p>{idea.body}</p>
-                        <p class="muted">{idea.built}</p>
+                        <p class="built">{idea.built}</p>
                     </li>
                 ))
             }
@@ -144,8 +171,9 @@ const repos = [
     </section>
 
     <section class="wrap">
+        <p class="eyebrow">Process</p>
         <h2>How it is being built</h2>
-        <p>
+        <p class="intro">
             Specification first. Routing is decided by simulation before any of it is written
             down, and the simulator is calibrated against bench measurements of real radios.
             An implementation is Tern-compatible if it passes the published conformance tests;
@@ -154,11 +182,11 @@ const repos = [
         <ul class="grid repos">
             {
                 repos.map((repo) => (
-                    <li class="card">
-                        <h3>
-                            <a href={`${org}/${repo.name}`}>ternmesh/{repo.name}</a>
-                        </h3>
-                        <p>{repo.body}</p>
+                    <li>
+                        <a class="card link-card" href={`${org}/${repo.name}`}>
+                            <h3>ternmesh/{repo.name}</h3>
+                            <p>{repo.body}</p>
+                        </a>
                     </li>
                 ))
             }
@@ -166,115 +194,262 @@ const repos = [
     </section>
 
     <section class="wrap">
-        <h2>Open for good</h2>
-        <ul class="plain">
-            <li>The specification is CC-BY-4.0, the test vectors CC0, the code Apache-2.0.</li>
-            <li>Contributions are signed off under the DCO. There is no CLA.</li>
-            <li>The specification will never need a fee, membership or certification to implement.</li>
-            <li>The name, this domain and the GitHub organisation are held for the project, not for a company.</li>
-        </ul>
-        <p>
-            The commitments are in full in <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>GOVERNANCE.md</a>.
-        </p>
+        <div class="open-band">
+            <div>
+                <p class="eyebrow">Governance</p>
+                <h2>Open for good</h2>
+                <p class="muted">
+                    The commitments are in full in <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>GOVERNANCE.md</a>.
+                </p>
+            </div>
+            <ul class="checks">
+                <li>The specification is CC-BY-4.0, the test vectors CC0, the code Apache-2.0.</li>
+                <li>Contributions are signed off under the DCO. There is no CLA.</li>
+                <li>The specification will never need a fee, membership or certification to implement.</li>
+                <li>The name, this domain and the GitHub organisation are held for the project, not for a company.</li>
+            </ul>
+        </div>
     </section>
 </Base>
 
 <style>
-    .shot {
+    .hero {
+        position: relative;
+        overflow: hidden;
+        padding: 4.5rem 0 3rem;
+        background:
+            radial-gradient(60rem 30rem at 85% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+            radial-gradient(40rem 24rem at -10% 10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
+    }
+    .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+        gap: 3rem;
+        align-items: center;
+    }
+    @media (max-width: 56rem) {
+        .hero {
+            padding-top: 2.5rem;
+        }
+        .hero-grid {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 2rem;
+        }
+    }
+    .release {
+        font-weight: 500;
+        color: var(--text);
+        box-shadow: var(--shadow-sm);
+    }
+    .release:hover {
+        border-color: var(--accent);
+    }
+    h1 {
+        font-size: clamp(3rem, 9vw, 5rem);
+        letter-spacing: -0.035em;
+        margin: 1.25rem 0 0.5rem;
+    }
+    .lede {
+        font-size: clamp(1.2rem, 3vw, 1.45rem);
+        line-height: 1.45;
+        color: var(--muted);
+        max-width: 30rem;
+        margin: 0;
+    }
+    .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
         margin: 2rem 0 0;
+    }
+    .shot {
+        margin: 0;
     }
     .shot img {
         display: block;
         width: 100%;
         height: auto;
         border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-radius: var(--radius-lg);
+        box-shadow:
+            0 2px 4px rgb(16 32 44 / 0.06),
+            0 24px 60px rgb(16 32 44 / 0.16);
     }
     .shot figcaption {
-        margin-top: 0.5rem;
-        font-size: 0.95rem;
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+        text-align: center;
     }
-    .hero {
-        padding-top: 4rem;
-        padding-bottom: 2rem;
+
+    section.wrap {
+        margin-top: 5rem;
     }
-    h1 {
-        font-size: clamp(2.6rem, 8vw, 4rem);
-        margin: 0.75rem 0 0.25rem;
+    section.wrap > h2 {
+        font-size: clamp(1.6rem, 4vw, 2.2rem);
+        margin: 0.4rem 0 0.75rem;
     }
-    .lede {
-        font-size: clamp(1.15rem, 3vw, 1.4rem);
-        color: var(--muted);
-        max-width: 36rem;
-        margin: 0;
+    .intro {
+        max-width: 44rem;
+        margin: 0 0 1.5rem;
     }
-    section + section {
-        margin-top: 3rem;
+    .small {
+        font-size: 0.92rem;
+        max-width: 44rem;
     }
+
     .grid {
         list-style: none;
         padding: 0;
+        margin: 0;
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
         gap: 1rem;
     }
     .card {
+        display: block;
+        height: 100%;
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 1rem 1.25rem;
+        border-radius: var(--radius-lg);
+        padding: 1.4rem 1.5rem;
+        box-shadow: var(--shadow-sm);
     }
     .card h3 {
-        margin: 0 0 0.4rem;
-        font-size: 1.05rem;
+        margin: 0 0 0.5rem;
+        font-size: 1.1rem;
     }
     .card p {
         margin: 0;
         color: var(--muted);
     }
-    .repos h3 a {
-        text-decoration: none;
+    .card .built {
+        margin-top: 0.75rem;
+        font-size: 0.88rem;
     }
-    .plain {
-        padding-left: 1.2rem;
+    .stage {
+        display: inline-block;
+        margin-bottom: 0.75rem;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: var(--surface-2);
+        color: var(--muted);
     }
-    .cta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 1.5rem 0 0.75rem;
+    .stage.built {
+        background: color-mix(in srgb, var(--good) 14%, transparent);
+        color: var(--good);
     }
-    .small {
-        font-size: 0.9rem;
-        max-width: 40rem;
+    .stage.partly {
+        background: color-mix(in srgb, var(--warn) 16%, transparent);
+        color: var(--warn);
     }
+
     .steps {
         list-style: none;
         padding: 0;
-        counter-reset: step;
+        margin: 1.5rem 0 1rem;
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
         gap: 1rem;
     }
-    .steps li {
-        counter-increment: step;
+    .steps .card {
+        display: flex;
+        flex-direction: column;
     }
-    .steps h3::before {
-        content: counter(step) ". ";
-        color: var(--accent);
+    .steps p {
+        flex: 1;
+        font-size: 0.95rem;
     }
-    a.button {
-        display: inline-block;
-        padding: 9px 16px;
-        border-radius: var(--radius);
-        border: 1px solid var(--accent);
+    .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        margin-bottom: 0.9rem;
+        border-radius: 50%;
         background: var(--accent);
-        color: var(--bg);
+        color: var(--on-accent);
+        font-weight: 700;
+    }
+    .more {
+        margin-top: 1rem;
         font-weight: 600;
         text-decoration: none;
     }
-    a.button.secondary {
-        background: transparent;
+    .more:hover {
+        text-decoration: underline;
+    }
+
+    .repos li {
+        list-style: none;
+    }
+    .link-card {
+        color: inherit;
+        text-decoration: none;
+        transition:
+            border-color 0.15s,
+            box-shadow 0.15s,
+            transform 0.15s;
+    }
+    .link-card h3 {
         color: var(--accent);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1rem;
+    }
+    .link-card:hover {
+        border-color: var(--accent);
+        box-shadow: var(--shadow);
+        transform: translateY(-2px);
+    }
+
+    .open-band {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+        gap: 2rem;
+        padding: 2.25rem;
+        border-radius: 24px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+    @media (max-width: 48rem) {
+        .open-band {
+            grid-template-columns: minmax(0, 1fr);
+            padding: 1.5rem;
+        }
+    }
+    .open-band h2 {
+        font-size: clamp(1.6rem, 4vw, 2.2rem);
+        margin: 0.4rem 0 0.75rem;
+    }
+    .checks {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .checks li {
+        position: relative;
+        padding: 0.5rem 0 0.5rem 2rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .checks li:last-child {
+        border-bottom: 0;
+    }
+    .checks li::before {
+        content: "✓";
+        position: absolute;
+        left: 0;
+        top: 0.5rem;
+        width: 1.35rem;
+        height: 1.35rem;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--good) 16%, transparent);
+        color: var(--good);
+        font-size: 0.8rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 </style>
