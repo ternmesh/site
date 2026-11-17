@@ -5,7 +5,7 @@ import { join } from "node:path";
 import Base from "../layouts/Base.astro";
 import release from "../data/firmware.json";
 import { boards, familyOf, makers } from "../data/boards.ts";
-import { layoutOf, parseSums, regionsOf, REGIONS, uf2Name } from "../lib/flash/images.ts";
+import { hasPackages, layoutOf, parseSums, regionsOf, REGIONS, uf2Name } from "../lib/flash/images.ts";
 import type { Region } from "../lib/flash/images.ts";
 import type { Offer } from "../lib/flash/page.ts";
 
@@ -38,6 +38,9 @@ const offers: Offer[] = boards.flatMap((b) => {
     ];
 });
 const regions = REGIONS.filter((r) => offers.some((o) => o.regions.includes(r)));
+// From 0.6.0 a release carries each nRF52840 board's DFU package too, and the board's bootloader
+// takes the next release over Bluetooth.
+const nrfOverBluetooth = offers.some((o) => o.family === "uf2" && hasPackages(release.version, o.name, sums));
 const byMaker = Object.keys(makers).map((m) => ({ maker: m, offers: offers.filter((o) => o.maker === m) }));
 const where: Record<Region, { place: string; profile: string }> = {
     us915: {
@@ -197,7 +200,11 @@ const where: Record<Region, { place: string; profile: string }> = {
                     </li>
                 </ol>
                 <p class="muted">
-                    These boards cannot be updated from a phone yet: copy the next release's file on the same way.
+                    {
+                        nrfOverBluetooth
+                            ? "From now on the Tern phone apps, or this site's web app, update the board over Bluetooth: its bootloader takes the next release, and it keeps everything it holds. Copying the next release's file on the same way works too."
+                            : "These boards cannot be updated from a phone yet: copy the next release's file on the same way."
+                    }
                 </p>
             </div>
         </form>

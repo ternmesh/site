@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 10 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 12 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -46,6 +46,8 @@ export interface Self {
     cardName: string | null;
     /** Whether the node worked this power out as the most it may send at; null before version 10. */
     most: boolean | null;
+    /** How it pairs over Bluetooth (PAIRING): null before version 11. */
+    pairing: number | null;
 }
 export interface Contact {
     address: string;
@@ -220,9 +222,14 @@ export class Client {
     firmware = "";
     /** The version both ends speak: the lesser of the node's and this client's. */
     version = 0;
-    /** What the node's firmware is built for, and its release: empty from a node before updates. */
+    /**
+     * What the node's firmware is built for, and its release: empty from a node before updates.
+     * Before version 12 a node names its board only if it is updated over the link.
+     */
     board = "";
     release = "";
+    /** How the node is given new firmware (UPDATE): null before version 12, which does not say. */
+    update: number | null = null;
     self: Self | null = null;
     readonly contacts = new Map<string, Contact>();
     readonly groups = new Map<string, Group>();
@@ -313,6 +320,7 @@ export class Client {
         this.firmware = String(info.fields.firmware);
         this.board = String(info.fields.board ?? "");
         this.release = String(info.fields.release ?? "");
+        this.update = info.fields.update === undefined ? null : Number(info.fields.update);
         this.greeted = true;
         await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
         await this.sync();
@@ -735,6 +743,7 @@ export class Client {
                     cards: x.cards === undefined ? null : x.cards === 1,
                     cardName: x.card_name === undefined ? null : String(x.card_name),
                     most: x.most === undefined ? null : x.most === 1,
+                    pairing: x.pairing === undefined ? null : Number(x.pairing),
                 };
                 break;
             case "CONTACT":

@@ -3,11 +3,13 @@ import { test } from "node:test";
 
 import {
     check,
+    hasPackages,
     imageName,
     imageNames,
     layoutOf,
     manifest,
     NVS,
+    packageName,
     parseSums,
     regionsOf,
     sha256,
@@ -26,6 +28,7 @@ test("an image's name is the release's, with its board", () => {
     assert.equal(imageName("1.0.0", v3, "eu868", "boot"), "tern-heltec-v3-eu868-1.0.0-boot.bin");
     assert.equal(imageName("1.0.0", "lilygo-tbeam12", "us915", "update"), "tern-lilygo-tbeam12-us915-1.0.0-update.bin");
     assert.equal(uf2Name("1.0.0", "rak4631", "eu868"), "tern-rak4631-eu868-1.0.0.uf2");
+    assert.equal(packageName("0.6.0", "heltec-t114", "us915"), "tern-heltec-t114-us915-0.6.0.zip");
     assert.equal(imageNames("1.0.0", v3, "ota", ["us915", "eu868"]).length, 8);
     assert.equal(imageNames("1.0.0", v3, "single", ["us915", "eu868"]).length, 4);
     assert.equal(imageNames("1.0.0", "heltec-v4", "ota", ["au915", "eu868", "nz915", "us915"]).length, 16);
@@ -51,6 +54,21 @@ test("a UF2 board's regions are those its .uf2 files are named for", () => {
     assert.deepEqual(regionsOf("1.0.0", "heltec-t114", "uf2", sums), ["us915"]);
     assert.deepEqual(regionsOf("1.0.0", "rak4631", "uf2", sums), ["eu868"]);
     assert.deepEqual(regionsOf("1.0.0", "rak4631", "esp32", sums), []);
+});
+
+test("a UF2 board has DFU packages if its checksums name one, as a release from 0.6.0 does", () => {
+    const t114 = "heltec-t114";
+    const uf2s = [uf2Name("0.6.0", t114, "us915"), uf2Name("0.6.0", t114, "eu868")];
+    const zips = [packageName("0.6.0", t114, "us915"), packageName("0.6.0", t114, "eu868")];
+    assert.equal(hasPackages("0.6.0", t114, sumsOf([...uf2s, ...zips])), true);
+    // Before 0.6.0 a release has only the .uf2 files.
+    assert.equal(hasPackages("0.6.0", t114, sumsOf(uf2s)), false);
+    assert.equal(hasPackages("0.6.0", "rak4631", sumsOf([...uf2s, ...zips])), false);
+    assert.equal(hasPackages("0.6.1", t114, sumsOf([...uf2s, ...zips])), false);
+    // One is enough to say it has them: a region without one is then the missing file it is.
+    assert.equal(hasPackages("0.6.0", t114, sumsOf([...uf2s, zips[0]!])), true);
+    // The package is not taken for an image of the regions.
+    assert.deepEqual(regionsOf("0.6.0", t114, "uf2", sumsOf(zips)), []);
 });
 
 test("a board's layout is what its checksums name", () => {
@@ -119,6 +137,52 @@ test("latest.json names each board's app image for each region, its size and its
     });
     images.delete("tern-heltec-v3-us915-1.0.0-app.bin");
     await assert.rejects(manifest("1.0.0", boards, images), /needs tern-heltec-v3-us915-1.0.0-app.bin/);
+});
+
+test("latest.json names each nRF52840 board's DFU package for each region, for its bootloader", async () => {
+    const abcd = new TextEncoder().encode("abcd");
+    const images = new Map([
+        ["tern-heltec-v3-us915-0.6.0-app.bin", new TextEncoder().encode("abc")],
+        ["tern-heltec-t114-us915-0.6.0.zip", abcd],
+        ["tern-heltec-t114-us915-0.6.0.uf2", new Uint8Array(8)],
+        ["tern-heltec-t114-eu868-0.6.0.zip", new TextEncoder().encode("abc")],
+    ]);
+    const boards = [
+        { board: "heltec-v3", regions: ["us915" as const], update: "link" as const },
+        { board: "heltec-t114", regions: ["us915" as const, "eu868" as const], update: "bootloader" as const },
+    ];
+    const latest = await manifest("0.6.0", boards, images);
+    assert.deepEqual(latest, {
+        release: "0.6.0",
+        images: [
+            {
+                board: "heltec-t114",
+                region: "EU868",
+                file: "tern-heltec-t114-eu868-0.6.0.zip",
+                size: 3,
+                sha256: abc,
+                update: "bootloader",
+            },
+            {
+                board: "heltec-t114",
+                region: "US915",
+                file: "tern-heltec-t114-us915-0.6.0.zip",
+                size: 4,
+                sha256: await sha256(abcd),
+                update: "bootloader",
+            },
+            { board: "heltec-v3", region: "US915", file: "tern-heltec-v3-us915-0.6.0-app.bin", size: 3, sha256: abc },
+        ],
+    });
+    // The link's entries carry no `update` at all, so the JSON of a release without packages is
+    // what it was before there were any.
+    assert.equal("update" in latest.images[2]!, false);
+    assert.equal(
+        JSON.stringify(latest.images[2]),
+        '{"board":"heltec-v3","region":"US915","file":"tern-heltec-v3-us915-0.6.0-app.bin","size":3,"sha256":"' + abc + '"}',
+    );
+    images.delete("tern-heltec-t114-eu868-0.6.0.zip");
+    await assert.rejects(manifest("0.6.0", boards, images), /needs tern-heltec-t114-eu868-0.6.0.zip/);
 });
 
 test("checksums are read as sha256sum and shasum write them", () => {

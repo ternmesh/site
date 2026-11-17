@@ -7,7 +7,18 @@ import { test } from "node:test";
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { routingId } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
-import { FIX_SOURCE, POWER_MOST, RECEIVER, STATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import {
+    FIX_SOURCE,
+    PAIRING,
+    POWER_MOST,
+    RECEIVER,
+    STATE,
+    UPDATE,
+    VERSION,
+    decode,
+    hex,
+    unhex,
+} from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
 const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
@@ -65,6 +76,7 @@ for (const framed of [false, true]) {
         await up;
         assert.equal(c.version, VERSION);
         assert.deepEqual([c.firmware, c.board, c.release], ["tern 0.2.0 heltec-v3", "heltec-v3", "0.2.0"]);
+        assert.equal(c.update, UPDATE.link);
         assert.equal(c.self?.region, "EU868");
         assert.deepEqual([c.self?.cards, c.self?.cardName, c.self?.most], [false, "", false]);
         // Dave's card was accepted 1260 seconds before the sync: his claim, not a name given him.
@@ -242,6 +254,13 @@ for (const framed of [false, true]) {
         await most;
         assert.deepEqual([c.self?.power, c.self?.most], [22, true]);
 
+        // It has no screen, and pairs with the default passkey until one of the user's is set.
+        assert.equal(c.self?.pairing, PAIRING.default);
+        const keyed = c.set("passkey", 482913);
+        await expect();
+        await keyed;
+        assert.equal(c.self?.pairing, PAIRING.set);
+
         // Turned off: the node answers, and the client closes the connection and does not open
         // it again, nor say the node has gone.
         let gone = "";
@@ -272,6 +291,25 @@ test("a node from before groups is asked for none, nor anything later", async ()
     assert.deepEqual([c.groups.size, c.cards.size], [0, 0]);
     assert.equal(c.self, null);
     await c.close();
+});
+
+test("a node of version 11 is not asked to restart into its bootloader, and says nothing of how it is updated", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [], 11);
+    assert.deepEqual([c.version, c.update], [11, null]);
+    await assert.rejects(c.request("UPDATE_BOOTLOADER"), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0, "nothing was asked of it");
+    // Its SELF says how it pairs; one of version 10 does not.
+    wire.say("SELF", 0, { address: BOB, role: 0, region: "EU868", power: 14, time: 0, cards: 0, card_name: "", most: 0, pairing: 1 });
+    assert.equal(c.self?.pairing, PAIRING.default);
+    await c.close();
+
+    const w10 = new Wire(true);
+    const c10 = new Client(w10, quick);
+    await bringUp(w10, c10, [["SELF", { address: BOB, role: 0, region: "EU868", power: 14, time: 0, cards: 0, card_name: "", most: 1, pairing: 1 }]], 10);
+    assert.deepEqual([c10.self?.most, c10.self?.pairing, c10.update], [true, null, null]);
+    await c10.close();
 });
 
 test("a sync is the whole list of groups", async () => {

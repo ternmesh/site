@@ -8,17 +8,20 @@ import { Client, Refused } from "../companion/client.ts";
 import type { Fix, Message, Position, Sharing, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
-import { ASKED, FIX_SOURCE, NAME_MAX, POWER_MOST, RECEIVER, STATE, TEXT_MAX } from "../companion/protocol.ts";
+import { ASKED, FIX_SOURCE, NAME_MAX, PAIRING, POWER_MOST, RECEIVER, STATE, TEXT_MAX, UPDATE } from "../companion/protocol.ts";
 import { fetchImage, offerFor } from "../companion/release.ts";
 import { readJoinCode, shortCode } from "../companion/share.ts";
 import { linkSegments, qrEncode, qrPath } from "../qr.ts";
-import { Updater } from "../companion/updater.ts";
-import type { ManifestImage } from "../flash/images.ts";
-import { bluetoothSupported, openBluetooth } from "../companion/bluetooth.ts";
+import { Updater, askBootloader, wayOf } from "../companion/updater.ts";
+import type { ManifestImage, UpdateWay } from "../flash/images.ts";
+import { bluetoothSupported, openBluetooth, openDfu } from "../companion/bluetooth.ts";
+import type { BluetoothTransport, Device } from "../companion/bluetooth.ts";
+import { readPackage, sendPackage } from "../companion/dfu.ts";
+import type { DfuStage, Package } from "../companion/dfu.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
-import { boards } from "../../data/boards.ts";
+import { boards, familyOf } from "../../data/boards.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => {
     const e = document.getElementById(id);
@@ -358,6 +361,26 @@ function drawNode(): void {
     ]
         .filter(([v]) => c.version < Number(v))
         .map(([, what]) => String(what));
+    if (!demo && c.update === UPDATE.none && isNrf(c.board)) {
+        box.append(
+            el(
+                "p",
+                { class: "muted facts" },
+                "This node's bootloader does not take firmware over Bluetooth: ",
+                el("a", { href: `/flash?board=${encodeURIComponent(c.board)}` }, "update it over USB"),
+                ".",
+            ),
+        );
+    }
+    if (!demo && c.self.pairing === PAIRING.default) {
+        box.append(
+            el(
+                "p",
+                { class: "muted facts" },
+                "It has no screen, and pairs over Bluetooth with the default passkey, 123456, until a passkey of your own is set on it.",
+            ),
+        );
+    }
     if (missing.length > 0 && !demo) {
         box.append(
             el(
@@ -1060,6 +1083,7 @@ function shareForm(key: string, now: Sharing | null): HTMLFormElement {
 interface Offer {
     release: string;
     image: ManifestImage;
+    way: UpdateWay;
 }
 /** What the site offers the connected node, once asked; the key it was asked for. */
 let offer: Offer | null = null;
@@ -1069,20 +1093,28 @@ let updating: { node: string; offer: Offer; updater: Updater } | null = null;
 /** The image is downloading. */
 let fetching = false;
 
+function isNrf(board: string): boolean {
+    const b = boards.find((x) => x.name === board);
+    return b !== undefined && familyOf(b) === "uf2";
+}
+
 function askOffer(c: Client): void {
-    if (demo || !c.can("UPDATE_BEGIN") || c.board === "" || !c.self) {
+    const way = wayOf(c);
+    // A bootloader takes its image over Web Bluetooth, which this browser must have, whatever the
+    // node is connected by.
+    if (demo || !way || !c.self || (way === "bootloader" && !bluetoothSupported())) {
         return;
     }
-    const key = `${c.board}/${c.self.region}/${c.release}`;
+    const key = `${c.board}/${c.self.region}/${c.release}/${way}`;
     if (key === offerAsked) {
         return;
     }
     offerAsked = key;
     offer = null;
-    offerFor(c.board, c.self.region, c.release).then(
+    offerFor(c.board, c.self.region, c.release, way).then(
         (found) => {
             if (offerAsked === key) {
-                offer = found;
+                offer = found && { ...found, way };
                 draw();
             }
         },
@@ -1132,14 +1164,17 @@ function drawUpdate(): void {
         return;
     }
     const go = el("button", { type: "button", class: "small primary" }, "Update");
-    go.addEventListener("click", () => void update(c, offer!));
+    const chosen = offer;
+    go.addEventListener("click", () => void (chosen.way === "bootloader" ? updateByBootloader(c, chosen) : update(c, chosen)));
     box.append(
         el("h3", {}, "An update is out"),
         el(
             "p",
             { class: "muted facts" },
             `Release ${offer.release} is out for this ${c.board} in ${c.self?.region}; it runs ${c.release || "an unnamed release"}. ` +
-                "It is sent over this link and keeps everything the node holds.",
+                (offer.way === "bootloader"
+                    ? "The node restarts into its bootloader, which you then choose in the browser's list, and takes it over Bluetooth in about five minutes. It keeps everything the node holds."
+                    : "It is sent over this link and keeps everything the node holds."),
         ),
         el("p", { class: "actions" }, go),
     );
@@ -1148,7 +1183,7 @@ function drawUpdate(): void {
 
 async function update(c: Client, chosen: Offer): Promise<void> {
     const node = c.self?.address;
-    if (!node || fetching || updating) {
+    if (!node || fetching || updating || booting) {
         return; // one at a time: a second click while the first downloads does nothing
     }
     let u: Updater;
@@ -1223,6 +1258,222 @@ async function drive(c: Client): Promise<void> {
             break;
     }
     draw();
+}
+
+// ----- Updating an nRF52840 node by its bootloader -----
+
+/**
+ * An update a node's bootloader is taking: the node has restarted into it, so no client is
+ * connected, and the gate shows this until it ends. `device` is the node's own over Bluetooth,
+ * to reach it again after; `bootloader` the bootloader's, once the user has chosen it.
+ */
+interface BootJob {
+    node: string;
+    name: string;
+    offer: Offer;
+    pkg: Package;
+    device: Device | null;
+    bootloader: Device | null;
+    stage: "choose" | DfuStage | "failed" | "reconnecting";
+    sent: number;
+    why: string;
+    stop: AbortController | null;
+}
+let booting: BootJob | null = null;
+/** The Bluetooth device of the node connected, if it is connected over Bluetooth. */
+let nodeDevice: Device | null = null;
+
+async function updateByBootloader(c: Client, chosen: Offer): Promise<void> {
+    const node = c.self?.address;
+    if (!node || fetching || updating || booting) {
+        return;
+    }
+    let pkg: Package;
+    fetching = true;
+    try {
+        say("Downloading the firmware…");
+        pkg = await readPackage(await fetchImage(chosen.image));
+    } catch (e) {
+        say(explain(e), true);
+        return;
+    } finally {
+        fetching = false;
+    }
+    say("Asking the node to restart into its bootloader…");
+    try {
+        await askBootloader((type, fields) => c.request(type, fields));
+    } catch (e) {
+        say(
+            e instanceof Refused && e.code === 5
+                ? "The node cannot take an update this way: update it over USB, from the flash page."
+                : explain(e),
+            true,
+        );
+        return;
+    }
+    // OK, or no answer: either way it may be restarting, and is not asked again.
+    booting = {
+        node,
+        name: nodeTitle(),
+        offer: chosen,
+        pkg,
+        device: linkKind === "bluetooth" ? nodeDevice : null,
+        bootloader: null,
+        stage: "choose",
+        sent: 0,
+        why: "",
+        stop: null,
+    };
+    offer = null;
+    offerAsked = "";
+    say("");
+    client = null;
+    await c.close();
+    draw();
+}
+
+/** The bootloader, chosen in the browser's list (or the one chosen before), given the package. */
+async function runDfu(again: boolean): Promise<void> {
+    const job = booting;
+    if (!job || job.stop) {
+        return;
+    }
+    const stop = new AbortController();
+    job.stop = stop;
+    try {
+        say(again && job.bootloader ? "Connecting to the bootloader…" : "Choose the node's bootloader in the browser's list.");
+        const link = await openDfu(undefined, {}, again && job.bootloader ? job.bootloader : undefined);
+        job.bootloader = link.device;
+        say("");
+        await sendPackage(link, job.pkg, {
+            signal: stop.signal,
+            onProgress: (p) => {
+                job.stage = p.stage;
+                job.sent = p.sent;
+                drawBoot();
+            },
+        });
+    } catch (e) {
+        job.stop = null;
+        if (booting !== job) {
+            return; // stopped: what the stop said stands
+        }
+        if (e instanceof DOMException && e.name === "NotFoundError") {
+            say(""); // the list closed without a choice: the button is still there
+        } else {
+            job.stage = "failed";
+            const why = explain(e);
+            job.why = `${why.charAt(0).toUpperCase()}${why.slice(1)}${why.endsWith(".") ? "" : "."}`;
+            say("");
+        }
+        drawBoot();
+        return;
+    }
+    job.stop = null;
+    if (booting === job) {
+        await confirmRelease(job);
+    }
+}
+
+/** The bootloader started the image: the node is reached again, and asked what it runs. */
+async function confirmRelease(job: BootJob): Promise<void> {
+    if (!job.device) {
+        booting = null;
+        say(`Sent and checked: the node starts ${job.offer.release}. Connect to it again to see it does.`);
+        draw();
+        return;
+    }
+    job.stage = "reconnecting";
+    drawBoot();
+    // A few seconds for the node to start the firmware and advertise again.
+    await new Promise((r) => setTimeout(r, 3000));
+    const device = job.device;
+    booting = null;
+    await connect(() => openBluetooth(undefined, {}, device), "bluetooth", "Connecting to the node again…");
+    const c = client;
+    if (!c || c.closed || !c.ready || c.self?.address !== job.node) {
+        say(`Sent and checked: the node starts ${job.offer.release}. Connect to it again to see it does.`);
+    } else if (c.release === job.offer.release) {
+        say(`Updated: the node runs ${c.release}.`);
+    } else {
+        say(`The node came back running ${c.release || "its old firmware"}, not ${job.offer.release}.`, true);
+    }
+}
+
+function drawBoot(): void {
+    const box = $("bootloader");
+    box.replaceChildren();
+    const job = booting;
+    box.hidden = job === null;
+    if (!job) {
+        return;
+    }
+    const size = job.pkg.image.length;
+    const percent = Math.floor((100 * job.sent) / size);
+    const button = (text: string, primary: boolean, act: () => void) => {
+        const b = el("button", { type: "button", class: primary ? "small primary" : "small" }, text);
+        b.addEventListener("click", act);
+        return b;
+    };
+    const giveUp = button("Stop", false, () => {
+        job.stop?.abort();
+        booting = null;
+        say(
+            job.stage === "choose"
+                ? "Stopped. If the node does not start again by itself, press its reset button: it still has its firmware."
+                : "Stopped. The node waits in its bootloader for firmware: update it here again, or over USB from the flash page.",
+        );
+        draw();
+    });
+    const facts = (text: string) => el("p", { class: "muted facts" }, text);
+    box.append(el("h3", {}, `Updating ${job.name} to ${job.offer.release}`));
+    switch (job.stage) {
+        case "choose":
+            box.append(
+                facts(
+                    "The node is restarting into its bootloader. Choose the bootloader in the browser's list: its name ends in DFU, such as T114_DFU.",
+                ),
+                el("p", { class: "actions" }, button("Choose the node's bootloader", true, () => void runDfu(false)), giveUp),
+            );
+            break;
+        case "erasing":
+            box.append(
+                el("progress", {}),
+                facts("The bootloader is erasing the old firmware, which takes up to a minute. Keep this page open and the node in reach."),
+                el("p", { class: "actions" }, giveUp),
+            );
+            break;
+        case "init":
+        case "sending":
+            box.append(
+                el("progress", { max: String(size), value: String(job.sent) }),
+                facts(`${percent}%. Keep this page open and the node in reach: it takes about five minutes.`),
+                el("p", { class: "actions" }, giveUp),
+            );
+            break;
+        case "checking":
+        case "starting":
+        case "done":
+            box.append(el("progress", { max: "1", value: "1" }), facts("Sent. The bootloader is checking it and starting it."));
+            break;
+        case "reconnecting":
+            box.append(facts("The node is starting the new firmware. Connecting to it again…"));
+            break;
+        case "failed":
+            box.append(
+                facts(
+                    `${job.why} Nothing the node holds is lost: its bootloader waits for the firmware, and trying again goes from the start.`,
+                ),
+                el(
+                    "p",
+                    { class: "actions" },
+                    button("Try again", true, () => void runDfu(true)),
+                    button("Choose the bootloader again", false, () => void runDfu(false)),
+                    giveUp,
+                ),
+            );
+            break;
+    }
 }
 
 function bubble(m: {
@@ -1635,6 +1886,7 @@ function draw(): void {
         $("live").hidden = !up || !client?.ready;
         $("demo-note").hidden = !up || !demo;
         $("console").hidden = !up || !hasConsole;
+        drawBoot();
         drawTabs();
         feedPosition();
         if (!up || !client?.ready) {
@@ -1753,8 +2005,12 @@ const CHOOSE = {
     demo: "",
 };
 
-async function connect(open: () => Promise<Transport> | Transport, by: keyof typeof CHOOSE): Promise<void> {
-    say(CHOOSE[by]);
+async function connect(
+    open: () => Promise<Transport> | Transport,
+    by: keyof typeof CHOOSE,
+    first: string = CHOOSE[by],
+): Promise<void> {
+    say(first);
     let transport: Transport;
     try {
         transport = await open();
@@ -1765,6 +2021,7 @@ async function connect(open: () => Promise<Transport> | Transport, by: keyof typ
     }
     demo = by === "demo";
     linkKind = by;
+    nodeDevice = by === "bluetooth" ? ((transport as BluetoothTransport).device ?? null) : null;
     turnedOff = false;
     hasConsole = by === "serial";
     selected = null;

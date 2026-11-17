@@ -1,5 +1,5 @@
 // Which firmware the site offers a node: Semantic Versioning's order, and the image for its board
-// and region in latest.json.
+// and region, and the way it takes one, in latest.json.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -35,15 +35,31 @@ const manifest = readManifest({
     images: [
         { board: "heltec-v3", region: "EU868", file: "tern-heltec-v3-eu868-0.3.0-app.bin", size: 3, sha256: "a".repeat(64) },
         { board: "heltec-v3", region: "US915", file: "../escape", size: 3, sha256: "b".repeat(64) },
+        {
+            board: "heltec-t114",
+            region: "US915",
+            file: "tern-heltec-t114-us915-0.3.0.zip",
+            size: 3,
+            sha256: "c".repeat(64),
+            update: "bootloader",
+        },
+        { board: "heltec-t114", region: "EU868", file: "t.zip", size: 3, sha256: "d".repeat(64), update: "radio" },
     ],
 });
 
 test("the image is the one for the node's board and region, and none for a node with no board", () => {
-    assert.equal(manifest.images.length, 1, "a file that is not a name in /firmware/ is not read");
+    assert.equal(manifest.images.length, 2, "a file that is not a name in /firmware/ is not read, nor a way not known");
     assert.equal(imageFor(manifest, "heltec-v3", "eu868")?.file, "tern-heltec-v3-eu868-0.3.0-app.bin");
     assert.equal(imageFor(manifest, "heltec-v3", "US915"), null);
     assert.equal(imageFor(manifest, "", "EU868"), null);
     assert.throws(() => readManifest({ images: [] }));
+});
+
+test("a node updated by its bootloader is given its package, and one updated over the link never is", () => {
+    assert.equal(imageFor(manifest, "heltec-t114", "US915", "bootloader")?.file, "tern-heltec-t114-us915-0.3.0.zip");
+    assert.equal(imageFor(manifest, "heltec-t114", "US915"), null, "an entry without update is the link's");
+    assert.equal(imageFor(manifest, "heltec-v3", "EU868", "bootloader"), null);
+    assert.equal(imageFor(manifest, "heltec-t114", "EU868", "bootloader"), null);
 });
 
 function site(files: Record<string, Uint8Array | object>): typeof fetch {
@@ -63,9 +79,10 @@ test("a newer release is offered, and an image is checked before it is given", a
     ).join("");
     const image = { board: "heltec-v3", region: "EU868", file: "x-app.bin", size: 3, sha256: sha };
     const fetcher = site({ "/firmware/latest.json": { release: "0.3.0", images: [image] }, "/firmware/x-app.bin": data });
-    assert.deepEqual(await offerFor("heltec-v3", "EU868", "0.2.0", fetcher), { release: "0.3.0", image });
-    assert.equal(await offerFor("heltec-v3", "EU868", "0.3.0", fetcher), null);
-    assert.equal(await offerFor("heltec-v3", "EU868", "0.2.0", site({})), null, "no latest.json, nothing to send");
+    assert.deepEqual(await offerFor("heltec-v3", "EU868", "0.2.0", "link", fetcher), { release: "0.3.0", image });
+    assert.equal(await offerFor("heltec-v3", "EU868", "0.3.0", "link", fetcher), null);
+    assert.equal(await offerFor("heltec-v3", "EU868", "0.2.0", "link", site({})), null, "no latest.json, nothing to send");
+    assert.equal(await offerFor("heltec-v3", "EU868", "0.2.0", "bootloader", fetcher), null);
     assert.deepEqual(await fetchImage(image as never, fetcher), data);
     await assert.rejects(fetchImage({ ...image, sha256: "0".repeat(64) } as never, fetcher));
     await assert.rejects(fetchImage({ ...image, size: 4 } as never, fetcher));
