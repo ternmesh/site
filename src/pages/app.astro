@@ -4,177 +4,300 @@ import Base from "../layouts/Base.astro";
 
 <Base
     title="App"
+    app
     description="Message through a Tern node from your browser, over USB or Bluetooth. Nothing leaves your device but what the node sends by radio."
 >
-    <section class="app wrap">
-        <div id="gate">
-            <h1>Tern, in your browser</h1>
+    <section class="app">
+        <!-- Until a node is connected, the page is where one is connected from. -->
+        <div id="gate" class="gate">
+            <p class="eyebrow">Web app</p>
+            <h1>Connect to your node</h1>
             <p class="lede">
-                Write to other nodes through a Tern node of your own: one plugged into this computer,
-                or one in Bluetooth's reach of it or of an Android phone. The page talks to the node
-                and to nothing else: there is no account and no server, and what you write leaves
-                this device only by the node's radio.
+                Write to other nodes through a Tern node of your own. The page talks to the node and to
+                nothing else: no account, no server, and what you write leaves this device only by the
+                node's radio.
             </p>
-            <p class="buttons">
-                <button id="connect-serial" type="button">Connect over USB</button>
-                <button id="connect-bluetooth" type="button">Connect over Bluetooth</button>
-                <button id="connect-demo" type="button">Try it without a board</button>
-            </p>
+            <div class="choices">
+                <button id="connect-serial" type="button" class="choice">
+                    <span class="choice-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M12 2v14M8 6l4-4 4 4M7 11v3h10v-3M12 16v6" /><circle cx="12" cy="20" r="0.5" /></svg>
+                    </span>
+                    <span class="choice-title">USB cable</span>
+                    <span class="choice-text">A board plugged into this computer</span>
+                </button>
+                <button id="connect-bluetooth" type="button" class="choice">
+                    <span class="choice-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17" /></svg>
+                    </span>
+                    <span class="choice-title">Bluetooth</span>
+                    <span class="choice-text">A node in reach of this computer or Android phone</span>
+                </button>
+                <button id="connect-demo" type="button" class="choice">
+                    <span class="choice-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    </span>
+                    <span class="choice-title">Try the demo</span>
+                    <span class="choice-text">A made-up node, with no board needed</span>
+                </button>
+            </div>
             <p id="turned-off" class="note" hidden>
                 Turned off. The node stays off until it is turned on at the node itself, by its button,
                 its reset or its power; then connect to it again.
             </p>
             <p id="unsupported" class="note" hidden></p>
-            <ul class="muted notes">
-                <li>
-                    The board needs Tern's firmware: <a href="/flash">put it on the board</a> from this
-                    browser.
-                </li>
-                <li>
-                    Over Bluetooth, the node asks for a passkey the first time: it is on the node's
-                    screen. The node's <code>forget</code> command, over USB, makes every device pair
-                    again.
-                </li>
-                <li>
-                    This is an alpha of a draft protocol. Its cryptography has not been reviewed:
-                    do not trust it with anything that matters.
-                </li>
-                <li>
-                    Conversations are also kept in this browser, since a node remembers only its
-                    latest messages.
-                </li>
-                <li>
-                    Sharing your position from here gives the node the browser's location only
-                    while this page is open: for sharing from a pocket, use a phone app.
-                </li>
-            </ul>
+            <div class="tips">
+                <h2>Good to know</h2>
+                <ul>
+                    <li>
+                        <strong>No Tern on the board yet?</strong>{" "}
+                        <a href="/flash">Flash it</a> from this browser first.
+                    </li>
+                    <li>
+                        <strong>Pairing.</strong> Over Bluetooth, the node asks for a passkey the first
+                        time: it is on the node's screen. The node's <code>forget</code> command, over
+                        USB, makes every device pair again.
+                    </li>
+                    <li>
+                        <strong>Your messages.</strong> Conversations are also kept in this browser, since
+                        a node remembers only its latest messages.
+                    </li>
+                    <li>
+                        <strong>Your position.</strong> Shared from here, the node has the browser's location
+                        only while this page is open: for sharing from a pocket, use a{" "}
+                        <a href="/apps">phone app</a>.
+                    </li>
+                    <li>
+                        <strong>An alpha.</strong> This is an alpha of a draft protocol. Its cryptography has
+                        not been reviewed: do not trust it with anything that matters.
+                    </li>
+                </ul>
+            </div>
         </div>
 
-        <p id="demo-note" class="note" hidden>
-            A demo: there is no node, and every name and message here is made up.
-        </p>
+        <!-- A node is connected: Chats, People and Node, as the phone apps have them. -->
+        <div id="live" class="shell" hidden>
+            <nav class="tabs" aria-label="App">
+                <button type="button" class="tab" data-tab="chats">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>
+                    <span class="tab-label">Chats</span>
+                    <span id="unread-total" class="badge" hidden></span>
+                </button>
+                <button type="button" class="tab" data-tab="people">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"
+                        ><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" /><path
+                            d="M16 4.8a3.5 3.5 0 010 6.4M18.5 14.8c1.7.8 2.8 2.5 3 5.2"></path></svg
+                    >
+                    <span class="tab-label">People</span>
+                </button>
+                <button type="button" class="tab" data-tab="node">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"
+                        ><rect x="6" y="9" width="12" height="12" rx="2"></rect><path
+                            d="M12 9V3M8.5 5.5a5 5 0 017 0M6 3a8.5 8.5 0 0112 0"></path></svg
+                    >
+                    <span class="tab-label">Node</span>
+                    <span id="update-dot" class="dot-badge" hidden></span>
+                </button>
+            </nav>
 
-        <div id="live" hidden>
-            <aside>
-                <div id="node" class="card"></div>
-                <div id="update" class="card" hidden></div>
-                <details id="settings" class="card">
-                    <summary>Settings</summary>
-                    <form id="settings-form">
-                        <label for="set-power">Transmit power, in dBm</label>
-                        <input id="set-power" type="number" min="-9" max="22" step="1" required />
-                        <button id="set-power-most" type="button" hidden>Use the most it may send at</button>
-                        <label for="set-region">Region</label>
-                        <select id="set-region">
-                            <option value="US915">
-                                US915: United States, Canada, Mexico, Brazil, Argentina, Peru
-                            </option>
-                            <option value="EU868">EU868: Europe, UK, Ukraine, South Africa</option>
-                            <option value="AU915">AU915: Australia</option>
-                            <option value="NZ915">NZ915: New Zealand</option>
-                            <option value="CL915">CL915: Chile</option>
-                            <option value="MY919">MY919: Malaysia</option>
-                            <option value="TH920">TH920: Thailand, at least 17 dBm radiated</option>
-                            <option value="RU868">RU868: Russia</option>
-                            <option value="KZ863">KZ863: Kazakhstan</option>
-                        </select>
-                        <label for="set-role">Role</label>
-                        <select id="set-role">
-                            <option value="1">Relay: passes others' frames on</option>
-                            <option value="0">Leaf: sends and receives its own</option>
-                        </select>
-                        <div id="receiver-setting" hidden>
-                            <label class="check"><input id="set-receiver" type="checkbox" /> Run its GPS</label>
-                            <p class="muted small-print">
-                                The GPS tells the node where it is, which it shares from only if you
-                                share your position. Off, it saves the battery, and the node keeps
-                                its last fix.
-                            </p>
+            <div class="main">
+                <header class="topbar">
+                    <button id="node-pill" type="button" class="node-pill" title="Show the node">
+                        <span class="dot"></span>
+                        <span id="pill-name"></span>
+                        <span id="pill-battery" class="muted"></span>
+                    </button>
+                    <span id="demo-note" class="pill demo" hidden>
+                        Demo: names and messages are made up
+                    </span>
+                </header>
+
+                <section id="pane-chats" class="pane chats" aria-label="Chats">
+                    <div class="list-col">
+                        <div class="col-head">
+                            <h2>Chats</h2>
+                            <div class="head-actions">
+                                <button id="new-contact" type="button" class="small" title="Add someone by their address">
+                                    + Contact
+                                </button>
+                                <button id="new-group" type="button" class="small" title="Make or join a group">
+                                    + Group
+                                </button>
+                            </div>
                         </div>
-                        <p class="muted small-print">
-                            The board sends on its region's frequency: choose the one you are in.
-                            It restarts to apply a change, and refuses a power its region does not
-                            allow.
-                        </p>
-                        <button id="settings-apply" type="submit">Apply</button>
-                    </form>
-                </details>
-                <details id="card-settings" class="card" hidden>
-                    <summary>Your presence card</summary>
-                    <form id="card-form">
-                        <p id="card-state" class="muted small-print"></p>
-                        <label class="check"><input id="card-on" type="checkbox" /> Send it</label>
-                        <label for="card-name">The name it carries</label>
-                        <input id="card-name" type="text" autocomplete="off" maxlength="31" placeholder="empty for none; sent in clear" />
-                        <p class="muted small-print">
-                            A card tells the nodes near this one, two hops round and every couple of
-                            hours, its address and this name, so that people about can find and add
-                            it. It is off until you turn it on.
-                        </p>
-                        <button type="submit">Apply</button>
-                    </form>
-                </details>
-                <p class="buttons">
-                    <button id="disconnect" type="button" class="small">Disconnect</button>
-                    <button id="turn-off" type="button" class="small" hidden>Turn off</button>
-                </p>
-                <ul id="asked" class="list plain"></ul>
-                <h2>People</h2>
-                <ul id="people" class="list"></ul>
-                <form id="add" class="card">
-                    <label for="add-address">Add someone by their node's address</label>
-                    <input id="add-address" type="text" autocomplete="off" spellcheck="false" placeholder="64 hex digits, or its link" required />
-                    <label for="add-name">Name</label>
-                    <input id="add-name" type="text" autocomplete="off" maxlength="31" placeholder="for you; never sent by radio" />
-                    <button type="submit">Add</button>
-                </form>
-                <h2>Groups</h2>
-                <ul id="groups" class="list"></ul>
-                <p id="groups-old" class="muted small-print" hidden>
-                    This node's firmware is from before groups. <a href="/flash">Update it</a> to
-                    make and join them.
-                </p>
-                <p id="groups-demo" class="muted small-print" hidden>The demo has no groups.</p>
-                <form id="group-add" class="card">
-                    <label for="group-name">Make a group</label>
-                    <input id="group-name" type="text" autocomplete="off" maxlength="31" placeholder="a name, for you; never sent by radio" required />
-                    <button type="submit">Make</button>
-                </form>
-                <form id="group-join" class="card" hidden>
-                    <label for="join-code">Join from a code</label>
-                    <input id="join-code" type="text" autocomplete="off" spellcheck="false" placeholder="HTTPS://TERNMESH.ORG/G#…" required />
-                    <button type="submit">Join</button>
-                </form>
-                <h2 id="about-head" hidden>Who's about</h2>
-                <ul id="about" class="list plain" hidden></ul>
-                <h2 id="places-head" hidden>Positions</h2>
-                <ul id="places" class="list plain" hidden></ul>
-                <h2>Neighbours</h2>
-                <ul id="neighbours" class="list plain"></ul>
-            </aside>
-            <section id="talk">
-                <header id="talk-head"></header>
-                <ol id="messages"></ol>
-                <form id="compose" hidden>
-                    <label for="text" class="sr">Message</label>
-                    <input id="text" type="text" autocomplete="off" placeholder="Write a message" />
-                    <span id="counter" class="muted"></span>
-                    <button type="submit" class="primary">Send</button>
-                </form>
-            </section>
+                        <ul id="asked" class="asked"></ul>
+                        <ul id="talks" class="talks"></ul>
+                    </div>
+                    <section id="talk" class="talk">
+                        <header id="talk-head" class="talk-head"></header>
+                        <ol id="messages" class="messages"></ol>
+                        <form id="compose" class="compose" hidden>
+                            <label for="text" class="sr">Message</label>
+                            <input id="text" type="text" autocomplete="off" placeholder="Write a message" />
+                            <span id="counter" class="muted"></span>
+                            <button type="submit" class="primary send" aria-label="Send">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z" /></svg>
+                                <span>Send</span>
+                            </button>
+                        </form>
+                    </section>
+                </section>
+
+                <section id="pane-people" class="pane people" aria-label="People" hidden>
+                    <div class="pane-head">
+                        <h2>People</h2>
+                        <p class="muted">Your contacts and groups, and the nodes this one hears about it.</p>
+                    </div>
+                    <div class="cards">
+                        <section class="card">
+                            <h3>Contacts</h3>
+                            <ul id="people" class="rows"></ul>
+                            <form id="add" class="add-form">
+                                <h4>Add someone</h4>
+                                <label for="add-address">Their node's address</label>
+                                <input id="add-address" type="text" autocomplete="off" spellcheck="false" placeholder="64 hex digits, or its link" required />
+                                <label for="add-name">Name</label>
+                                <input id="add-name" type="text" autocomplete="off" maxlength="31" placeholder="for you; never sent by radio" />
+                                <button type="submit" class="primary">Add contact</button>
+                            </form>
+                        </section>
+
+                        <section class="card" id="groups-card">
+                            <h3>Groups</h3>
+                            <ul id="groups" class="rows"></ul>
+                            <p id="groups-old" class="muted small-print" hidden>
+                                This node's firmware is from before groups. <a href="/flash">Update it</a> to
+                                make and join them.
+                            </p>
+                            <p id="groups-demo" class="muted small-print" hidden>The demo has no groups.</p>
+                            <form id="group-add" class="add-form">
+                                <h4>Make a group</h4>
+                                <label for="group-name">Name</label>
+                                <input id="group-name" type="text" autocomplete="off" maxlength="31" placeholder="for you; never sent by radio" required />
+                                <button type="submit" class="primary">Make group</button>
+                            </form>
+                            <form id="group-join" class="add-form" hidden>
+                                <h4>Join a group</h4>
+                                <label for="join-code">Its join code</label>
+                                <input id="join-code" type="text" autocomplete="off" spellcheck="false" placeholder="HTTPS://TERNMESH.ORG/G#…" required />
+                                <button type="submit">Join</button>
+                            </form>
+                        </section>
+
+                        <section class="card" id="about-card">
+                            <h3 id="about-head">Who's about</h3>
+                            <p class="muted small-print">
+                                Nodes near this one that have turned their presence card on. A name is what
+                                its sender says it is.
+                            </p>
+                            <ul id="about" class="rows"></ul>
+                        </section>
+
+                        <section class="card">
+                            <h3>Heard nearby</h3>
+                            <p class="muted small-print">The nodes this one hears directly, strongest first.</p>
+                            <ul id="neighbours" class="rows"></ul>
+                        </section>
+
+                        <section class="card" id="places-card">
+                            <h3 id="places-head">Positions</h3>
+                            <ul id="places" class="rows"></ul>
+                        </section>
+                    </div>
+                </section>
+
+                <section id="pane-node" class="pane node" aria-label="Node" hidden>
+                    <div id="node" class="hero"></div>
+                    <div id="update" class="card update" hidden></div>
+                    <div class="cards">
+                        <section id="settings" class="card">
+                            <h3>Radio</h3>
+                            <form id="settings-form">
+                                <label for="set-region">Region</label>
+                                <select id="set-region">
+                                    <option value="US915">
+                                        US915: United States, Canada, Mexico, Brazil, Argentina, Peru
+                                    </option>
+                                    <option value="EU868">EU868: Europe, UK, Ukraine, South Africa</option>
+                                    <option value="AU915">AU915: Australia</option>
+                                    <option value="NZ915">NZ915: New Zealand</option>
+                                    <option value="CL915">CL915: Chile</option>
+                                    <option value="MY919">MY919: Malaysia</option>
+                                    <option value="TH920">TH920: Thailand, at least 17 dBm radiated</option>
+                                    <option value="RU868">RU868: Russia</option>
+                                    <option value="KZ863">KZ863: Kazakhstan</option>
+                                </select>
+                                <label for="set-power">Transmit power, in dBm</label>
+                                <div class="inline">
+                                    <input id="set-power" type="number" min="-9" max="22" step="1" required />
+                                    <button id="set-power-most" type="button" class="small" hidden>Use the most allowed</button>
+                                </div>
+                                <label for="set-role">Role</label>
+                                <select id="set-role">
+                                    <option value="1">Help the mesh: relay others' messages</option>
+                                    <option value="0">Just me: send and receive my own</option>
+                                </select>
+                                <div id="receiver-setting" hidden>
+                                    <label class="check"><input id="set-receiver" type="checkbox" /> Run its GPS</label>
+                                    <p class="muted small-print">
+                                        The GPS tells the node where it is, which it shares from only if you
+                                        share your position. Off, it saves the battery, and the node keeps
+                                        its last fix.
+                                    </p>
+                                </div>
+                                <p class="muted small-print">
+                                    The board sends on its region's frequency: choose the one you are in.
+                                    It restarts to apply a change, and refuses a power its region does not
+                                    allow.
+                                </p>
+                                <button id="settings-apply" type="submit" class="primary">Apply</button>
+                            </form>
+                        </section>
+
+                        <section id="card-settings" class="card" hidden>
+                            <h3>Presence card</h3>
+                            <form id="card-form">
+                                <p id="card-state" class="state-line"></p>
+                                <label class="check"><input id="card-on" type="checkbox" /> Send it</label>
+                                <label for="card-name">The name it carries</label>
+                                <input id="card-name" type="text" autocomplete="off" maxlength="31" placeholder="empty for none; sent in clear" />
+                                <p class="muted small-print">
+                                    A card tells the nodes near this one, two hops round and every couple of
+                                    hours, its address and this name, so that people about can find and add
+                                    it. It is off until you turn it on.
+                                </p>
+                                <button type="submit" class="primary">Apply</button>
+                            </form>
+                        </section>
+
+                        <section class="card">
+                            <h3>Connection</h3>
+                            <p id="link-facts" class="muted small-print"></p>
+                            <p class="buttons">
+                                <button id="disconnect" type="button">Disconnect</button>
+                                <button id="turn-off" type="button" class="danger" hidden>Turn the node off</button>
+                            </p>
+                        </section>
+
+                        <section id="console" class="card wide" hidden>
+                            <h3>The board's console</h3>
+                            <pre id="console-text"></pre>
+                            <form id="console-form" class="inline">
+                                <label for="console-line" class="sr">A command for the board</label>
+                                <input id="console-line" type="text" autocomplete="off" spellcheck="false" placeholder="status, routes, peers…" />
+                                <button type="submit">Send</button>
+                            </form>
+                        </section>
+                    </div>
+                </section>
+            </div>
         </div>
 
-        <p id="status" role="status" aria-live="polite"></p>
-
-        <details id="console" hidden>
-            <summary>The board's console</summary>
-            <pre id="console-text"></pre>
-            <form id="console-form">
-                <label for="console-line" class="sr">A command for the board</label>
-                <input id="console-line" type="text" autocomplete="off" spellcheck="false" placeholder="status, routes, peers…" />
-                <button type="submit" class="small">Send</button>
-            </form>
-        </details>
+        <div class="toast-wrap">
+            <div id="status" role="status" aria-live="polite" class="toast" hidden>
+                <span id="status-text"></span>
+                <button id="status-close" type="button" aria-label="Dismiss">×</button>
+            </div>
+        </div>
     </section>
 </Base>
 
@@ -185,45 +308,39 @@ import Base from "../layouts/Base.astro";
 <style is:global>
     /* Global, and under .app: the page's script makes most of these elements, and a scoped
        style would not reach them. */
-    .app {
-        padding-top: 32px;
-        padding-bottom: 48px;
-    }
     .app [hidden] {
         display: none !important;
     }
-    .app h1 {
-        font-size: clamp(1.8rem, 4vw, 2.6rem);
-        margin: 0 0 12px;
+    .app .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
     }
-    .app h2 {
-        font-size: 1rem;
-        margin: 20px 0 8px;
+    .app svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
     }
-    .app .lede {
-        max-width: 44rem;
-        font-size: 1.1rem;
-    }
-    .app .notes {
-        max-width: 44rem;
-        padding-left: 1.2em;
-        font-size: 0.95rem;
-    }
-    .app .note {
-        background: var(--accent-soft);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 10px 14px;
-        max-width: 44rem;
-    }
+
+    /* ----- Controls ----- */
     .app button {
         font: inherit;
-        padding: 9px 16px;
+        font-size: 0.95rem;
+        min-height: 38px;
+        padding: 7px 14px;
         border-radius: var(--radius);
         border: 1px solid var(--border);
         background: var(--surface);
         color: var(--text);
         cursor: pointer;
+        transition:
+            border-color 0.15s,
+            background 0.15s,
+            color 0.15s;
     }
     .app button:hover:not(:disabled) {
         border-color: var(--accent);
@@ -235,134 +352,800 @@ import Base from "../layouts/Base.astro";
     .app button.primary {
         background: var(--accent);
         border-color: var(--accent);
-        color: var(--bg);
+        color: var(--on-accent);
         font-weight: 600;
+    }
+    .app button.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+    }
+    .app button.danger {
+        color: var(--bad);
+    }
+    .app button.danger:hover:not(:disabled) {
+        border-color: var(--bad);
     }
     .app button.small {
-        padding: 3px 10px;
+        min-height: 30px;
+        padding: 3px 11px;
         font-size: 0.85rem;
+        border-radius: 999px;
     }
-    .app .buttons {
+    .app .buttons,
+    .app .actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 8px;
+        margin: 0;
     }
-    .app input[type="text"] {
+    .app input[type="text"],
+    .app input[type="number"],
+    .app select {
         font: inherit;
+        font-size: 0.95rem;
         width: 100%;
-        padding: 8px 10px;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        background: var(--surface);
-        color: var(--text);
-    }
-    .app .sr {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-    }
-    .app #live {
-        display: grid;
-        grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
-        gap: 24px;
-        align-items: start;
-    }
-    @media (max-width: 46rem) {
-        .app #live {
-            grid-template-columns: minmax(0, 1fr);
-        }
-    }
-    .app .card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 12px 14px;
-    }
-    .app .card h2 {
-        margin-top: 0;
-    }
-    .app #live.busy {
-        opacity: 0.6;
-    }
-    .app #settings,
-    .app #card-settings,
-    .app #update {
-        margin-top: 12px;
-    }
-    .app #settings summary,
-    .app #card-settings summary {
-        cursor: pointer;
-        font-weight: 600;
-    }
-    .app #settings form,
-    .app #card-settings form {
-        margin-top: 10px;
-    }
-    .app #settings input:not([type="checkbox"]),
-    .app #settings select,
-    .app #card-settings input:not([type="checkbox"]),
-    .app form.share select {
-        font: inherit;
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px 10px;
+        min-height: 40px;
+        padding: 8px 12px;
         border-radius: var(--radius);
         border: 1px solid var(--border);
         background: var(--bg);
         color: var(--text);
+        transition: border-color 0.15s;
     }
-    .app .small-print {
-        font-size: 0.85rem;
-        margin: 10px 0 0;
+    .app input:focus,
+    .app select:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
     }
-    .app #asked:empty {
-        display: none;
-    }
-    .app #asked li {
-        background: var(--accent-soft);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 10px 12px;
-        margin-bottom: 8px;
-        font-size: 0.95rem;
-    }
-    .app #asked p {
-        margin: 0 0 8px;
-    }
-    .app #asked code {
-        overflow-wrap: anywhere;
-        font-size: 0.8rem;
-    }
-    .app #asked .actions {
-        display: flex;
-        gap: 8px;
-        margin: 0;
-    }
-    .app .card label {
+    .app label {
         display: block;
         font-size: 0.85rem;
-        margin: 8px 0 4px;
+        font-weight: 500;
+        margin: 12px 0 5px;
     }
-    .app .card label:first-child {
-        margin-top: 0;
-    }
-    .app .card button[type="submit"] {
-        margin-top: 10px;
-    }
-    .app .card label.check {
+    .app label.check {
         display: flex;
         gap: 8px;
         align-items: center;
         font-size: 0.95rem;
     }
-    .app #group-join {
-        margin-top: 8px;
+    .app .inline {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    .app .inline input {
+        flex: 1;
+    }
+    .app .inline button {
+        white-space: nowrap;
+    }
+    .app .small-print {
+        font-size: 0.85rem;
+        margin: 8px 0 0;
+    }
+    .app .note {
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 14px;
+    }
+    .app .bad {
+        color: var(--bad);
+    }
+    .app .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font-size: 0.75rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+    .app .tag {
+        display: inline-block;
+        padding: 1px 7px;
+        border-radius: 6px;
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        vertical-align: middle;
+    }
+    .app .tag.good {
+        color: var(--good);
+        background: color-mix(in srgb, var(--good) 14%, transparent);
+    }
+
+    /* Avatars: a person's is round and a group's a rounded square, the same colour on every screen. */
+    .app .avatar {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        color: #fff;
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+    }
+    .app .avatar.group {
+        border-radius: 30%;
+    }
+    .app .avatar.sm {
+        width: 34px;
+        height: 34px;
+        font-size: 0.8rem;
+    }
+    .app .avatar.unknown {
+        background: var(--surface-2);
+        color: var(--muted);
+    }
+
+    /* ----- Before a node is connected ----- */
+    .app .gate {
+        max-width: 52rem;
+        margin: 0 auto;
+        padding: 56px 16px 64px;
+    }
+    .app .gate h1 {
+        font-size: clamp(2rem, 5vw, 2.8rem);
+        margin: 8px 0 12px;
+    }
+    .app .gate .lede {
+        font-size: 1.1rem;
+        color: var(--muted);
+        max-width: 40rem;
+        margin: 0 0 28px;
+    }
+    .app .choices {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .app .choice {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-rows: auto auto;
+        column-gap: 14px;
+        row-gap: 2px;
+        align-items: center;
+        text-align: left;
+        padding: 18px;
+        min-height: 0;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+    }
+    .app .choice:hover:not(:disabled) {
+        box-shadow: var(--shadow);
+        transform: translateY(-1px);
+    }
+    .app .choice-icon {
+        grid-row: span 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: var(--accent-soft);
+        color: var(--accent);
+    }
+    .app .choice-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+    .app .choice-title {
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+    .app .choice-text {
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.35;
+    }
+    .app .choice.primary .choice-title,
+    .app .choice.primary .choice-text {
+        color: var(--on-accent);
+    }
+    .app .choice.primary .choice-icon {
+        background: rgb(255 255 255 / 0.16);
+        color: var(--on-accent);
+    }
+    .app .choice.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+    }
+    .app .tips {
+        margin-top: 36px;
+        padding: 20px 24px;
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        border: 1px solid var(--border);
+    }
+    .app .tips h2 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+    }
+    .app .tips ul {
+        margin: 0;
+        padding-left: 1.1em;
+        color: var(--muted);
+        font-size: 0.93rem;
+    }
+    .app .tips li {
+        padding: 4px 0;
+    }
+    .app .tips strong {
+        color: var(--text);
+    }
+
+    /* ----- The app: tabs beside the panes, or under them on a phone ----- */
+    body.is-app {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+    }
+    body.is-app main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .app {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .app .shell {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        min-height: calc(100dvh - var(--header-h) - 48px);
+    }
+    .app .shell.busy {
+        opacity: 0.6;
+    }
+    .app .tabs {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 16px 10px;
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .app .tab {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-height: 0;
+        padding: 10px 4px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+    .app .tab svg {
+        width: 24px;
+        height: 24px;
+    }
+    .app .tab:hover:not(:disabled) {
+        color: var(--text);
+        background: var(--surface-2);
+    }
+    .app .tab[aria-current="page"] {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+    .app .tab .badge {
+        position: absolute;
+        top: 4px;
+        right: 12px;
+        min-width: 18px;
+        height: 18px;
+        font-size: 0.7rem;
+    }
+    .app .dot-badge {
+        position: absolute;
+        top: 8px;
+        right: 22px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--warn);
+    }
+    .app .main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .app .topbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--border);
+    }
+    .app .node-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+        padding: 4px 14px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        border-color: transparent;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    .app .node-pill .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--good);
+    }
+    .app .pill.demo {
+        background: var(--accent-soft);
+        border-color: transparent;
+        color: var(--accent);
+        font-size: 0.82rem;
+    }
+    .app .pane {
+        flex: 1;
+        min-height: 0;
+    }
+    .app .pane.people,
+    .app .pane.node {
+        padding: 24px 20px 40px;
+        max-width: 72rem;
+        width: 100%;
+    }
+    .app .pane-head h2 {
+        margin: 0;
+        font-size: 1.5rem;
+    }
+    .app .pane-head p {
+        margin: 4px 0 20px;
+    }
+    .app .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
+        gap: 16px;
+        align-items: start;
+    }
+    .app .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 18px 20px;
+        box-shadow: var(--shadow-sm);
+    }
+    .app .card.wide {
+        grid-column: 1 / -1;
+    }
+    .app .card h3 {
+        margin: 0 0 6px;
+        font-size: 1.05rem;
+    }
+    .app .card h4 {
+        margin: 0;
+        font-size: 0.9rem;
+    }
+    .app .add-form {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+    }
+    .app .add-form button[type="submit"] {
+        margin-top: 12px;
+    }
+    .app form button[type="submit"] {
+        margin-top: 14px;
+    }
+    .app .inline button[type="submit"] {
+        margin-top: 0;
+    }
+
+    /* Rows in a card: an avatar, a name and what to know of it, and an action. */
+    .app .rows {
+        list-style: none;
+        margin: 6px -8px 0;
+        padding: 0;
+    }
+    .app .rows > li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px;
+        border-radius: var(--radius);
+    }
+    .app .rows > li.empty {
+        display: block;
+        color: var(--muted);
+        font-size: 0.9rem;
+    }
+    .app .row-button {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-height: 0;
+        padding: 8px;
+        margin: 0 -8px;
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        text-align: left;
+    }
+    .app .rows > li:has(.row-button) {
+        padding: 0 8px;
+    }
+    .app .row-button:hover:not(:disabled) {
+        background: var(--surface-2);
+    }
+    .app .row-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    .app .row-title {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .app .row-sub {
+        color: var(--muted);
+        font-size: 0.85rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .app .row-sub a {
+        font-weight: 500;
+    }
+
+    /* Signal bars: one to four, green from two. */
+    .app .bars {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 14px;
+    }
+    .app .bars i {
+        width: 3px;
+        border-radius: 1px;
+        background: var(--border);
+    }
+    .app .bars i:nth-child(1) {
+        height: 5px;
+    }
+    .app .bars i:nth-child(2) {
+        height: 8px;
+    }
+    .app .bars i:nth-child(3) {
+        height: 11px;
+    }
+    .app .bars i:nth-child(4) {
+        height: 14px;
+    }
+    .app .bars.good i.on {
+        background: var(--good);
+    }
+    .app .bars.weak i.on {
+        background: var(--warn);
+    }
+
+    /* ----- Chats: the conversations beside the one open ----- */
+    .app .chats {
+        display: grid;
+        grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+        min-height: 0;
+    }
+    .app .list-col {
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        padding: 16px 12px;
+        max-height: calc(100dvh - var(--header-h) - 110px);
+    }
+    .app .col-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0 6px 10px;
+    }
+    .app .col-head h2 {
+        margin: 0;
+        font-size: 1.35rem;
+    }
+    .app .head-actions {
+        display: flex;
+        gap: 6px;
+    }
+    .app .talks {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .app .talk-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-height: 0;
+        padding: 10px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        text-align: left;
+    }
+    .app .talk-item:hover:not(:disabled) {
+        background: var(--surface-2);
+    }
+    .app .talk-item.on {
+        background: var(--accent-soft);
+    }
+    .app .talk-item .top {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .app .talk-item .row-title {
+        flex: 1;
+    }
+    .app .talk-item time {
+        flex: none;
+        font-size: 0.75rem;
+        color: var(--muted);
+    }
+    .app .talk-item .bottom {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .app .talk-item .row-sub {
+        flex: 1;
+    }
+    .app .talk-item.unread .row-sub {
+        color: var(--text);
+        font-weight: 500;
+    }
+    .app .talks .empty {
+        padding: 24px 10px;
+        color: var(--muted);
+        font-size: 0.92rem;
+        text-align: center;
+    }
+    .app .asked {
+        list-style: none;
+        margin: 0 0 10px;
+        padding: 0;
+    }
+    .app .asked:empty {
+        display: none;
+    }
+    .app .asked li {
+        background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+        border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+    }
+    .app .asked p {
+        margin: 0 0 8px;
+    }
+    .app .asked code {
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+    }
+
+    .app .talk {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        max-height: calc(100dvh - var(--header-h) - 110px);
+        background: var(--surface);
+    }
+    .app .talk-head {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
+    }
+    .app .talk-head:empty {
+        display: none;
+    }
+    .app .talk-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .app .talk-title h2 {
+        margin: 0;
+        font-size: 1.15rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .app .talk-title .row-main {
+        flex: 1;
+    }
+    .app .back {
+        display: none;
+        min-height: 36px;
+        padding: 4px 10px;
+        border: 0;
+        background: transparent;
+        color: var(--accent);
+        font-weight: 600;
+    }
+    .app .talk-head .address {
+        font-size: 0.75rem;
+        overflow-wrap: anywhere;
+        margin: 0;
+    }
+    .app .talk-head details {
+        margin-top: 10px;
+    }
+    .app .talk-head summary {
+        cursor: pointer;
+        font-size: 0.88rem;
+        color: var(--accent);
+        font-weight: 600;
+    }
+    .app .talk-head details[open] summary {
+        margin-bottom: 8px;
+    }
+    .app .talk-head details > p {
+        font-size: 0.88rem;
+        margin: 0 0 10px;
+    }
+    .app .talk-head select {
+        width: auto;
+        min-height: 30px;
+        padding: 3px 8px;
+        font-size: 0.85rem;
+    }
+    .app .messages {
+        list-style: none;
+        margin: 0;
+        padding: 20px;
+        flex: 1;
+        min-height: 16rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        background: var(--bg);
+    }
+    .app .messages li.in,
+    .app .messages li.out {
+        max-width: min(75%, 34rem);
+        padding: 8px 14px;
+        border-radius: 18px;
+    }
+    .app .messages li.in {
+        align-self: flex-start;
+        background: var(--theirs);
+        border-bottom-left-radius: 6px;
+    }
+    .app .messages li.out {
+        align-self: flex-end;
+        background: var(--mine);
+        color: #fff;
+        border-bottom-right-radius: 6px;
+    }
+    .app .messages li.out .meta {
+        color: rgb(255 255 255 / 0.75);
+    }
+    .app .messages li.out .actions button {
+        color: var(--text);
+    }
+    .app .messages li.failed {
+        background: transparent;
+        color: var(--text);
+        border: 1.5px dashed var(--bad);
+    }
+    .app .messages li.failed .meta {
+        color: var(--bad);
+    }
+    .app .messages .text {
+        margin: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+    }
+    .app .messages .who {
+        margin: 0 0 2px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--accent);
+    }
+    .app .messages .actions {
+        margin: 6px 0 2px;
+    }
+    .app .messages .meta {
+        margin: 2px 0 0;
+        font-size: 0.72rem;
+        color: var(--muted);
+        text-align: right;
+    }
+    .app .messages li.in .meta {
+        text-align: left;
+    }
+    .app .messages .empty {
+        margin: auto;
+        text-align: center;
+        color: var(--muted);
+        max-width: 22rem;
+    }
+    .app .empty-art {
+        display: inline-flex;
+        width: 64px;
+        height: 64px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 20px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        margin-bottom: 10px;
+    }
+    .app .empty-art svg {
+        width: 30px;
+        height: 30px;
+    }
+    .app .empty h3 {
+        margin: 0 0 4px;
+        color: var(--text);
+    }
+    .app .empty p {
+        margin: 0;
+        font-size: 0.92rem;
+    }
+    .app .compose {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 12px 16px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .app .compose input {
+        border-radius: 999px;
+        padding-left: 16px;
+    }
+    .app .compose button.send {
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 7px 16px;
+    }
+    .app .compose button.send svg {
+        width: 18px;
+        height: 18px;
+    }
+    .app #counter {
+        font-size: 0.75rem;
+        white-space: nowrap;
     }
     .app .join-code {
         margin: 8px 0 12px;
         max-width: 22rem;
+        padding: 14px;
     }
     /* Black on white whatever the theme: some scanners will not read a code the other way round. */
     .app .join-code .qr {
@@ -376,177 +1159,140 @@ import Base from "../layouts/Base.astro";
         overflow-wrap: anywhere;
         font-size: 0.8rem;
     }
-    .app .join-code .actions {
-        display: flex;
-        gap: 8px;
-        margin: 8px 0 0;
-    }
-    .app #update progress {
-        width: 100%;
-    }
     .app form.share {
-        margin: 8px 0 12px;
+        margin: 8px 0 4px;
         max-width: 28rem;
-    }
-    .app .address {
-        display: flex;
-        gap: 8px;
-        align-items: flex-start;
-        margin: 0 0 6px;
-    }
-    .app .address code {
-        overflow-wrap: anywhere;
-        font-size: 0.8rem;
-        line-height: 1.4;
-    }
-    .app .facts {
-        margin: 0;
-        font-size: 0.85rem;
-    }
-    .app .list {
-        list-style: none;
-        margin: 0 0 12px;
-        padding: 0;
-    }
-    .app .list.plain li {
-        font-size: 0.9rem;
-        padding: 2px 0;
-    }
-    .app .list .empty {
-        font-size: 0.9rem;
-    }
-    .app .person {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        text-align: left;
-        margin-bottom: 6px;
-    }
-    .app .person.on {
-        border-color: var(--accent);
-        background: var(--accent-soft);
-    }
-    .app .person .name {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .app .badge {
-        background: var(--accent);
-        color: var(--bg);
-        border-radius: 999px;
-        padding: 0 8px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    .app .session {
-        font-size: 0.7rem;
-    }
-    .app #talk {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 14px 16px;
-        min-height: 24rem;
-        display: flex;
-        flex-direction: column;
-    }
-    .app #talk-head h2 {
-        margin: 0 0 4px;
-        font-size: 1.2rem;
-    }
-    .app #talk-head p {
-        margin: 0 0 4px;
-        font-size: 0.85rem;
-    }
-    .app #talk-head .actions {
-        display: flex;
-        gap: 8px;
-        margin: 8px 0 0;
-    }
-    .app #talk-head:empty + #messages {
-        border-top: 0;
-        padding-top: 0;
-        margin-top: 0;
-    }
-    .app #messages {
-        list-style: none;
-        margin: 12px 0;
-        padding: 12px 0 0;
-        border-top: 1px solid var(--border);
-        flex: 1;
-        max-height: 60vh;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-    .app #messages li.in,
-    .app #messages li.out {
-        max-width: 80%;
-        padding: 8px 12px;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-    }
-    .app #messages li.in {
-        align-self: flex-start;
+        padding: 14px;
         background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
     }
-    .app #messages li.out {
-        align-self: flex-end;
+
+    /* ----- Node: its card, then what can be set ----- */
+    .app .hero {
+        position: relative;
+        overflow: hidden;
+        margin-bottom: 16px;
+        padding: 24px;
+        border-radius: 20px;
+        background: linear-gradient(160deg, var(--hero-top), var(--hero-bottom));
+        color: #fff;
+        box-shadow: var(--shadow);
+    }
+    .app .hero .eyebrow {
+        color: rgb(255 255 255 / 0.75);
+    }
+    .app .hero h2 {
+        margin: 4px 0 2px;
+        font-size: 1.6rem;
+    }
+    .app .hero .sub {
+        margin: 0;
+        color: rgb(255 255 255 / 0.8);
+        font-size: 0.92rem;
+    }
+    .app .hero .address {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 14px 0 0;
+    }
+    .app .hero .address code {
+        overflow-wrap: anywhere;
+        font-size: 0.8rem;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: rgb(0 0 0 / 0.2);
+        color: rgb(255 255 255 / 0.92);
+    }
+    .app .hero button {
+        background: rgb(255 255 255 / 0.14);
+        border-color: rgb(255 255 255 / 0.25);
+        color: #fff;
+    }
+    .app .hero button:hover:not(:disabled) {
+        background: rgb(255 255 255 / 0.24);
+        border-color: rgb(255 255 255 / 0.4);
+    }
+    .app .hero .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+    }
+    .app .hero .chips li {
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.14);
+        font-size: 0.82rem;
+    }
+    .app .meters {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+    }
+    .app .meter {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgb(0 0 0 / 0.18);
+    }
+    .app .meter .label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.82rem;
+        color: rgb(255 255 255 / 0.8);
+    }
+    .app .meter .value {
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 2px 0 8px;
+        color: #fff;
+    }
+    .app .meter .track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.18);
+        overflow: hidden;
+    }
+    .app .meter .fill {
+        height: 100%;
+        border-radius: 999px;
+        background: #7ee2b0;
+    }
+    .app .meter .fill.warn {
+        background: #f3c46c;
+    }
+    .app .hero .facts {
+        margin: 14px 0 0;
+        font-size: 0.88rem;
+        color: rgb(255 255 255 / 0.85);
+    }
+    .app .hero .facts a {
+        color: #fff;
+    }
+    .app .update {
+        margin-bottom: 16px;
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
         background: var(--accent-soft);
     }
-    .app #messages li.failed {
-        border-style: dashed;
+    .app .update progress {
+        width: 100%;
+        accent-color: var(--accent);
     }
-    .app #messages .text {
-        margin: 0;
-        overflow-wrap: anywhere;
-        white-space: pre-wrap;
+    .app .update .facts {
+        font-size: 0.9rem;
+        margin: 4px 0 10px;
     }
-    .app #messages .who {
-        margin: 0 0 2px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        opacity: 0.8;
-    }
-    .app #messages .actions {
-        margin: 6px 0 0;
-    }
-    .app #messages .meta {
-        margin: 2px 0 0;
-        font-size: 0.75rem;
-        color: var(--muted);
-    }
-    .app #compose {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-    }
-    .app #counter {
-        font-size: 0.8rem;
-        white-space: nowrap;
-    }
-    .app #status {
-        min-height: 1.6em;
-        margin: 12px 0 0;
-        color: var(--muted);
-    }
-    .app .bad {
-        color: #b3261e;
-    }
-    @media (prefers-color-scheme: dark) {
-        .app .bad {
-            color: #f2b8b5;
-        }
-    }
-    .app #console {
-        margin-top: 16px;
+    .app .state-line {
+        margin: 0 0 6px;
+        font-size: 0.9rem;
     }
     .app #console pre {
-        background: var(--surface);
+        background: var(--bg);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 10px;
@@ -556,8 +1302,148 @@ import Base from "../layouts/Base.astro";
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
-    .app #console form {
+
+    /* ----- Status: a toast at the foot of the window ----- */
+    .app .toast-wrap {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 20px;
+        z-index: 40;
         display: flex;
-        gap: 8px;
+        justify-content: center;
+        padding: 0 16px;
+        pointer-events: none;
+    }
+    .app .toast {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: 36rem;
+        padding: 10px 10px 10px 18px;
+        border-radius: 14px;
+        background: var(--text);
+        color: var(--bg);
+        box-shadow: var(--shadow);
+        font-size: 0.92rem;
+        pointer-events: auto;
+        animation: toast-in 0.2s ease-out;
+    }
+    .app .toast.bad {
+        background: var(--bad);
+        color: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+        .app .toast.bad {
+            background: #8c1d18;
+        }
+    }
+    .app .toast button {
+        min-height: 28px;
+        padding: 0 8px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font-size: 1.2rem;
+        line-height: 1;
+        opacity: 0.8;
+    }
+    @keyframes toast-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+    }
+
+    /* ----- On a phone: the tabs along the foot, and a conversation over the list ----- */
+    @media (max-width: 48rem) {
+        .app .shell {
+            grid-template-columns: minmax(0, 1fr);
+            padding-bottom: 68px;
+        }
+        .app .tabs {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 30;
+            flex-direction: row;
+            justify-content: space-around;
+            padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+            border-right: 0;
+            border-top: 1px solid var(--border);
+            background: color-mix(in srgb, var(--surface) 92%, transparent);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+        .app .tab {
+            flex: 1;
+            padding: 6px 4px;
+        }
+        .app .tab .badge {
+            right: calc(50% - 26px);
+        }
+        .app .dot-badge {
+            right: calc(50% - 18px);
+        }
+        .app .topbar {
+            padding: 10px 16px;
+        }
+        .app .chats {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .app .list-col {
+            border-right: 0;
+            max-height: none;
+        }
+        .app .talk {
+            max-height: calc(100dvh - var(--header-h) - 120px);
+            min-height: calc(100dvh - var(--header-h) - 120px);
+        }
+        /* A conversation open takes the whole screen, as on the phone apps: Back returns to the tabs. */
+        .app .shell.talking {
+            padding-bottom: 0;
+        }
+        .app .shell.talking .tabs,
+        .app .shell.talking .topbar {
+            display: none;
+        }
+        .app .shell.talking .talk {
+            height: calc(100dvh - var(--header-h));
+            max-height: none;
+            min-height: 0;
+        }
+        .app .chats:not(.open) .talk,
+        .app .chats.open .list-col {
+            display: none;
+        }
+        .app .back {
+            display: inline-flex;
+        }
+        .app .talk-head {
+            padding: 10px 12px;
+        }
+        .app .messages {
+            padding: 14px 12px;
+        }
+        .app .compose {
+            padding: 10px 12px;
+        }
+        .app .compose button.send span {
+            display: none;
+        }
+        .app .pane.people,
+        .app .pane.node {
+            padding: 16px 16px 32px;
+        }
+        .app .hero {
+            padding: 20px;
+        }
+        .app .toast-wrap {
+            bottom: 84px;
+        }
+        body.is-app .site-footer {
+            display: none;
+        }
     }
 </style>

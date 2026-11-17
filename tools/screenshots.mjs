@@ -39,17 +39,13 @@ const browser = await chromium.launch();
 async function chat(scheme) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 760 }, colorScheme: scheme, deviceScaleFactor: 2 });
     await page.goto(`${base}/app?demo`);
-    await page.getByRole("button", { name: /Robin/ }).click();
-    await page.getByText("Kettle is on.").waitFor();
-    // From the demo's note to the conversation's foot, and no wider than the app's own column.
-    const note = await page.locator("#demo-note").boundingBox();
-    const talk = await page.locator("#talk").boundingBox();
-    const pad = 16;
-    const x = note.x - pad;
-    const y = note.y - pad;
+    await page.locator(".talk-item", { hasText: "Robin" }).click();
+    await page.locator("#messages").getByText("Kettle is on.").waitFor();
+    // The app itself, tabs to conversation, without the site's header and footer: 1100 by 640.
+    const live = await page.locator("#live").boundingBox();
     await page.screenshot({
         path: join(out, `chat-${scheme}.png`),
-        clip: { x, y, width: talk.x + talk.width + pad - x, height: talk.y + talk.height + pad - y },
+        clip: { x: live.x, y: live.y, width: live.width, height: 640 },
     });
     await page.close();
 }

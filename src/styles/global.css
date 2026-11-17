@@ -1,37 +1,77 @@
+/* The site's colours are the phone apps' (apple/App/Design.swift, the Android app's theme): the
+   teal of the icon as the accent, with the same green, amber and message colours. */
 :root {
-    --bg: #f7f9fa;
+    --bg: #f6f8f9;
     --surface: #ffffff;
+    --surface-2: #eef3f5;
     --text: #15212b;
     --muted: #556472;
     --border: #dde3e8;
     --accent: #0b4f6c;
+    --accent-hover: #093f57;
     --accent-soft: #e3eef3;
+    --on-accent: #ffffff;
+    --good: #1f8a5b;
+    --warn: #b7791f;
+    --bad: #b3261e;
+    --mine: #0b4f6c;
+    --theirs: #ecf1f4;
+    --hero-top: #0b4f6c;
+    --hero-bottom: #07364a;
+    --shadow-sm: 0 1px 2px rgb(16 32 44 / 0.06);
+    --shadow: 0 1px 2px rgb(16 32 44 / 0.05), 0 8px 24px rgb(16 32 44 / 0.06);
     --radius: 10px;
-    --max: 62rem;
+    --radius-lg: 16px;
+    --max: 68rem;
+    --header-h: 64px;
     color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-        --bg: #0e1418;
-        --surface: #151d23;
+        --bg: #0c1216;
+        --surface: #141c22;
+        --surface-2: #1a242b;
         --text: #e6ebef;
         --muted: #98a6b2;
-        --border: #26323b;
+        --border: #25313a;
         --accent: #6cc3e6;
+        --accent-hover: #8fd3ee;
         --accent-soft: #16303d;
+        --on-accent: #06222e;
+        --good: #4cc38a;
+        --warn: #e0a84a;
+        --bad: #f2b8b5;
+        --mine: #1f6f92;
+        --theirs: #1c2930;
+        --hero-top: #1c5f7d;
+        --hero-bottom: #103c50;
+        --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+        --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
         color-scheme: dark;
     }
 }
 
 :root[data-theme="dark"] {
-    --bg: #0e1418;
-    --surface: #151d23;
+    --bg: #0c1216;
+    --surface: #141c22;
+    --surface-2: #1a242b;
     --text: #e6ebef;
     --muted: #98a6b2;
-    --border: #26323b;
+    --border: #25313a;
     --accent: #6cc3e6;
+    --accent-hover: #8fd3ee;
     --accent-soft: #16303d;
+    --on-accent: #06222e;
+    --good: #4cc38a;
+    --warn: #e0a84a;
+    --bad: #f2b8b5;
+    --mine: #1f6f92;
+    --theirs: #1c2930;
+    --hero-top: #1c5f7d;
+    --hero-bottom: #103c50;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
     color-scheme: dark;
 }
 
@@ -43,6 +83,7 @@
 
 html {
     -webkit-text-size-adjust: 100%;
+    scroll-padding-top: calc(var(--header-h) + 16px);
 }
 
 body {
@@ -50,10 +91,12 @@ body {
     background: var(--bg);
     color: var(--text);
     font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
 }
 
 a {
     color: var(--accent);
+    text-underline-offset: 2px;
 }
 
 :focus-visible {
@@ -65,6 +108,7 @@ h1,
 h2,
 h3 {
     line-height: 1.2;
+    letter-spacing: -0.01em;
 }
 
 code {
@@ -78,6 +122,93 @@ code {
     padding: 0 16px;
 }
 
+@media (min-width: 40rem) {
+    .wrap {
+        padding: 0 24px;
+    }
+}
+
 .muted {
     color: var(--muted);
+}
+
+/* A link or a button that looks like a button, on any page: primary, or with .secondary or .ghost. */
+a.button,
+button.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    font: inherit;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        border-color 0.15s,
+        color 0.15s;
+}
+a.button:hover,
+button.button:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+a.button.secondary,
+button.button.secondary {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+}
+a.button.secondary:hover,
+button.button.secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+a.button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--accent);
+}
+a.button.ghost:hover {
+    background: var(--accent-soft);
+}
+
+/* A small label above a heading: "Step 1", "Alpha". */
+.eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+/* A rounded label: a release, a state. */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: none;
+}
+.pill .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
 }

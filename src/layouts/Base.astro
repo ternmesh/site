@@ -6,18 +6,65 @@ interface Props {
     description?: string;
     /** Keep the page out of search engines: one whose content comes from the link that opened it. */
     noindex?: boolean;
+    /** The web app: the full width of the window, and a short footer. */
+    app?: boolean;
 }
 
 const {
     title,
     description = "Tern is an open LoRa mesh protocol that treats airtime as a shared, metered resource.",
     noindex = false,
+    app = false,
 } = Astro.props;
 const fullTitle = title ? `${title} · Tern` : "Tern — an open LoRa mesh protocol";
 const canonical = new URL(Astro.url.pathname, Astro.site);
 // public/og.png, from tools/og/: what a link to any page shows where it is shared.
 const image = new URL("/og.png", Astro.site);
 const org = "https://github.com/ternmesh";
+
+// The header's sections, in the order someone new goes through them; each is "here" for its own
+// page and the pages under it.
+const here = Astro.url.pathname.replace(/\/$/, "") || "/";
+const sections = [
+    { href: "/docs", label: "Docs" },
+    { href: "/flash", label: "Flash" },
+    { href: "/apps", label: "Apps" },
+    { href: "/why", label: "Why Tern" },
+    { href: "/news", label: "News" },
+];
+const current = (href: string) => (here === href || here.startsWith(`${href}/`) ? "page" : undefined);
+
+const footer = [
+    {
+        head: "Use Tern",
+        links: [
+            { href: "/app", label: "Web app" },
+            { href: "/apps", label: "Phone and Mac apps" },
+            { href: "/flash", label: "Flash a board" },
+            { href: "/docs/hardware", label: "Hardware" },
+        ],
+    },
+    {
+        head: "Learn",
+        links: [
+            { href: "/docs", label: "Start here" },
+            { href: "/docs/guide", label: "Using Tern" },
+            { href: "/docs/troubleshooting", label: "Troubleshooting" },
+            { href: "/docs/faq", label: "FAQ" },
+            { href: "/why", label: "Why Tern" },
+        ],
+    },
+    {
+        head: "Project",
+        links: [
+            { href: `${org}/spec`, label: "Specification" },
+            { href: org, label: "GitHub" },
+            { href: "/news", label: "News" },
+            { href: `${org}/spec/blob/main/GOVERNANCE.md`, label: "Governance" },
+            { href: "/privacy", label: "Privacy" },
+        ],
+    },
+];
 ---
 
 <!doctype html>
@@ -30,6 +77,8 @@ const org = "https://github.com/ternmesh";
         {noindex && <meta name="robots" content="noindex" />}
         <link rel="canonical" href={canonical} />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <meta name="theme-color" content="#f6f8f9" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#0c1216" media="(prefers-color-scheme: dark)" />
         <meta property="og:title" content={fullTitle} />
         <meta property="og:description" content={description} />
         <meta property="og:url" content={canonical} />
@@ -40,94 +89,297 @@ const org = "https://github.com/ternmesh";
         <meta property="og:image:alt" content="Tern: an open LoRa mesh protocol that treats airtime as a shared, metered resource." />
         <meta name="twitter:card" content="summary_large_image" />
     </head>
-    <body>
+    <body class={app ? "is-app" : undefined}>
         <a class="skip" href="#main">Skip to the content</a>
-        <header class="site-header">
-            <nav class="wrap">
+        <header class="site-header" id="site-header">
+            <nav class:list={["bar", app ? "wide" : "wrap"]} aria-label="Site">
                 <a class="brand" href="/">
-                    <img src="/favicon.svg" alt="" width="28" height="28" />
-                    Tern
+                    <img src="/favicon.svg" alt="" width="30" height="30" />
+                    <span>Tern</span>
                 </a>
-                <div class="links">
-                    <a href="/app">App</a>
-                    <a href="/flash">Flash</a>
-                    <a href="/apps">Get the apps</a>
-                    <a href="/docs">Docs</a>
-                    <a href="/why">Why Tern</a>
-                    <a href="/news">News</a>
-                    <a href={`${org}/spec`}>Spec</a>
-                    <a href={org}>GitHub</a>
+                <button
+                    class="menu-button"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="site-menu"
+                    aria-label="Menu"
+                >
+                    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                        <path class="i-open" d="M4 7h16M4 12h16M4 17h16" />
+                        <path class="i-close" d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                </button>
+                <div class="menu" id="site-menu">
+                    <ul class="links">
+                        {
+                            sections.map((s) => (
+                                <li>
+                                    <a href={s.href} aria-current={current(s.href)}>
+                                        {s.label}
+                                    </a>
+                                </li>
+                            ))
+                        }
+                    </ul>
+                    <div class="actions">
+                        <a class="icon-link" href={org} aria-label="Tern on GitHub" title="Tern on GitHub">
+                            <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
+                                <path
+                                    fill="currentColor"
+                                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                                ></path>
+                            </svg>
+                            <span class="icon-label">GitHub</span>
+                        </a>
+                        <a class="button open-app" href="/app" aria-current={current("/app")}>Open web app</a>
+                    </div>
                 </div>
             </nav>
         </header>
         <main id="main" tabindex="-1">
             <slot />
         </main>
-        <footer class="site-footer">
-            <div class="wrap muted">
-                Site under the Apache License 2.0 · <a href={`${org}/site`}>Source</a> ·{" "}
-                <a href="/news">News</a> · <a href="/privacy">Privacy</a> ·{" "}
-                <a href={`${org}/spec/blob/main/GOVERNANCE.md`}>Governance</a>
-                <br />
-                Tern is an independent project, not affiliated with any other mesh project.
-            </div>
-        </footer>
+        {
+            app ? (
+                <footer class="site-footer short">
+                    <div class="wide muted">
+                        <a href="/docs/guide">Using Tern</a> · <a href="/docs/troubleshooting">Troubleshooting</a> ·{" "}
+                        <a href="/privacy">Privacy</a> · <a href={`${org}/site`}>Source</a>
+                    </div>
+                </footer>
+            ) : (
+                <footer class="site-footer">
+                    <div class="wrap">
+                        <div class="cols">
+                            <div class="about">
+                                <a class="brand" href="/">
+                                    <img src="/favicon.svg" alt="" width="26" height="26" />
+                                    <span>Tern</span>
+                                </a>
+                                <p class="muted">
+                                    An open LoRa mesh protocol that treats airtime as a shared, metered resource.
+                                </p>
+                            </div>
+                            {
+                                footer.map((col) => (
+                                    <nav aria-label={col.head}>
+                                        <h2>{col.head}</h2>
+                                        <ul>
+                                            {col.links.map((l) => (
+                                                <li>
+                                                    <a href={l.href}>{l.label}</a>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </nav>
+                                ))
+                            }
+                        </div>
+                        <p class="fine muted">
+                            Site under the Apache License 2.0 · <a href={`${org}/site`}>Source</a>
+                            <br />
+                            Tern is an independent project, not affiliated with any other mesh project.
+                        </p>
+                    </div>
+                </footer>
+            )
+        }
+        <script is:inline>
+            // The menu on a narrow screen: opened and closed by its button, and closed by Escape.
+            (() => {
+                const header = document.getElementById("site-header");
+                const button = header.querySelector(".menu-button");
+                const set = (open) => {
+                    header.classList.toggle("open", open);
+                    button.setAttribute("aria-expanded", String(open));
+                };
+                button.addEventListener("click", () => set(!header.classList.contains("open")));
+                document.addEventListener("keydown", (e) => {
+                    if (e.key === "Escape" && header.classList.contains("open")) {
+                        set(false);
+                        button.focus();
+                    }
+                });
+                header.classList.add("js");
+            })();
+        </script>
     </body>
 </html>
 
 <style>
     .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: saturate(1.6) blur(14px);
+        -webkit-backdrop-filter: saturate(1.6) blur(14px);
         border-bottom: 1px solid var(--border);
     }
-    .site-header nav {
+    .bar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 1rem;
-        min-height: 60px;
-        flex-wrap: wrap;
+        min-height: var(--header-h);
+    }
+    .wide {
+        padding: 0 16px;
+    }
+    @media (min-width: 40rem) {
+        .wide {
+            padding: 0 24px;
+        }
     }
     .brand {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.55rem;
         font-weight: 700;
+        font-size: 1.1rem;
         color: var(--text);
         text-decoration: none;
+        letter-spacing: -0.01em;
+    }
+    .brand img {
+        border-radius: 8px;
+    }
+    .menu {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex: 1;
     }
     .links {
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.25rem 1.25rem;
-    }
-    /* On a phone the links take a row of their own under the name, and wrap within it. */
-    @media (max-width: 40rem) {
-        .site-header nav {
-            gap: 0.25rem;
-            padding-top: 10px;
-            padding-bottom: 10px;
-        }
-        .links {
-            width: 100%;
-            gap: 0.25rem 1rem;
-            font-size: 0.95rem;
-        }
-        .links a {
-            padding: 4px 0;
-        }
+        gap: 2px;
+        list-style: none;
+        margin: 0 auto 0 1rem;
+        padding: 0;
     }
     .links a {
+        display: block;
+        padding: 6px 12px;
+        border-radius: 999px;
         color: var(--muted);
+        font-weight: 500;
         text-decoration: none;
+        transition:
+            background 0.15s,
+            color 0.15s;
     }
     .links a:hover {
         color: var(--text);
+        background: var(--surface-2);
     }
+    .links a[aria-current="page"] {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+    .actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .icon-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        border-radius: 999px;
+        color: var(--muted);
+        text-decoration: none;
+    }
+    .icon-link:hover {
+        color: var(--text);
+        background: var(--surface-2);
+    }
+    .icon-label {
+        display: none;
+    }
+    .open-app {
+        min-height: 38px;
+        padding: 7px 16px;
+        font-size: 0.95rem;
+    }
+    .menu-button {
+        display: none;
+        margin-left: auto;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        cursor: pointer;
+    }
+    .menu-button path {
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        fill: none;
+    }
+    .menu-button .i-close,
+    .open .menu-button .i-open {
+        display: none;
+    }
+    .open .menu-button .i-close {
+        display: inline;
+    }
+
+    /* On a narrow screen the sections fold into a menu under the bar. Without script, they stay
+       shown, wrapped under the name. */
+    @media (max-width: 56rem) {
+        .bar {
+            flex-wrap: wrap;
+            gap: 0;
+        }
+        .js .menu-button {
+            display: inline-flex;
+        }
+        .menu {
+            flex-basis: 100%;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 4px 0 16px;
+        }
+        .js .menu {
+            display: none;
+        }
+        .js.open .menu {
+            display: flex;
+        }
+        .links {
+            flex-direction: column;
+            margin: 0;
+        }
+        .links a {
+            padding: 12px 14px;
+            border-radius: var(--radius);
+            font-size: 1.05rem;
+        }
+        .actions {
+            flex-direction: column;
+            align-items: stretch;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        .icon-link {
+            padding: 12px 14px;
+            border-radius: var(--radius);
+        }
+        .icon-label {
+            display: inline;
+        }
+        .open-app {
+            min-height: 46px;
+        }
+    }
+
     .skip {
         position: absolute;
         left: 16px;
         top: -100px;
-        z-index: 10;
+        z-index: 30;
         padding: 8px 12px;
         border-radius: var(--radius);
         background: var(--surface);
@@ -139,10 +391,64 @@ const org = "https://github.com/ternmesh";
     main:focus {
         outline: none;
     }
+
     .site-footer {
-        margin-top: 4rem;
-        padding: 2rem 0;
+        margin-top: 5rem;
+        padding: 3rem 0 2rem;
         border-top: 1px solid var(--border);
-        font-size: 0.875rem;
+        background: var(--surface);
+        font-size: 0.92rem;
+    }
+    .cols {
+        display: grid;
+        grid-template-columns: 1.4fr repeat(3, 1fr);
+        gap: 2rem;
+    }
+    @media (max-width: 48rem) {
+        .cols {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .about {
+            grid-column: 1 / -1;
+        }
+    }
+    .about p {
+        margin: 0.6rem 0 0;
+        max-width: 18rem;
+    }
+    .site-footer h2 {
+        margin: 0 0 0.6rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+    .site-footer ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .site-footer li {
+        padding: 3px 0;
+    }
+    .site-footer nav a {
+        color: var(--text);
+        text-decoration: none;
+    }
+    .site-footer nav a:hover {
+        color: var(--accent);
+    }
+    .fine {
+        margin: 2.5rem 0 0;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.85rem;
+    }
+    .site-footer.short {
+        margin-top: 0;
+        padding: 1rem 0;
+        font-size: 0.85rem;
+        background: transparent;
     }
 </style>
