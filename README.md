@@ -112,7 +112,7 @@ not define, saying on the node's card what an update would bring.
 
 `tests/vectors/companion.json` is a copy of the specification's
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as of
-[ternmesh/spec#55](https://github.com/ternmesh/spec/pull/55) (version 12), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
+[ternmesh/spec#56](https://github.com/ternmesh/spec/pull/56) (version 12), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
 byte for byte, the older clients' frames read by their versions, the update as its client, and the
 node that its bootloader updates. `tests/dfu.test.ts` holds the DFU client to a bootloader the test
 plays.

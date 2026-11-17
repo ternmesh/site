@@ -30,26 +30,11 @@ test("crc_check", () => {
     assert.equal(crc16(bytes(v.crc_check.input)), v.crc_check.crc);
 });
 
-/**
- * What this client reads of a vector's fields. The vectors' INFOs from a node of version 4 carry
- * `update`, which version 12 added, and the generator reads every frame by the connection's
- * version alone; but a client reads an INFO by the lesser of its version and the one the INFO
- * carries (draft/companion.md, "Versions"), so that a node of version 4 to 11, whose INFO has no
- * `update`, is read at all. Read that way, such an INFO stops before `update`.
- */
-function asRead(type: string, fields: Fields): Fields {
-    if (type !== "INFO" || Number(fields.version) >= 12) {
-        return fields;
-    }
-    const { update: _, ...rest } = fields;
-    return rest;
-}
-
 test("frames: built, read, wrapped and found", () => {
     assert.ok(v.frames.length >= 34);
     for (const c of v.frames) {
         assert.equal(hex(encode(c.type, c.seq, c.fields)), c.frame, c.type);
-        assert.deepEqual(decode(bytes(c.frame)), { type: c.type, seq: c.seq, fields: asRead(c.type, c.fields) }, c.type);
+        assert.deepEqual(decode(bytes(c.frame)), { type: c.type, seq: c.seq, fields: c.fields }, c.type);
         assert.equal(hex(wrap(bytes(c.frame))), c.stream, c.type);
         assert.deepEqual(found(new StreamReader(), bytes(c.stream)), [{ frame: c.frame }], c.type);
     }
@@ -63,14 +48,7 @@ test("extended: bytes after the fields are ignored", () => {
 
 test("rejected: a client discards each", () => {
     for (const c of v.rejected) {
-        const f = decode(bytes(c.frame));
-        if (f?.type === "INFO" && Number(f.fields.version) < 12) {
-            // An INFO of version 4 cut short of `update`, which is the whole of an INFO of version
-            // 4 to a client that reads it by that version, as this one does (asRead).
-            assert.deepEqual(Object.keys(f.fields), ["version", "firmware", "board", "release"], c.why);
-            continue;
-        }
-        assert.equal(f, null, c.why);
+        assert.equal(decode(bytes(c.frame)), null, c.why);
     }
 });
 
@@ -178,7 +156,7 @@ test("pairing and updates by the bootloader: versions 11 and 12", () => {
     const request = v.frames.find((c) => c.type === "UPDATE_BOOTLOADER")!;
     assert.equal(request.frame, "362b");
     assert.equal(decode(bytes(request.frame), 11), null);
-    const info = v.frames.find((c) => c.type === "INFO" && c.fields.version === 12)!;
+    const info = v.frames.find((c) => c.type === "INFO" && c.fields.update === 2)!;
     assert.equal(decode(bytes(info.frame))!.fields.update, 2);
     assert.equal(decode(bytes(info.frame), 11)!.fields.update, undefined);
     for (const c of v.frames.filter((f) => f.type === "SELF")) {
