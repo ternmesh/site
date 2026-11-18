@@ -13,9 +13,16 @@
 // a node takes over the link, and the .zip of every nRF52840 board that has them, which its
 // bootloader takes; a release with neither has no latest.json.
 //
+// A release that is signed (docs/signing.md in ternmesh/firmware) has each file's signature beside
+// it, as <file>.sig. Each is fetched with its image, checked against the release keys
+// (src/lib/companion/release-keys.ts), kept beside the image for the flash page, and given in
+// latest.json as each image's `signature`. One that is missing or does not verify fails the build.
+// A release from before signing (0.6.0-alpha.1 and earlier) has none, and is offered as before,
+// with no `signature` in latest.json.
+//
 // TERN_FIRMWARE_DIR, if set, is a directory to copy them from instead: the release/ that
 // ports/esp32/release.sh or ports/nrf52/release.sh leaves, to try a build that is not released.
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { boards, familyOf } from "../src/data/boards.ts";
@@ -32,6 +39,7 @@ import {
     uf2Name,
 } from "../src/lib/flash/images.ts";
 import type { Region, UpdateWay } from "../src/lib/flash/images.ts";
+import { releaseSignatures } from "../src/lib/flash/signatures.ts";
 
 const out = join(import.meta.dirname, "..", "public", "firmware");
 const from = process.env.TERN_FIRMWARE_DIR;
@@ -42,6 +50,22 @@ async function get(name: string): Promise<Uint8Array> {
     }
     const url = `${release.source}/v${release.version}/${name}`;
     const answer = await fetch(url);
+    if (!answer.ok) {
+        throw new Error(`${url}: ${answer.status} ${answer.statusText}`);
+    }
+    return new Uint8Array(await answer.arrayBuffer());
+}
+
+/** A file the release may not have, such as a signature: null if it has not. */
+async function maybe(name: string): Promise<Uint8Array | null> {
+    if (from) {
+        return existsSync(join(from, name)) ? readFileSync(join(from, name)) : null;
+    }
+    const url = `${release.source}/v${release.version}/${name}`;
+    const answer = await fetch(url);
+    if (answer.status === 404) {
+        return null;
+    }
     if (!answer.ok) {
         throw new Error(`${url}: ${answer.status} ${answer.statusText}`);
     }
@@ -91,8 +115,17 @@ for (const board of boards) {
 if (count === 0) {
     throw new Error(`SHA256SUMS names no image of ${release.version} for any board the site lists`);
 }
+const signatures = await releaseSignatures([...images.keys()], sums, sumsFile, maybe);
+if (signatures) {
+    for (const [name, sig] of signatures) {
+        writeFileSync(join(out, `${name}.sig`), sig);
+    }
+    console.log(`signatures: ${signatures.size}, each verified with a release key`);
+} else {
+    console.log(`no signatures: ${release.version} was published before releases were signed`);
+}
 if (updatable.length > 0) {
-    const latest = await manifest(release.version, updatable, images);
+    const latest = await manifest(release.version, updatable, images, signatures ?? undefined);
     writeFileSync(join(out, "latest.json"), `${JSON.stringify(latest, null, 4)}\n`);
     console.log(`latest.json: ${latest.images.length} images`);
 } else {

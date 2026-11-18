@@ -1,5 +1,5 @@
 ---
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import Base from "../layouts/Base.astro";
@@ -16,6 +16,9 @@ const checklist = `${org}/firmware/blob/main/docs/boards.md#bringing-a-board-up`
 // tools/firmware.ts put the release here before the build. A board is offered for the regions
 // the release has its images for; one from before the OTA layout cannot be updated from a phone.
 const sums = parseSums(readFileSync(join(process.cwd(), "public", "firmware", "SHA256SUMS"), "utf8"));
+// A signed release has each image's .sig beside it, and SHA256SUMS's; one from before signing
+// (0.6.0-alpha.1 and earlier) has none, and the page says it cannot check them.
+const signed = existsSync(join(process.cwd(), "public", "firmware", "SHA256SUMS.sig"));
 const offers: Offer[] = boards.flatMap((b) => {
     const family = familyOf(b);
     const regions = regionsOf(release.version, b.name, family, sums);
@@ -86,7 +89,7 @@ const where: Record<Region, { place: string; profile: string }> = {
             with anything that matters. <a href={notes}>What it does and does not do.</a>
         </p>
 
-        <form id="flash">
+        <form id="flash" data-signed={String(signed)}>
             <fieldset>
                 <legend><span class="step">1</span> Which board?</legend>
                 <select id="board" name="board" aria-describedby="about">
@@ -227,9 +230,19 @@ const where: Record<Region, { place: string; profile: string }> = {
 
         <p class="muted small">
             The images are the <a href={notes}>v{release.version} release</a>'s, checked here against its{" "}
-            <a href="/firmware/SHA256SUMS">SHA-256 checksums</a> before a byte is written, and written with
+            <a href="/firmware/SHA256SUMS">SHA-256 checksums</a>{
+                signed ? " and against the signature Tern's release key made of each" : ""
+            } before a byte is written, and written with
             Espressif's <a href="https://github.com/espressif/esptool-js">esptool-js</a>.
         </p>
+        {
+            !signed && (
+                <p class="muted small">
+                    Release {release.version} was published before Tern signed its releases, so this page cannot check
+                    that its images are the ones Tern made, only that they match the checksums published beside them.
+                </p>
+            )
+        }
     </section>
     <script id="offers" type="application/json" set:html={JSON.stringify(offers)} />
 </Base>

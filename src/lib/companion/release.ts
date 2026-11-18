@@ -4,6 +4,10 @@
 // Semantic Versioning's order.
 
 import type { Manifest, ManifestImage, UpdateWay } from "../flash/images.ts";
+import { unhex } from "./protocol.ts";
+import { RELEASE_KEYS } from "./release-keys.ts";
+import { signedState } from "./signing.ts";
+import type { Signed } from "./signing.ts";
 
 /**
  * SemVer 2.0.0's order: negative if `a` comes before `b`, positive after, 0 for the same. A
@@ -85,7 +89,9 @@ export function readManifest(json: unknown): Manifest {
             typeof i.sha256 === "string" &&
             /^[0-9a-f]{64}$/.test(i.sha256) &&
             // A way of updating this page does not know is one it cannot take.
-            (i.update === undefined || i.update === "bootloader"),
+            (i.update === undefined || i.update === "bootloader") &&
+            // A signature that is there is text; whether it verifies is imageSigned's to say.
+            (i.signature === undefined || typeof i.signature === "string"),
     );
     return { release: m.release, images };
 }
@@ -117,6 +123,24 @@ export async function offerFor(
     return { release: manifest.release, image };
 }
 
+/**
+ * Whether the manifest's image is signed by a release key, checked against the SHA-256 the
+ * manifest gives for it before a byte is downloaded: `unsigned` if it carries no signature, as no
+ * image of a release from before signing does.
+ */
+export function imageSigned(image: ManifestImage, keys: readonly string[] = RELEASE_KEYS): Signed {
+    if (image.signature === undefined) {
+        return "unsigned";
+    }
+    return signedState(unhex(image.sha256) ?? new Uint8Array(0), signatureOf(image) ?? new Uint8Array(1), keys);
+}
+
+/** The image's signature as bytes: null if it has none, or what it has is not 64 bytes of hex. */
+export function signatureOf(image: ManifestImage): Uint8Array | null {
+    const sig = image.signature === undefined ? null : unhex(image.signature);
+    return sig && sig.length === 64 ? sig : null;
+}
+
 /** Fetches an image and checks it is the one the manifest names, or throws. */
 export async function fetchImage(image: ManifestImage, fetcher: typeof fetch = fetch): Promise<Uint8Array> {
     const res = await fetcher(`/firmware/${image.file}`);
@@ -134,3 +158,30 @@ export async function fetchImage(image: ManifestImage, fetcher: typeof fetch = f
     }
     return data;
 }
+
+/**
+ * Whether the bytes downloaded are signed by a release key, by their own SHA-256 and the
+ * manifest's signature for the image: checked again once downloaded, so that what is sent is
+ * what was signed.
+ */
+export async function bytesSigned(data: Uint8Array, image: ManifestImage, keys: readonly string[] = RELEASE_KEYS): Promise<Signed> {
+    if (image.signature === undefined) {
+        return "unsigned";
+    }
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data as Uint8Array<ArrayBuffer>));
+    return signedState(digest, signatureOf(image) ?? new Uint8Array(1), keys);
+}
+
+/**
+ * Whether an image may be offered at all to a node: not one with no signature to a node of
+ * version 13 or later that takes its updates over the link, which refuses every image that is not
+ * signed by a key it holds (ERROR 11). A release from before signing is installed on such a node
+ * over USB. To a node before version 13, which checks nothing, and to a bootloader, which checks
+ * nothing either, it is offered with a warning.
+ */
+export function offerable(signed: Signed, version: number, way: UpdateWay): boolean {
+    return !(signed === "unsigned" && way === "link" && version >= SIGNED_SINCE);
+}
+
+/** The first companion version whose UPDATE_BEGIN carries a signature, and that has WIPE. */
+export const SIGNED_SINCE = 13;

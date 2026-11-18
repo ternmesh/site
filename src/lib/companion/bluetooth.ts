@@ -95,6 +95,17 @@ function within<T>(what: Promise<T>, ms: number, late: string): Promise<T> {
  * It resolves once the node has taken a write, which a node only does from a paired client.
  * Given a `device` the user chose before, it connects to that, with no list and no click.
  */
+/**
+ * What to do when pairing fails (draft/companion.md, "Bluetooth LE"): a node pairs with a passkey
+ * it does not show, the default 123456 or one set on it, only in the three minutes after it is
+ * started by hand or its button is pressed, and a node that shows a passkey on its screen pairs
+ * with that one at any time.
+ */
+export const PAIRING_HINT =
+    "If the node shows a passkey on its screen, type that one. If it has no screen, press its button, " +
+    "or turn it off and on (press RESET on a board with no button), then connect and pair within 3 minutes, " +
+    "with its passkey: 123456 unless one of your own is set.";
+
 export async function openBluetooth(
     bt: Bluetooth | undefined = bluetooth(),
     timings: Partial<Timings> = {},
@@ -269,7 +280,7 @@ export async function openBluetooth(
                 if (Date.now() + t.retry >= until) {
                     throw new Error(
                         `The node did not pair: ${why instanceof Error ? why.message : String(why)}. ` +
-                            "Type the passkey its screen shows when the system asks.",
+                            PAIRING_HINT,
                     );
                 }
                 await sleep(t.retry);

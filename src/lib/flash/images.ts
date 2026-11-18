@@ -145,6 +145,13 @@ export interface ManifestImage {
      * entry an app from before version 12 of the companion protocol knows.
      */
     update?: "bootloader";
+    /**
+     * The file's signature by a release key (its `.sig`), as 128 lower-case hex digits: over
+     * "TERN-FIRMWARE-V1" || the 32 bytes of `sha256` (draft/companion.md, "Signed images";
+     * docs/signing.md in ternmesh/firmware). Absent for a release from before releases were signed,
+     * 0.6.0-alpha.1 and earlier.
+     */
+    signature?: string;
 }
 
 export interface Manifest {
@@ -156,12 +163,15 @@ export interface Manifest {
  * latest.json for a release: the app image of each `ota` ESP32 board's regions, which a node takes
  * over the link, and the DFU package of each UF2 board's regions that has them, which its
  * bootloader takes (`update` is then "bootloader"). An entry for the link has no `update`, so the
- * file a release with no packages makes is the one it made before there were any.
+ * file a release with no packages makes is the one it made before there were any. Given the
+ * release's signatures, by file, each entry carries its own; without them, as for a release from
+ * before signing, none does, and the file is the one it made before there were any.
  */
 export async function manifest(
     version: string,
     boards: readonly { board: string; regions: readonly Region[]; update?: UpdateWay }[],
     images: Map<string, Uint8Array>,
+    signatures?: Map<string, Uint8Array>,
 ): Promise<Manifest> {
     const list: ManifestImage[] = [];
     for (const { board, regions, update } of [...boards].sort((a, b) => a.board.localeCompare(b.board))) {
@@ -176,6 +186,13 @@ export async function manifest(
             const image: ManifestImage = { board, region: region.toUpperCase(), file, size: data.length, sha256: hex };
             if (bootloader) {
                 image.update = "bootloader";
+            }
+            if (signatures) {
+                const sig = signatures.get(file);
+                if (!sig) {
+                    throw new Error(`latest.json needs ${file}.sig`);
+                }
+                image.signature = Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");
             }
             list.push(image);
         }

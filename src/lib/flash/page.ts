@@ -5,6 +5,8 @@ import release from "../../data/firmware.json";
 import { flash } from "./flash.ts";
 import type { Image, Stage } from "./flash.ts";
 import { check, layoutOf, parseSums, REGIONS, sparesNvs, writes } from "./images.ts";
+import { unhex } from "../companion/protocol.ts";
+import { verifies } from "../companion/signing.ts";
 import type { Family, Kind, Region } from "./images.ts";
 
 /** A board the page offers, as flash.astro writes it into the page from the release's checksums. */
@@ -49,20 +51,33 @@ async function fetchBytes(path: string): Promise<Uint8Array> {
 /**
  * The images for a choice, every one checked against the release's checksums before any is
  * written. An update leaves NVS alone, so a board keeps its address, contacts and sessions.
+ *
+ * A board takes anything over USB, so this is the one place a tampered image would be caught: for
+ * a release that is signed, each image's signature (its .sig, beside it) is checked against the
+ * release keys too, and `unverified` names those whose signature is missing or does not verify. A
+ * release from before signing has none to check.
  */
-async function images(board: string, region: Region, kind: Kind): Promise<Image[]> {
+async function images(board: string, region: Region, kind: Kind, signed: boolean): Promise<{ images: Image[]; unverified: string[] }> {
     const sums = parseSums(new TextDecoder().decode(await fetchBytes("/firmware/SHA256SUMS")));
     const plan = writes(release.version, board, region, kind, layoutOf(release.version, board, sums));
-    return Promise.all(
+    const unverified: string[] = [];
+    const images = await Promise.all(
         plan.map(async ({ name, address }) => {
             const data = await fetchBytes(`/firmware/${name}`);
             await check(name, data, sums);
             if (kind === "update") {
                 sparesNvs(name, address, data.length);
             }
+            if (signed) {
+                const sig = await fetchBytes(`/firmware/${name}.sig`).catch(() => null);
+                if (!verifies(unhex(sums.get(name)!)!, sig)) {
+                    unverified.push(name);
+                }
+            }
             return { data, address };
         }),
     );
+    return { images, unverified };
 }
 
 function chosen<T extends string>(name: string, among: readonly T[]): T | undefined {
@@ -80,6 +95,9 @@ function start(): void {
     const select = $<HTMLSelectElement>("board");
     const download = $<HTMLAnchorElement>("download");
     const offers: Offer[] = JSON.parse($("offers").textContent ?? "[]");
+    // Whether the release the site offers is signed: tools/firmware.ts keeps each image's .sig
+    // beside it if it is. A release from before signing is not.
+    const signed = form.dataset.signed === "true";
     const offer = () => offers.find((o) => o.name === select.value) ?? offers[0]!;
     // While a board is being written, nothing on the form may change or start another write.
     let busy = false;
@@ -164,7 +182,17 @@ function start(): void {
         log.textContent = "";
         try {
             say("Fetching the firmware…");
-            await flash(port, await images(o.name, region, kind), { chip: o.chip, title: o.title }, {
+            const got = await images(o.name, region, kind, signed);
+            if (
+                got.unverified.length > 0 &&
+                !confirm(
+                    `The signature of ${got.unverified.join(" and ")} does not verify with Tern's release key: it may not be the release's. ` +
+                        "An image that is not Tern's could do anything with the board, and read everything on it. Write it anyway?",
+                )
+            ) {
+                throw new Error("an image is not signed by Tern's release key: nothing was written");
+            }
+            await flash(port, got.images, { chip: o.chip, title: o.title }, {
                 onStage: (stage) => {
                     say(STAGES[stage]);
                     if (stage !== "writing") {

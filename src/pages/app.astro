@@ -56,8 +56,9 @@ import Base from "../layouts/Base.astro";
                     </li>
                     <li>
                         <strong>Pairing.</strong> Over Bluetooth, the node asks for a passkey the first
-                        time: it is on the node's screen. The node's <code>forget</code> command, over
-                        USB, makes every device pair again.
+                        time: it is on the node's screen. A node with no screen pairs within three minutes
+                        of a press of its button or of being turned on. The node's <code>forget</code>
+                        command, over USB, makes every device pair again.
                     </li>
                     <li>
                         <strong>Your messages.</strong> Conversations are also kept in this browser, since
@@ -277,6 +278,7 @@ import Base from "../layouts/Base.astro";
                             <p class="buttons">
                                 <button id="disconnect" type="button">Disconnect</button>
                                 <button id="turn-off" type="button" class="danger" hidden>Turn the node off</button>
+                                <button id="wipe" type="button" class="danger" hidden>Erase this node</button>
                             </p>
                         </section>
 
@@ -1286,6 +1288,11 @@ import Base from "../layouts/Base.astro";
         accent-color: var(--accent);
     }
     .app .update .facts {
+        font-size: 0.9rem;
+        margin: 4px 0 10px;
+    }
+    .app .update .warn {
+        color: var(--bad);
         font-size: 0.9rem;
         margin: 4px 0 10px;
     }

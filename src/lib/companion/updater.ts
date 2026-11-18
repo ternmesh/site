@@ -4,7 +4,9 @@
 // gives the image.
 //
 // Over the link: UPDATE_BEGIN, the image's bytes from wherever the node says to go on from, and
-// UPDATE_END.
+// UPDATE_END. From version 13, UPDATE_BEGIN carries the image's signature (signing.ts), and a node
+// that checks signatures refuses one that does not verify with ERROR 11 before any byte is sent;
+// to an earlier node the client leaves it out (Client.request).
 //
 // It makes its requests through whatever connection it is handed, and keeps no link of its own. A
 // connection that goes leaves it waiting: on the next one, UPDATE_BEGIN says how much of the image
@@ -14,7 +16,7 @@
 
 import type { UpdateWay } from "../flash/images.ts";
 import { Refused } from "./client.ts";
-import { UPDATE, UPDATE_CHUNK, hex } from "./protocol.ts";
+import { SIGNATURE_MAX, UPDATE, UPDATE_CHUNK, hex } from "./protocol.ts";
 import type { Fields, Frame } from "./protocol.ts";
 
 /**
@@ -81,29 +83,49 @@ export class Updater {
     state: UpdateState = "waiting";
     /** The node's code for a refusal. */
     code = 0;
+    /**
+     * What was being asked when the node refused: `beginning` for UPDATE_BEGIN, whose ERROR 11 is
+     * a node that takes only signed images refusing this one's signature, and `ending` for
+     * UPDATE_END, whose ERROR 11 is an image the node will not run.
+     */
+    refusedAt: UpdateState | null = null;
     /** How many bytes of the image the node holds, as far as this client knows. */
     acknowledged = 0;
     onChange: (u: Updater) => void = () => {};
 
     private readonly image: Uint8Array;
     private readonly digest: string;
+    /** The image's signature as hex, empty for none. */
+    private readonly signature: string;
     /** Counts the runs, and cancelling: what an earlier one hears after is ignored. */
     private attempt = 0;
 
-    private constructor(image: Uint8Array, digest: string) {
+    private constructor(image: Uint8Array, digest: string, signature: string) {
         this.image = image;
         this.digest = digest;
+        this.signature = signature;
         this.size = image.length;
     }
 
-    /** An updater for an image, with its SHA-256 worked out, which the node checks it against. */
-    static async of(image: Uint8Array): Promise<Updater> {
+    /**
+     * An updater for an image, with its SHA-256 worked out, which the node checks it against, and
+     * its signature, if it has one: 64 bytes, sent in UPDATE_BEGIN to a node of version 13 or later.
+     */
+    static async of(image: Uint8Array, signature: Uint8Array | null = null): Promise<Updater> {
         if (image.length < 1 || image.length > 0xffffffff) {
             throw new Error(`an image is 1 to 4294967295 bytes, not ${image.length}`);
         }
+        if (signature && signature.length > SIGNATURE_MAX) {
+            throw new Error(`a signature is at most ${SIGNATURE_MAX} bytes`);
+        }
         const copy = image.slice();
         const digest = await crypto.subtle.digest("SHA-256", copy as Uint8Array<ArrayBuffer>);
-        return new Updater(copy, hex(new Uint8Array(digest)));
+        return new Updater(copy, hex(new Uint8Array(digest)), signature ? hex(signature) : "");
+    }
+
+    /** UPDATE_BEGIN's fields. */
+    private get begin(): Fields {
+        return { size: this.size, digest: this.digest, signature: this.signature };
     }
 
     /** Nothing more will be sent: it ended, one way or another. */
@@ -129,7 +151,7 @@ export class Updater {
         try {
             for (;;) {
                 this.set("beginning");
-                const offset = Number((await ask("UPDATE_BEGIN", { size: this.size, digest: this.digest })).fields.offset);
+                const offset = Number((await ask("UPDATE_BEGIN", this.begin)).fields.offset);
                 if (mine !== this.attempt) {
                     return;
                 }
@@ -202,6 +224,7 @@ export class Updater {
 
     private refuse(code: number): void {
         this.code = code;
+        this.refusedAt = this.state;
         this.set("refused");
     }
 

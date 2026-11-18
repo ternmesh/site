@@ -7,9 +7,10 @@
 import { Client, Refused } from "../companion/client.ts";
 import type { Fix, Message, Position, Sharing, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
-import { parseAddress, routingId, routingIdText } from "../companion/ids.ts";
+import { BLINDED_SINCE, parseAddress, routingIdFor, routingIdText } from "../companion/ids.ts";
 import { ASKED, FIX_SOURCE, NAME_MAX, PAIRING, POWER_MOST, RECEIVER, STATE, TEXT_MAX, UPDATE } from "../companion/protocol.ts";
-import { fetchImage, offerFor } from "../companion/release.ts";
+import { SIGNED_SINCE, bytesSigned, fetchImage, imageSigned, offerFor, offerable, signatureOf } from "../companion/release.ts";
+import type { Signed } from "../companion/signing.ts";
 import { readJoinCode, shortCode } from "../companion/share.ts";
 import { linkSegments, qrEncode, qrPath } from "../qr.ts";
 import { Updater, askBootloader, wayOf } from "../companion/updater.ts";
@@ -71,8 +72,12 @@ let reading = false;
 let shownCode: { group: string; link: string } | null = null;
 /** The last node connected to was turned off from here: it is not connected to again until asked. */
 let turnedOff = false;
-/** Routing ids of the addresses the page knows, to put names to neighbours. */
+/**
+ * Routing ids of the addresses the page knows, to put names to neighbours, group writers and
+ * group positions: as the connected node makes them (blinded from version 14), which idsBlinded says.
+ */
 const ids = new Map<string, number>();
+let idsBlinded = false;
 /** The tab shown: the phone apps' Chats, People and Node. */
 type Tab = "chats" | "people" | "node";
 let tab: Tab = "chats";
@@ -350,6 +355,8 @@ function drawNode(): void {
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
     // Not of the demo, which has no firmware to update.
     const missing = [
+        [14, "keep its address off the air in what it sends to route"],
+        [13, "check that an update is signed by Tern, or be erased from here"],
         [9, "be turned off from here"],
         [8, "say where it is, or have its GPS turned off"],
         [7, "share a group by its join code, or join from one"],
@@ -377,7 +384,8 @@ function drawNode(): void {
             el(
                 "p",
                 { class: "muted facts" },
-                "It has no screen, and pairs over Bluetooth with the default passkey, 123456, until a passkey of your own is set on it.",
+                "It has no screen, and pairs over Bluetooth with the default passkey, 123456, until a passkey of your own is set on it" +
+                    (c.version >= SIGNED_SINCE ? ": a new phone or computer only within 3 minutes of a press of its button or of turning it on." : "."),
             ),
         );
     }
@@ -1084,6 +1092,8 @@ interface Offer {
     release: string;
     image: ManifestImage;
     way: UpdateWay;
+    /** Whether the image is signed by a release key, by the manifest, before it is downloaded. */
+    signed: Signed;
 }
 /** What the site offers the connected node, once asked; the key it was asked for. */
 let offer: Offer | null = null;
@@ -1114,7 +1124,7 @@ function askOffer(c: Client): void {
     offerFor(c.board, c.self.region, c.release, way).then(
         (found) => {
             if (offerAsked === key) {
-                offer = found && { ...found, way };
+                offer = found && { ...found, way, signed: imageSigned(found.image) };
                 draw();
             }
         },
@@ -1163,22 +1173,76 @@ function drawUpdate(): void {
         box.hidden = true;
         return;
     }
-    const go = el("button", { type: "button", class: "small primary" }, "Update");
     const chosen = offer;
-    go.addEventListener("click", () => void (chosen.way === "bootloader" ? updateByBootloader(c, chosen) : update(c, chosen)));
+    const out = `Release ${offer.release} is out for this ${c.board} in ${c.self?.region}; it runs ${c.release || "an unnamed release"}. `;
+    if (!offerable(chosen.signed, c.version, chosen.way)) {
+        // A node that checks signatures refuses an image with none: there is nothing to send it.
+        box.append(
+            el("h3", {}, "An update is out"),
+            el(
+                "p",
+                { class: "muted facts" },
+                out,
+                `${chosen.release} was published before releases were signed, and this node takes only signed images over Bluetooth, so it would refuse it. Update it over USB from `,
+                el("a", { href: "/flash" }, "the flash page"),
+                ".",
+            ),
+        );
+        box.hidden = false;
+        return;
+    }
+    const verified = chosen.signed === "verified";
+    const go = el("button", { type: "button", class: verified ? "small primary" : "small danger" }, verified ? "Update" : "Install anyway");
+    go.addEventListener("click", () => {
+        if (!verified && !confirm(unsignedWarning(chosen.signed))) {
+            return;
+        }
+        void (chosen.way === "bootloader" ? updateByBootloader(c, chosen) : update(c, chosen));
+    });
     box.append(
         el("h3", {}, "An update is out"),
         el(
             "p",
             { class: "muted facts" },
-            `Release ${offer.release} is out for this ${c.board} in ${c.self?.region}; it runs ${c.release || "an unnamed release"}. ` +
+            out +
                 (offer.way === "bootloader"
-                    ? "The node restarts into its bootloader, which you then choose in the browser's list, and takes it over Bluetooth in about five minutes. It keeps everything the node holds."
+                    ? "The node restarts into its bootloader, which you then choose in the browser's list at once, and takes it over Bluetooth in about five minutes. It keeps everything the node holds. Until the update finishes, anyone in Bluetooth range can install an image on it: its bootloader checks no signature."
                     : "It is sent over this link and keeps everything the node holds."),
+        ),
+        el(
+            "p",
+            { class: verified ? "muted facts" : "facts warn" },
+            verified
+                ? "Signed by Tern's release key."
+                : chosen.signed === "unsigned"
+                  ? `${chosen.release} was published before releases were signed, so this page cannot check it is the release's.`
+                  : "Its signature does not verify with a release key this page holds: it may not be the release's.",
         ),
         el("p", { class: "actions" }, go),
     );
     box.hidden = false;
+}
+
+/** What the user is told before installing an image that is not signed by a release key. */
+function unsignedWarning(signed: Signed): string {
+    return (
+        (signed === "unsigned"
+            ? "This image has no signature, so nothing shows it is the release Tern published."
+            : "This image's signature does not verify with a release key this page holds: it may not be the release Tern published.") +
+        " An image that is not Tern's could do anything with the node: read its keys, its contacts and its messages. Install it anyway?"
+    );
+}
+
+/**
+ * The signature to send with the image downloaded, or throws if the bytes are not signed as the
+ * manifest said they were: a download that changed under it is not sent.
+ */
+async function checkSigned(data: Uint8Array, chosen: Offer): Promise<Uint8Array | null> {
+    const signed = await bytesSigned(data, chosen.image);
+    if (signed !== chosen.signed) {
+        throw new Error("the firmware downloaded is not signed as the list says: it was not sent");
+    }
+    return signatureOf(chosen.image);
 }
 
 async function update(c: Client, chosen: Offer): Promise<void> {
@@ -1190,7 +1254,8 @@ async function update(c: Client, chosen: Offer): Promise<void> {
     fetching = true;
     try {
         say("Downloading the firmware…");
-        u = await Updater.of(await fetchImage(chosen.image));
+        const data = await fetchImage(chosen.image);
+        u = await Updater.of(data, await checkSigned(data, chosen));
     } catch (e) {
         say(explain(e), true);
         return;
@@ -1245,7 +1310,9 @@ async function drive(c: Client): Promise<void> {
         case "refused":
             updating = null;
             say(
-                u.code === 11
+                u.code === 11 && u.refusedAt === "beginning"
+                    ? "The node refused the image before any of it was sent: it is not signed by a key this node trusts. It keeps its firmware."
+                    : u.code === 11
                     ? "The node would not run that image, and kept its firmware."
                     : u.code === 5
                       ? "The node cannot take an update this way: flash it over USB."
@@ -1292,7 +1359,11 @@ async function updateByBootloader(c: Client, chosen: Offer): Promise<void> {
     fetching = true;
     try {
         say("Downloading the firmware…");
-        pkg = await readPackage(await fetchImage(chosen.image));
+        const data = await fetchImage(chosen.image);
+        // The bootloader checks no signature: the package's is checked here, before the node is
+        // asked to restart into it.
+        await checkSigned(data, chosen);
+        pkg = await readPackage(data);
     } catch (e) {
         say(explain(e), true);
         return;
@@ -1431,7 +1502,7 @@ function drawBoot(): void {
         case "choose":
             box.append(
                 facts(
-                    "The node is restarting into its bootloader. Choose the bootloader in the browser's list: its name ends in DFU, such as T114_DFU.",
+                    "The node is restarting into its bootloader. Choose the bootloader in the browser's list now: its name ends in DFU, such as T114_DFU. Until the update finishes, anyone in Bluetooth range can install an image on the node, so do not leave it waiting.",
                 ),
                 el("p", { class: "actions" }, button("Choose the node's bootloader", true, () => void runDfu(false)), giveUp),
             );
@@ -1906,6 +1977,7 @@ function draw(): void {
         drawNode();
         // Not while an update is under way: the node would be left between two images.
         $("turn-off").hidden = !client.can("OFF") || (updating !== null && updating.node === client.self?.address);
+        $("wipe").hidden = !client.can("WIPE") || (updating !== null && updating.node === client.self?.address);
         drawUpdate();
         drawSettings();
         drawCard();
@@ -1926,15 +1998,27 @@ function historyFor(node: string): boolean {
     return historyNode === node;
 }
 
-/** Works out, once each, the routing ids of the addresses on the page. */
+/**
+ * Works out, once each, the routing ids of the addresses on the page, as the connected node makes
+ * them: from the key blinded from each address for a node of version 14 or later, and from the
+ * address itself before (draft/companion.md, "Starting").
+ */
 function learnIds(): void {
+    const version = client?.version ?? 0;
+    const blinded = version >= BLINDED_SINCE;
+    if (blinded !== idsBlinded) {
+        ids.clear();
+        idsBlinded = blinded;
+    }
     for (const address of people()) {
         if (!ids.has(address)) {
             ids.set(address, 0);
-            routingId(address).then(
+            routingIdFor(address, version).then(
                 (id) => {
-                    ids.set(address, id);
-                    draw();
+                    if (idsBlinded === blinded) {
+                        ids.set(address, id);
+                        draw();
+                    }
                 },
                 () => {},
             );
@@ -2001,7 +2085,8 @@ function act(what: () => Promise<unknown>): void {
 
 const CHOOSE = {
     serial: "Choose the board's port in the browser's list.",
-    bluetooth: "Choose the node in the browser's list. The first time, type in the passkey its screen shows.",
+    bluetooth:
+        "Choose the node in the browser's list. The first time, type in the passkey its screen shows; a node with no screen pairs only within 3 minutes of a press of its button or of being turned on.",
     demo: "",
 };
 
@@ -2125,6 +2210,58 @@ async function turnOff(c: Client): Promise<void> {
 }
 
 /**
+ * Erases the node (WIPE), once the user has been told what goes for good. Once it says OK, the
+ * page forgets everything it holds for the node, and the browser's permission for it; the
+ * operating system's pairing the page cannot remove, and says so.
+ */
+async function wipe(c: Client): Promise<void> {
+    const node = c.self?.address;
+    const sure = window.confirm(
+        "Erase this node? This cannot be undone.\n\n" +
+            "Its address, contacts, groups, messages, sessions, settings and Bluetooth pairings are erased for good. " +
+            "It restarts as a new node with a new address: everyone who had it as a contact must add it again, " +
+            "and you must pair with it again.",
+    );
+    if (!sure || !window.confirm("Erase it now? Everything on the node goes for good.")) {
+        return;
+    }
+    try {
+        await c.wipe();
+    } catch (e) {
+        say(
+            e instanceof Refused && e.code === 8
+                ? "The node cannot erase itself just now. Try again in a moment."
+                : e instanceof Refused && e.code === 0
+                  ? "The node did not answer. It may have erased itself: connect to it again to see."
+                  : explain(e),
+            true,
+        );
+        return;
+    }
+    // The node it was is gone: forget what this page held for it.
+    if (node) {
+        History.forget(node, local());
+    }
+    history = null;
+    historyNode = "";
+    ids.clear();
+    offer = null;
+    offerAsked = "";
+    const device = nodeDevice as (Device & { forget?: () => Promise<void> }) | null;
+    nodeDevice = null;
+    await device?.forget?.().catch(() => {});
+    if (client === c) {
+        client = null;
+    }
+    say(
+        linkKind === "bluetooth"
+            ? "Erased: the node restarts as a new one. Remove it from your computer's or phone's Bluetooth settings too, then connect to it again and pair."
+            : "Erased: the node restarts as a new one, with a new address.",
+    );
+    draw();
+}
+
+/**
  * Applies the settings that differ from the node's, one at a time: the region first, since what
  * power is allowed depends on it. A node restarts to apply each, so each is followed by starting
  * the connection again.
@@ -2230,6 +2367,11 @@ function start(): void {
     $("turn-off").addEventListener("click", () => {
         if (client) {
             void turnOff(client);
+        }
+    });
+    $("wipe").addEventListener("click", () => {
+        if (client) {
+            void wipe(client);
         }
     });
     $("disconnect").addEventListener("click", () => {
