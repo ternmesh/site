@@ -53,7 +53,10 @@ import Base from "../layouts/Base.astro";
         <p class="muted small privacy">
             The code is the part of the link after the <code>#</code>, which a browser never sends to a site. This
             page reads it in your browser and sends it nowhere, so this site learns that a join code was opened, and
-            not which group's. It keeps no logs.
+            not which group's. It keeps no logs. It takes the code out of the address bar as soon as it has read
+            it, but your browser may already have put the whole link in its history, and may copy that history to
+            your other devices: clear it from there if that matters. The Tern app on a phone opens a join code
+            without the browser.
         </p>
     </section>
 </Base>
