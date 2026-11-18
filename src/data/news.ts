@@ -19,6 +19,27 @@ const apple = "https://github.com/ternmesh/apple/releases/tag";
 
 export const news: Entry[] = [
     {
+        date: "2026-11-18",
+        what: "Firmware",
+        title: "0.7.0-alpha.1",
+        body: "A security and privacy release. Announces no longer carry a node's address, updates are signed and checked, a board without a screen pairs only just after it is turned on or its button is pressed, and a client can erase a board. Acknowledgements, sessions, first contact and groups are hardened. It does not talk to 0.6: update every board you use.",
+        link: `${fw}/v0.7.0-alpha.1`,
+    },
+    {
+        date: "2026-11-18",
+        what: "Android",
+        title: "0.4.0",
+        body: "Checks every firmware image's signature before sending it, works with nodes' new blinded routing ids, explains the pairing window when pairing fails, and can erase a node. Speaks companion version 14.",
+        link: `${android}/v0.4.0`,
+    },
+    {
+        date: "2026-11-18",
+        what: "Apple",
+        title: "0.5.0",
+        body: "Checks every firmware image's signature before sending it, works with nodes' new blinded routing ids, explains the pairing window when pairing fails, and can erase a node. Speaks companion version 14.",
+        link: `${apple}/v0.5.0`,
+    },
+    {
         date: "2026-11-17",
         what: "Firmware",
         title: "0.6.0-alpha.1",
