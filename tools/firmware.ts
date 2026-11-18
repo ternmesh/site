@@ -13,8 +13,9 @@
 // a node takes over the link, and the .zip of every nRF52840 board that has them, which its
 // bootloader takes; a release with neither has no latest.json.
 //
-// A release that is signed (docs/signing.md in ternmesh/firmware) has each file's signature beside
-// it, as <file>.sig. Each is fetched with its image, checked against the release keys
+// A release that is signed (docs/signing.md in ternmesh/firmware) lists each file's signature in
+// one file, SIGNATURES (or, as the first signed build did, has <file>.sig beside each). Each is
+// checked against the release keys
 // (src/lib/companion/release-keys.ts), kept beside the image for the flash page, and given in
 // latest.json as each image's `signature`. One that is missing or does not verify fails the build.
 // A release from before signing (0.6.0-alpha.1 and earlier) has none, and is offered as before,
