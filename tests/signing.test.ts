@@ -14,7 +14,7 @@ import { bytesSigned, imageSigned, offerable } from "../src/lib/companion/releas
 import { signedMessage, signedState, verifies } from "../src/lib/companion/signing.ts";
 import { manifest } from "../src/lib/flash/images.ts";
 import type { ManifestImage } from "../src/lib/flash/images.ts";
-import { releaseSignatures } from "../src/lib/flash/signatures.ts";
+import { parseSignatures, releaseSignatures } from "../src/lib/flash/signatures.ts";
 
 const v: {
     release_key: string;
@@ -143,7 +143,7 @@ test("feed: a signed release's signatures are each checked, and given in latest.
 test("feed: a signed release with a .sig missing, short, or by another key fails", async () => {
     const missing = signedRelease();
     missing.delete(`${NAMES[1]}.sig`);
-    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(missing).fetchFile, TEST_KEYS), /has no .*\.sig/);
+    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(missing).fetchFile, TEST_KEYS), /no signature for /);
 
     const short = signedRelease();
     short.set(`${NAMES[0]}.sig`, short.get(`${NAMES[0]}.sig`)!.subarray(0, 63));
@@ -159,13 +159,45 @@ test("feed: a signed release with a .sig missing, short, or by another key fails
     // Images signed but SHA256SUMS not: still a signed release, and SHA256SUMS's is missing.
     const noSums = signedRelease();
     noSums.delete("SHA256SUMS.sig");
-    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(noSums).fetchFile, TEST_KEYS), /SHA256SUMS has no/);
+    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(noSums).fetchFile, TEST_KEYS), /no signature for SHA256SUMS/);
+});
+
+/** The same release with its signatures in one SIGNATURES file, as releases from 0.7.0-alpha.1 carry them. */
+function listedRelease(edit: (lines: string[]) => string[] = (l) => l): Map<string, Uint8Array> {
+    const lines = [`${hex(sign(SUMS_FILE))}  SHA256SUMS`];
+    for (const [name, data] of IMAGES) {
+        lines.push(`${hex(sign(data))}  ${name}`);
+    }
+    return new Map([["SIGNATURES", new TextEncoder().encode(edit(lines).join("\n") + "\n")]]);
+}
+
+test("feed: a release's SIGNATURES file gives every signature, with no .sig fetched", async () => {
+    const { fetchFile, asked } = release(listedRelease());
+    const sigs = await releaseSignatures(NAMES, SUMS, SUMS_FILE, fetchFile, TEST_KEYS);
+    assert.ok(sigs);
+    assert.deepEqual([...sigs.keys()].sort(), ["SHA256SUMS", ...NAMES].sort());
+    assert.deepEqual(asked, ["SIGNATURES"], "one file, and no .sig");
+    const per = await releaseSignatures(NAMES, SUMS, SUMS_FILE, release(signedRelease()).fetchFile, TEST_KEYS);
+    for (const name of NAMES) {
+        assert.equal(hex(sigs.get(name)!), hex(per!.get(name)!), name);
+    }
+});
+
+test("feed: a SIGNATURES file missing a line, malformed, or naming a file twice fails", async () => {
+    const missing = listedRelease((l) => l.filter((x) => !x.endsWith(`  ${NAMES[1]}`)));
+    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(missing).fetchFile, TEST_KEYS), /no signature for /);
+    const other = (l: string[]) => l.find((y) => y.endsWith(`  ${NAMES[1]}`))!.slice(0, 128);
+    const swapped = listedRelease((l) => l.map((x) => (x.endsWith(`  ${NAMES[0]}`) ? `${other(l)}  ${NAMES[0]}` : x)));
+    await assert.rejects(releaseSignatures(NAMES, SUMS, SUMS_FILE, release(swapped).fetchFile, TEST_KEYS), /does not verify/);
+    assert.throws(() => parseSignatures(new TextEncoder().encode("abc  x\n")), /not a signature and a name/);
+    const line = `${"0".repeat(128)}  x`;
+    assert.throws(() => parseSignatures(new TextEncoder().encode(`${line}\n${line}\n`)), /twice/);
 });
 
 test("feed: a release from before signing has none, and latest.json is as it was", async () => {
     const { fetchFile, asked } = release(new Map());
     assert.equal(await releaseSignatures(NAMES, SUMS, SUMS_FILE, fetchFile, TEST_KEYS), null);
-    assert.deepEqual(asked, ["SHA256SUMS.sig", `${NAMES[0]}.sig`], "two looks, and no more");
+    assert.deepEqual(asked, ["SIGNATURES", "SHA256SUMS.sig", `${NAMES[0]}.sig`], "three looks, and no more");
     const boards = [{ board: "heltec-v3", regions: ["eu868" as const], update: "link" as const }];
     const latest = await manifest("1.0.0", boards, IMAGES);
     assert.equal("signature" in latest.images[0]!, false);
