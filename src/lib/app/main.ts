@@ -2345,11 +2345,22 @@ function start(): void {
         $<HTMLInputElement>("add-address").value = shared;
         tab = "people";
     }
-    // A join code's page (/G) sends its code here after the #, which no request carries, to be
-    // joined from once a node is connected and the user says so. It leaves the address bar at once.
+    // A join code's page (/G) hands its code here in the tab's own storage, never in a link, to be
+    // joined from once a node is connected and the user says so; it is taken from there at once.
+    // A page of before put it after a #, which leaves the address bar at once.
+    let handed: string | null = null;
+    try {
+        handed = window.sessionStorage.getItem("tern.join");
+        window.sessionStorage.removeItem("tern.join");
+    } catch {
+        // No storage for the tab: nothing was handed over.
+    }
     if (location.hash.startsWith("#join=")) {
-        $<HTMLInputElement>("join-code").value = decodeURIComponent(location.hash.slice("#join=".length));
+        handed = decodeURIComponent(location.hash.slice("#join=".length));
         window.history.replaceState(null, "", location.pathname + location.search);
+    }
+    if (handed) {
+        $<HTMLInputElement>("join-code").value = handed;
         tab = "people";
         say("Connect your node, then press Join under Groups.");
     }

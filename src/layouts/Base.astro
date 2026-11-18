@@ -184,12 +184,17 @@ const footer = [
                 </footer>
             )
         }
-        <script is:inline>
+        <script>
             // The menu on a narrow screen: opened and closed by its button, and closed by Escape.
+            // A script file of the site's own, not one inline: the join code's page allows no
+            // script but the site's files (public/_headers).
             (() => {
                 const header = document.getElementById("site-header");
-                const button = header.querySelector(".menu-button");
-                const set = (open) => {
+                const button = header?.querySelector<HTMLElement>(".menu-button");
+                if (!header || !button) {
+                    return;
+                }
+                const set = (open: boolean) => {
                     header.classList.toggle("open", open);
                     button.setAttribute("aria-expanded", String(open));
                 };
