@@ -54,7 +54,7 @@ Once a node is connected the page has the phone apps' layout: **Chats**, **Peopl
 tabs, down the side on a computer and along the foot on a phone, with the node's name and battery at
 the head of each. Before then, it is where a node is connected from: USB, Bluetooth or the demo.
 
-It speaks version 12 of the protocol, and any earlier version a node speaks:
+It speaks version 14 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
@@ -78,19 +78,41 @@ not define, saying on the node's card what an update would bring.
 * **Turning it off:** **Turn off**, beside Disconnect, for a node of version 9 (`OFF`). It asks
   first, saying that only the node itself turns it on again; once the node says OK the page closes
   the link, says so, and does not try to reach it again until the user connects.
+* **Routing ids:** a neighbour, a group message's writer and a group member's position are known
+  by routing id, which the page matches to the addresses it knows. A node of version 14 makes
+  routing ids from the key blinded from each address (draft/routing.md, "Routing ids"): the page
+  works out `B = [h]A` with [@noble/curves](https://github.com/paulmillr/noble-curves) and keeps each
+  id it works out (`src/lib/companion/ids.ts`); for an earlier node it uses the address's own.
+* **Erasing it:** **Erase this node**, beside Turn off, for a node of version 13 (`WIPE`). It asks
+  twice, saying that the node's address, contacts, groups and messages go for good and that it must
+  be paired again. Once the node says OK the page forgets what it kept for the node and the
+  browser's permission for it (`BluetoothDevice.forget()`), and says to remove it from the system's
+  Bluetooth settings too.
+* **Pairing:** when pairing fails the page says what the specification's pairing window asks: a
+  node with no screen showing a passkey pairs only within three minutes of a press of its button or
+  of being turned on (or RESET); one with a screen pairs with the passkey it shows.
 * **Maximum transmit power:** **Use the most it may send at**, for a node of version 10. The node
   works out the highest permitted power for its board, antenna and region, and tells the page when
   that is the power it is using.
 * **Updates:** a node with a board and a release is offered the release in `/firmware/latest.json`
   for its board and region when it is later, by Semantic Versioning, the way the node is updated:
   as its `INFO`'s `update` says from version 12, and over the link before then. The image is
-  checked against the manifest's size and SHA-256 before anything is sent.
+  checked against the manifest's size and SHA-256 before anything is sent, and its signature
+  (`signature`, below) against the [release keys](#the-release-keys), before it is downloaded and
+  again after. An image signed by a release key is offered as it is. One with no signature, as every
+  release up to 0.6.0-alpha.1, or one whose signature does not verify, is offered only behind a
+  warning and **Install anyway**, except that one with no signature is not offered at all to a node
+  of version 13 or later updated over the link: such a node takes only signed images, and the page
+  says to update it over USB instead. From version 13 `UPDATE_BEGIN` carries the signature, and the
+  page reads `ERROR` 11 to it as an image not signed by a key the node trusts.
   * **Over the link** (ESP32): the app image is sent over the same link, going on from where the
     node says after a dropped link.
   * **By the bootloader** (nRF52840, from firmware 0.6.0): the page asks the node to restart into
     its bootloader (`UPDATE_BOOTLOADER`), and the user chooses the bootloader in the browser's
     list (**Choose the node's bootloader**: Web Bluetooth lets a page reach a new device only from
-    a click). The page gives it the release's DFU package by Nordic's legacy DFU, as
+    a click). The package's signature is checked before the node is asked, since the bootloader
+    checks none, and the page says that until the update finishes anyone in Bluetooth range can
+    install an image on the node. The page gives it the release's DFU package by Nordic's legacy DFU, as
     `tools/ble_dfu.py` in the firmware does, with the erase and the transfer shown as they go, about
     five minutes in all; then it connects to the node again over Bluetooth and checks the release it
     runs. A transfer that fails leaves the bootloader waiting, and **Try again** starts it over.
@@ -105,16 +127,21 @@ not define, saying on the node's card what an update would bring.
 | `src/lib/companion/bluetooth.ts` | A node over Bluetooth LE, through Web Bluetooth: pairing, and finding a node again after it restarts; and a node's bootloader, for an update. |
 | `src/lib/companion/updater.ts` | How a node is updated, and one firmware image given to a node over the link: `UPDATE_BEGIN`, the image a chunk at a time from the offset the node gives, `UPDATE_END`, and going on after the link drops; or `UPDATE_BOOTLOADER`. |
 | `src/lib/companion/dfu.ts` | A DFU package read from its zip, and given to an nRF52840 node's bootloader: Nordic's legacy DFU, with a receipt every ten packets. |
-| `src/lib/companion/release.ts` | `latest.json` as the page reads it: the image for a node's board and region and the way it is updated, and Semantic Versioning's order. |
+| `src/lib/companion/release.ts` | `latest.json` as the page reads it: the image for a node's board and region and the way it is updated, whether it is signed and may be offered, and Semantic Versioning's order. |
+| `src/lib/companion/signing.ts` | Signed images: the message a release key signs, and checking a signature against the release keys, with [@noble/curves](https://github.com/paulmillr/noble-curves) in RFC 8032's strict mode. |
+| `src/lib/companion/release-keys.ts` | The release keys: [below](#the-release-keys). |
 | `src/lib/companion/demo.ts` | A made-up node in the page, for "Try it without a board" and `/app?demo`. |
-| `src/lib/companion/ids.ts` | Addresses as typed, and the routing id of one. |
+| `src/lib/companion/ids.ts` | Addresses as typed, and the routing id of one: the address's own, or from version 14 the one from the key blinded from it. |
 | `src/lib/app/` | The page: what is drawn, and the conversations it keeps in the browser. |
 
 `tests/vectors/companion.json` is a copy of the specification's
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as of
-[ternmesh/spec#56](https://github.com/ternmesh/spec/pull/56) (version 12), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
-byte for byte, the older clients' frames read by their versions, the update as its client, and the
-node that its bootloader updates. `tests/dfu.test.ts` holds the DFU client to a bootloader the test
+[ternmesh/spec#60](https://github.com/ternmesh/spec/pull/60) (version 14), and `npm test` holds the client to it: every frame, every stream, and the specification's exchange
+byte for byte, the older clients' frames read by their versions, the update as its client, signed,
+the node that its bootloader updates, every case of `signatures`, and `wipe`.
+`tests/vectors/routing.json` is a copy of the specification's
+[`vectors/routing.json`](https://github.com/ternmesh/spec/blob/main/vectors/routing.json): each of
+its `ids` gives the blinding, routing key and id the page works out, and none of its `no_ids` gives one. `tests/dfu.test.ts` holds the DFU client to a bootloader the test
 plays.
 When the specification's vectors change, copy the new file here in the pull
 request that changes the code to match.
@@ -176,7 +203,32 @@ version there.
 | `src/lib/flash/images.ts` | The images a release has, by name, what each choice writes where, the check against its checksums, and `latest.json`. |
 | `src/lib/flash/flash.ts` | Writing them to the board, checking it, and restarting the board. |
 | `src/lib/flash/md5.ts` | MD5, which is how the board's bootloader says what it holds. |
+| `src/lib/flash/signatures.ts` | A release's `.sig` files, as `tools/firmware.ts` checks them. |
 | `src/lib/flash/page.ts` | The page. |
+
+**Signatures.** From the first signed release, each file a release carries has its signature beside
+it, `<file>.sig`: 64 bytes, Ed25519 by a release key over `"TERN-FIRMWARE-V1"` and the file's
+SHA-256 (the firmware's [`docs/signing.md`](https://github.com/ternmesh/firmware/blob/main/docs/signing.md)).
+`tools/firmware.ts` takes a release as signed if it has `SHA256SUMS.sig`, or the first image's
+`.sig`. For a signed release it fetches each image's `.sig` and `SHA256SUMS.sig`, checks each against
+the release keys, keeps them beside the images, and gives each image's in `latest.json`; a `.sig`
+that is missing, not 64 bytes, or does not verify fails the build, and the hourly workflow goes on
+offering the release it offered before. A release from before signing (0.6.0-alpha.1 and earlier)
+has no `.sig` at all, and builds exactly as it did, with no `signature` in `latest.json`. The flash
+page checks each image's `.sig` before writing it, since a board takes anything over USB, and asks
+before writing one that does not verify; for a release from before signing it says it cannot check
+that the images are Tern's.
+
+### The release keys
+
+`src/lib/companion/release-keys.ts` lists the release keys, the Ed25519 public keys a release is
+signed by: the same list as the firmware's
+[`ports/node/release_keys.h`](https://github.com/ternmesh/firmware/blob/main/ports/node/release_keys.h),
+which the nodes are built with. The app, the flash page and the feed all read it. Today it holds
+release key 1, added 2026-11-18 ([ternmesh/firmware#120](https://github.com/ternmesh/firmware/pull/120)).
+Adding a key is one line there, its 64 hex digits with a comment saying when it was added, in the
+same pull request as, or before, the firmware release first signed with it; dropping one follows the
+firmware dropping it. The specification's test key never goes there: the tests hand it in.
 
 ### latest.json: what the phone apps read
 
@@ -195,7 +247,8 @@ It is a contract with the apps: change it only with them.
             "region": "EU868",
             "file": "tern-heltec-v3-eu868-0.1.0-app.bin",
             "size": 1234567,
-            "sha256": "<64 hex digits>"
+            "sha256": "<64 hex digits>",
+            "signature": "<128 hex digits>"
         },
         {
             "board": "heltec-t114",
@@ -203,7 +256,8 @@ It is a contract with the apps: change it only with them.
             "file": "tern-heltec-t114-us915-0.1.0.zip",
             "size": 234567,
             "sha256": "<64 hex digits>",
-            "update": "bootloader"
+            "update": "bootloader",
+            "signature": "<128 hex digits>"
         }
     ]
 }
@@ -222,6 +276,9 @@ It is a contract with the apps: change it only with them.
   node's `INFO` `update` (1: the link, 2: the bootloader). An entry with an `update` the app does
   not know is not one it can send. Before version 12 a node names its board only if it is updated
   over the link, so an older app is never offered a package.
+* `signature`, from the first signed release, is the file's `.sig` as 128 lowercase hex digits:
+  Ed25519 by a release key over `"TERN-FIRMWARE-V1"` and the 32 bytes of `sha256`, so an app can
+  check it before downloading anything. A release from before signing has none.
 * A release from before the two-slot layout, with no DFU package, has no `latest.json`: its app is
   not one a phone may send. An app takes a missing file to mean there is nothing to update to.
 * Fields may be added; none will be removed or change meaning without the apps.

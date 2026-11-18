@@ -3,7 +3,9 @@ name: Firmware
 # Offers each firmware release once it is published, with no pull request: every hour, if
 # ternmesh/firmware has a release later than the one src/data/firmware.json names, this names it
 # there, runs the tests and the build (which fetches every image of it and checks it against its
-# SHA256SUMS, as a pull request's would), and commits it to main. Cloudflare deploys main, and the
+# SHA256SUMS, and, for a signed release, each image's .sig against the release keys in
+# src/lib/companion/release-keys.ts, as a pull request's would), and commits it to main. A release
+# from before signing has no .sig, and is offered as before. Cloudflare deploys main, and the
 # flash page and the phone apps (/firmware/latest.json) offer the release. If the release fails the
 # build, nothing is committed, and the next hour tries again. 'Run workflow' runs it now.
 on:

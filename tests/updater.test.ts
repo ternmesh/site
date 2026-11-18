@@ -11,7 +11,7 @@ import { Updater, askBootloader, wayOf } from "../src/lib/companion/updater.ts";
 import { Wire } from "./wire.ts";
 
 type Step = { from: string; type: string; seq: number; frame: string };
-const v: { image: string; image_digest: string; update: Step[][]; bootloader: Step[][] } = JSON.parse(
+const v: { image: string; image_digest: string; image_signature: string; update: Step[][]; bootloader: Step[][] } = JSON.parse(
     readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"),
 );
 const quick = { answerWaitMs: 40, idleMs: 60_000, gapMs: 10, now: () => 1_790_000_000_000 };
@@ -35,7 +35,7 @@ async function play(wire: Wire, steps: Step[], during: () => Promise<void>): Pro
 }
 
 test("update: one image over two connections, going on from where the node says", async () => {
-    const u = await Updater.of(unhex(v.image)!);
+    const u = await Updater.of(unhex(v.image)!, unhex(v.image_signature)!);
     const states: string[] = [];
     u.onChange = (x) => states.push(x.state);
 
@@ -161,7 +161,7 @@ test("bootloader: a node of version 12 that its bootloader updates refuses the l
 
     // Over the link it is refused: no room for a second image. A page never asks that of such a
     // node; the vector does, to see it refused.
-    const u = await Updater.of(unhex(v.image)!);
+    const u = await Updater.of(unhex(v.image)!, unhex(v.image_signature)!);
     const asked = u.run((type, fields) => c.request(type, fields));
     assert.equal(hex(await w.next()), steps[2]!.frame, "UPDATE_BEGIN");
     w.raw(unhex(steps[3]!.frame)!);
@@ -178,7 +178,7 @@ test("bootloader: a node of version 12 that its bootloader updates refuses the l
 test("bootloader: to a client of version 11 the same node names no board, and cannot be updated from it", () => {
     const [, older] = v.bootloader;
     const info = decode(unhex(older![1]!.frame)!, 11)!;
-    assert.deepEqual(info.fields, { version: 12, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
+    assert.deepEqual(info.fields, { version: 14, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
     assert.equal(wayOf({ version: 11, update: null, board: "" }), null);
     // That client's UPDATE_BEGIN is refused as this client's was.
     assert.deepEqual(decode(unhex(older![3]!.frame)!, 11)!.fields, { code: 5 });

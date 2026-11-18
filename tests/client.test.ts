@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
-import { routingId } from "../src/lib/companion/ids.ts";
+import { routingId, routingIdFor } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
 import {
     FIX_SOURCE,
@@ -128,7 +128,9 @@ for (const framed of [false, true]) {
         // group, under the routing id its frame gave, and his invite is with him.
         const two = c.messages.get(21)!;
         assert.deepEqual([two.contact, two.group, two.text, two.read], [hut, hut, "Two of us", false]);
-        assert.equal(two.from, await routingId(BOB));
+        // A node of version 14 gives the routing id blinded from the address, not the address's own.
+        assert.equal(two.from, await routingIdFor(BOB, 14));
+        assert.notEqual(two.from, await routingId(BOB));
         const asked = c.messages.get(22)!;
         assert.deepEqual([asked.invite, asked.contact, asked.text, asked.state], [true, BOB, "Ridge", STATE.received]);
         assert.equal(c.groups.has(asked.group), false);

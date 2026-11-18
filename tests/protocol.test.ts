@@ -84,7 +84,13 @@ test("exchange and older: every frame reads by the version spoken, and builds ba
             // Each older client's last request is one its version does not define, sent on purpose
             // to see the node refuse it: it is a frame of a later version.
             const later = c.from === "client" && decode(bytes(c.frame), version) === null;
-            const f = decode(bytes(c.frame), later ? VERSION : version);
+            // Read by the first version that defines it: an UPDATE_BEGIN from a client of
+            // version 3 carries no signature, which a later version's adds at its end.
+            let by = version;
+            while (later && by < VERSION && decode(bytes(c.frame), by) === null) {
+                by++;
+            }
+            const f = decode(bytes(c.frame), by);
             assert.ok(f, `${c.type}, version ${version}`);
             assert.equal(f.type, c.type);
             assert.equal(f.seq, c.seq);
@@ -176,7 +182,7 @@ test("pairing and updates by the bootloader: versions 11 and 12", () => {
     assert.equal("pairing" in decode(bytes(ten.frame), 10)!.fields, false);
     assert.equal("most" in decode(bytes(ten.frame), 10)!.fields, true);
     // Each frame of the bootloader's two connections reads by its client's version, and builds back.
-    for (const [i, version] of [12, 11].entries()) {
+    for (const [i, version] of [VERSION, 11].entries()) {
         for (const c of v.bootloader[i]!) {
             const f = decode(bytes(c.frame), version);
             assert.ok(f, `${c.type}, version ${version}`);

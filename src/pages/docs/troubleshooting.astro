@@ -56,10 +56,13 @@ const fw = "https://github.com/ternmesh/firmware";
     <details>
         <summary>Pairing fails</summary>
         <p>
-            Type the passkey the node's screen shows now: it is new each time. If the node was reset, or the app
-            reinstalled, the phone may still hold the old pairing: remove the node from the phone's Bluetooth settings,
-            and on the node forget its phones (the <em>Phones</em> page, or <code>forget</code> on the console), then
-            pair again.
+            Type the passkey the node's screen shows now: it is new each time. A node with no screen to show one
+            pairs only in the three minutes after it is turned on or its button is pressed: press its button, or
+            turn it off and on (press RESET on a board with no button), and pair within three minutes, with
+            <code>123456</code> or the passkey you set. If the node was reset or erased, or the app reinstalled, the
+            phone may still hold the old pairing: remove the node from the phone's Bluetooth settings, and on the
+            node forget its phones (the <em>Phones</em> page, or <code>forget</code> on the console), then pair
+            again.
         </p>
     </details>
     <details>

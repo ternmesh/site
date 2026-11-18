@@ -51,6 +51,18 @@ export function settled(state: number): boolean {
 }
 
 export class History {
+    /**
+     * Forgets what the page keeps of a node's messages: for a node that was erased (WIPE), which
+     * comes back with a new address, and whose old one names no node.
+     */
+    static forget(node: string, storage: Pick<Storage, "removeItem"> | null): void {
+        try {
+            storage?.removeItem(`tern.history.${node}`);
+        } catch {
+            // Storage is off: there is nothing kept to forget.
+        }
+    }
+
     readonly kept: Kept[];
     private readonly key: string;
     private readonly storage: Pick<Storage, "getItem" | "setItem"> | null;

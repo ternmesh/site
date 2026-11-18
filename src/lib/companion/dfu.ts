@@ -3,6 +3,11 @@
 // asked to restart into it with UPDATE_BOOTLOADER (draft/companion.md, "By the bootloader"); what
 // follows is the bootloader's protocol, not the companion protocol, and this is a client of it.
 //
+// The bootloader checks no signature, and while it waits it takes an image from anyone in Bluetooth
+// range, not only from this page. So the package's signature (signing.ts) is checked before the
+// node is asked to restart into it, and the page sends the package as soon as the user has chosen
+// the bootloader, saying that the node is open to anyone until the update finishes.
+//
 // The image is a DFU package, the release's `tern-<board>-<region>-<version>.zip` (made by
 // `adafruit-nrfutil dfu genpkg`): manifest.json, an init packet (.dat) and the application (.bin).
 // The exchange, on the DFU service's control point (written with a response, answering by

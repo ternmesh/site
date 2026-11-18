@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 12 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 14 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 12;
+export const VERSION = 14;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -14,6 +14,8 @@ export const GAP_MS = 500;
 export const ADDRESS_LEN = 32;
 export const GROUP_LEN = 8;
 export const DIGEST_LEN = 32;
+/** The longest UPDATE_BEGIN's `signature` is (version 13): an Ed25519 signature. */
+export const SIGNATURE_MAX = 64;
 export const TEXT_MAX = 128;
 export const NAME_MAX = 31;
 export const UPDATE_CHUNK = 172;
@@ -42,7 +44,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 12, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 14, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -65,7 +67,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x25: ["JOIN", [["id", "u32"]], 2],
     0x26: ["GROUP_LINK", [["group", "gid"]], 7],
     0x27: ["JOIN_LINK", [["link", "str", LINK_MAX]], 7],
-    0x30: ["UPDATE_BEGIN", [["size", "u32"], ["digest", "digest"]], 4],
+    0x30: ["UPDATE_BEGIN", [["size", "u32"], ["digest", "digest"], ["signature", "bytes", SIGNATURE_MAX, 13]], 4],
     0x31: ["UPDATE_DATA", [["offset", "u32"], ["data", "bytes", UPDATE_CHUNK]], 4],
     0x32: ["UPDATE_END", [], 4],
     0x33: [
@@ -76,6 +78,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x34: ["SHARE", [["contact", "addr"], ...sharing], 5],
     0x35: ["SHARE_GROUP", [["group", "gid"], ...sharing], 5],
     0x36: ["UPDATE_BOOTLOADER", [], 12],
+    0x37: ["WIPE", [], 13],
     0x40: ["OK", [], 0],
     0x41: ["ERROR", [["code", "u8"]], 0],
     0x42: [
@@ -224,6 +227,22 @@ export function since(type: string): number {
 /** The version that added a setting. */
 export function settingSince(setting: number): number {
     return SETTINGS[setting]?.[1] ?? Infinity;
+}
+
+/**
+ * A request's fields as a node of `version` reads them: without any field a later version added
+ * at the end of the frame, such as UPDATE_BEGIN's `signature` to a node before version 13.
+ */
+export function fieldsFor(type: string, fields: Fields, version: number): Fields {
+    const t = TYPES[type];
+    if (t === undefined) {
+        return fields;
+    }
+    const later = FRAMES[t]![1].filter(([, , , added]) => added !== undefined && added > version).map(([name]) => name);
+    if (later.length === 0) {
+        return fields;
+    }
+    return Object.fromEntries(Object.entries(fields).filter(([name]) => !later.includes(name)));
 }
 
 /** A field's value: a number, text, or an address, a group's id, a digest or bytes as lower-case hex. */

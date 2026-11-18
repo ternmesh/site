@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 12 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 14 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -19,6 +19,7 @@ import {
     VERSION,
     decode,
     encode,
+    fieldsFor,
     settingSince,
     since,
     wrap,
@@ -255,6 +256,8 @@ export class Client {
      * protocol turns the node on again, so it is not to be connected to until the user asks.
      */
     turnedOff = false;
+    /** The node said OK to WIPE: it is erasing itself, and the node this client knew is gone. */
+    wiped = false;
     /** Up: the node has answered HELLO and a sync has finished. */
     ready = false;
     closed = false;
@@ -496,6 +499,19 @@ export class Client {
         await this.close();
     }
 
+    /**
+     * Erases the node (WIPE, version 13): its address, sessions, contacts, groups, messages,
+     * cards, positions, settings and Bluetooth bonds go for good, and it restarts as a new node that
+     * must be paired again. Only ever because the user asked, having been told so. Once it says OK
+     * the connection is closed; it is not asked twice, since a node that did not answer may be
+     * erasing itself. Rejects with Refused if the node refused: ERROR 8 if it cannot now.
+     */
+    async wipe(): Promise<void> {
+        await this.request("WIPE");
+        this.wiped = true;
+        await this.close();
+    }
+
     /** Makes a group on the node, which draws its secret, and returns its id. */
     async makeGroup(name: string): Promise<string> {
         this.needsGroups();
@@ -613,7 +629,9 @@ export class Client {
         }
         this.seq = (this.seq % 255) + 1;
         const seq = this.seq;
-        const frame = encode(type, seq, fields);
+        // Nor a field a later version added: an UPDATE_BEGIN to a node before version 13 carries
+        // no signature.
+        const frame = encode(type, seq, this.greeted ? fieldsFor(type, fields, this.version) : fields);
         return new Promise<Frame>((resolve, reject) => {
             const gaveUp = () => {
                 if (this.waiting?.seq === seq) {
