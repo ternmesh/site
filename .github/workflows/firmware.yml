@@ -28,6 +28,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # Before the check: offer-firmware.ts imports the release's signature check, which needs the
+      # packages (@noble/curves), so the job failed at once without them from companion v14 on.
+      - run: npm ci
       - name: Find a later release
         id: release
         env:
@@ -38,8 +41,6 @@ jobs:
           version=$(node tools/offer-firmware.ts <"$RUNNER_TEMP/tags")
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "${version:-No release later than the one offered.}"
-      - if: steps.release.outputs.version != ''
-        run: npm ci
       - if: steps.release.outputs.version != ''
         run: npm test
       - if: steps.release.outputs.version != ''
