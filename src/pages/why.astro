@@ -128,8 +128,16 @@ tools/density.py --tsim build/tsim --deployed --candidates 1,2,core</code></pre>
         <p>
             A route is measured in time on air, and a frame meant for every node is held to an{" "}
             <a href={`${spec}/draft/flooding.md#the-allowance`}>allowance</a> at each relay, which bounds what any one sender
-            costs. A busy channel is meant to degrade fairly instead of collapsing. The rest of the{" "}
-            <a href="/#ideas">design goals</a> are on the front page.
+            costs. Above that, every node keeps an{" "}
+            <a href={`${spec}/draft/airtime.md`}>airtime budget</a>: a share of its time for the messages it writes,
+            and on a relay a separate share for the ones it carries for others, so neither can spend the other's.
+            A message of your own that has to wait is shown as waiting, with how long.
+        </p>
+        <p>
+            In the simulator, with one node in twenty writing a message every ten seconds, the rest of the mesh
+            delivered 1.5 to 3 times as many messages on time with the budget as without it. The budget limits
+            what each node takes; it does not stop a channel that everyone uses at once from filling up. The rest
+            of the <a href="/#ideas">design goals</a> are on the front page.
         </p>
 
         <h3>Open, and nobody's to sell</h3>
