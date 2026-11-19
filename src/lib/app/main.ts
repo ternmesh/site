@@ -5,10 +5,22 @@
 // every string goes in as a text node.
 
 import { Client, Refused } from "../companion/client.ts";
-import type { Fix, Message, Position, Sharing, Transport } from "../companion/client.ts";
+import type { Fix, Message, Position, Sharing, Sleep, Transport } from "../companion/client.ts";
 import { openDemo } from "../companion/demo.ts";
 import { BLINDED_SINCE, parseAddress, routingIdFor, routingIdText } from "../companion/ids.ts";
-import { ASKED, FIX_SOURCE, NAME_MAX, PAIRING, POWER_MOST, RECEIVER, STATE, TEXT_MAX, UPDATE } from "../companion/protocol.ts";
+import {
+    ASKED,
+    FIX_SOURCE,
+    LISTEN_MIN,
+    NAME_MAX,
+    PAIRING,
+    POWER_MOST,
+    RECEIVER,
+    SLEEP,
+    STATE,
+    TEXT_MAX,
+    UPDATE,
+} from "../companion/protocol.ts";
 import { SIGNED_SINCE, bytesSigned, fetchImage, imageSigned, offerFor, offerable, signatureOf } from "../companion/release.ts";
 import type { Signed } from "../companion/signing.ts";
 import { readJoinCode, shortCode } from "../companion/share.ts";
@@ -260,6 +272,11 @@ function stateText(m: { state: number; reason?: number; wait?: number }): string
         default:
             return "";
     }
+}
+
+/** A sleeping node's wake, in words: "5 min", "1 h". */
+function wakeText(seconds: number): string {
+    return seconds % 3600 === 0 ? `${seconds / 3600} h` : seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
 function liveWith(address: string): Message[] {
@@ -943,6 +960,97 @@ async function applyCard(c: Client): Promise<void> {
     }
 }
 
+// ----- Sleeping -----
+
+/** The wakes the page offers, in seconds: from WAKE_MIN to WAKE_MAX. */
+const WAKES = [300, 600, 900, 1800, 3600];
+/** What the sleep form was last filled from: it is filled again only when the node's change. */
+let sleepShown = "";
+
+/** What a node set to sleep is doing, in a sentence. */
+function sleepText(s: Sleep, relay: boolean): string {
+    if (s.wake === 0) {
+        return "Awake: it listens all the time.";
+    }
+    if (relay) {
+        return `Awake: a relay never sleeps. It will sleep, waking every ${wakeText(s.wake)}, once it only sends and receives its own.`;
+    }
+    switch (s.state) {
+        case SLEEP.asleep:
+            return `Asleep — kept by ${writer(s.keeper)}, waking at least every ${wakeText(s.wake)}.`;
+        case SLEEP.waiting:
+            return "Waiting for a relay to keep its messages: it listens all the time until one does.";
+        case SLEEP.resting: {
+            const left = Math.max(0, Math.round(((s.retryAt ?? Date.now()) - Date.now()) / 1000));
+            const inWords = left >= 120 ? `${Math.round(left / 60)} min` : `${left} s`;
+            return `No relay answers; trying ${writer(s.keeper)} again in ${inWords}. It listens all the time meanwhile.`;
+        }
+        default:
+            return "Awake: it listens all the time.";
+    }
+}
+
+function drawSleep(): void {
+    const c = client!;
+    const able = c.can("SET", 8) && c.sleep !== null && c.self !== null;
+    $("sleep-settings").hidden = !able;
+    if (!able) {
+        return;
+    }
+    const s = c.sleep!;
+    const relay = c.self!.role === 1;
+    $("sleep-state").textContent = sleepText(s, relay);
+    const key = `${s.wake}/${s.listen}`;
+    if (key === sleepShown) {
+        return;
+    }
+    sleepShown = key;
+    $<HTMLInputElement>("sleep-on").checked = s.wake !== 0;
+    const wake = $<HTMLSelectElement>("sleep-wake");
+    if (s.wake !== 0 && !WAKES.includes(s.wake)) {
+        wake.append(el("option", { value: String(s.wake) }, `every ${wakeText(s.wake)}`));
+    }
+    wake.value = String(s.wake !== 0 ? s.wake : 600);
+    $<HTMLInputElement>("sleep-listen").value = String(s.listen);
+}
+
+async function applySleep(c: Client): Promise<void> {
+    const s = c.sleep;
+    if (!s) {
+        return;
+    }
+    const on = $<HTMLInputElement>("sleep-on").checked;
+    const wake = on ? Number($<HTMLSelectElement>("sleep-wake").value) : 0;
+    const listen = Math.round(Number($<HTMLInputElement>("sleep-listen").value));
+    if (!Number.isFinite(listen) || listen < LISTEN_MIN || listen > 255) {
+        say(`Listen for ${LISTEN_MIN} to 255 seconds after each wake.`, true);
+        return;
+    }
+    if (on && s.wake === 0) {
+        const sure = window.confirm(
+            `Let this node sleep? Its radio goes off between wakes, every ${wakeText(wake)} at most, to save its battery. ` +
+                `Messages to it then wait with a relay until it wakes: up to ${wakeText(wake)}, longer if one is missed.`,
+        );
+        if (!sure) {
+            return;
+        }
+    }
+    try {
+        if (listen !== s.listen) {
+            await c.setListen(listen);
+        }
+        if (wake !== s.wake) {
+            await c.setWake(wake);
+        }
+        say(on ? `It sleeps, waking every ${wakeText(wake)} at most.` : "It listens all the time.");
+    } catch (e) {
+        say(explain(e), true);
+    } finally {
+        sleepShown = "";
+        draw();
+    }
+}
+
 // ----- Sharing the browser's position -----
 
 /** The geolocation watch while the node shares with anyone, and when the node was last told. */
@@ -1581,6 +1689,8 @@ function shown(m: {
     invite?: boolean;
     group?: string;
     id?: number;
+    /** The contact's wake, if it sleeps: a message sent to it is held until it wakes. */
+    wake?: number;
 }): HTMLElement {
     let text = m.text;
     let action: Child = null;
@@ -1607,7 +1717,11 @@ function shown(m: {
         incoming: m.incoming,
         text,
         time: m.time,
-        note: m.incoming ? "" : stateText(m),
+        note: m.incoming
+            ? ""
+            : m.state === STATE.sent && m.wake
+              ? `sent · it sleeps: held until it wakes, up to ${wakeText(m.wake)}`
+              : stateText(m),
         failed: m.state === STATE.notDelivered,
         ...(m.incoming && m.from ? { who: writer(m.from) } : {}),
         action,
@@ -1838,7 +1952,13 @@ function personHead(address: string): void {
     head.append(
         talkTitle(
             address,
-            [contact?.session ? "Session open" : "No session yet", code && `code ${code}`].filter(Boolean).join(" · "),
+            [
+                contact?.session ? "Session open" : "No session yet",
+                contact?.wake ? `Sleeps, wakes every ${wakeText(contact.wake)}` : "",
+                code && `code ${code}`,
+            ]
+                .filter(Boolean)
+                .join(" · "),
         ),
         fold(
             address,
@@ -1866,7 +1986,7 @@ function drawMessages(address: string): void {
     list.replaceChildren(
         // An invite kept from before is not one to take: the node no longer holds it.
         ...earlier.map((k) => shown(k)),
-        ...live.map((m) => shown({ ...m, incoming: m.state === STATE.received })),
+        ...live.map((m) => shown({ ...m, incoming: m.state === STATE.received, wake: client?.contacts.get(address)?.wake ?? 0 })),
     );
     if (earlier.length + live.length === 0) {
         list.append(
@@ -1981,6 +2101,7 @@ function draw(): void {
         drawUpdate();
         drawSettings();
         drawCard();
+        drawSleep();
         drawAsked();
         drawPill();
         drawTalks();
@@ -2116,6 +2237,7 @@ async function connect(
     ids.clear();
     settingsShown = "";
     cardShown = "";
+    sleepShown = "";
     sharingWith = null;
     offer = null;
     offerAsked = "";
@@ -2462,6 +2584,13 @@ function start(): void {
         e.preventDefault();
         if (client) {
             void applyCard(client);
+        }
+    });
+
+    $<HTMLFormElement>("sleep-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (client) {
+            void applySleep(client);
         }
     });
 

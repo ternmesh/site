@@ -272,6 +272,34 @@ import Base from "../layouts/Base.astro";
                             </form>
                         </section>
 
+                        <section id="sleep-settings" class="card" hidden>
+                            <h3>Sleep</h3>
+                            <form id="sleep-form">
+                                <p id="sleep-state" class="state-line"></p>
+                                <label class="check"><input id="sleep-on" type="checkbox" /> Sleep between wakes</label>
+                                <label for="sleep-wake">Wake at least</label>
+                                <select id="sleep-wake">
+                                    <option value="300">every 5 min</option>
+                                    <option value="600">every 10 min</option>
+                                    <option value="900">every 15 min</option>
+                                    <option value="1800">every 30 min</option>
+                                    <option value="3600">every 1 h</option>
+                                </select>
+                                <details>
+                                    <summary>Advanced</summary>
+                                    <label for="sleep-listen">Listen after each wake, in seconds</label>
+                                    <input id="sleep-listen" type="number" min="2" max="255" step="1" required />
+                                </details>
+                                <p class="muted small-print">
+                                    Asleep, the node turns its radio off between wakes to save its battery, and a
+                                    relay near it keeps its messages until it wakes and asks for them. Messages to
+                                    it wait that long. Only a node that sends and receives its own sleeps; a relay
+                                    keeps the setting for when it does.
+                                </p>
+                                <button type="submit" class="primary">Apply</button>
+                            </form>
+                        </section>
+
                         <section class="card">
                             <h3>Connection</h3>
                             <p id="link-facts" class="muted small-print"></p>

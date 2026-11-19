@@ -9,12 +9,15 @@ import { routingId, routingIdFor } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
 import {
     FIX_SOURCE,
+    LISTEN_MIN,
     PAIRING,
     POWER_MOST,
     RECEIVER,
+    SLEEP,
     STATE,
     UPDATE,
     VERSION,
+    WAKE_MIN,
     decode,
     hex,
     unhex,
@@ -40,7 +43,7 @@ async function bringUp(wire: Wire, c: Client, news: [string, Fields][] = [], ver
     const hello = decode(await wire.next())!;
     assert.equal(hello.type, "HELLO");
     assert.equal(hello.fields.version, VERSION);
-    const info: Fields = version >= 4 ? { board: "heltec-v3", release: "0.3.0" } : {};
+    const info: Fields = version >= 4 ? { board: "heltec-v3", release: "0.3.0", ...(version >= 12 ? { update: 1 } : {}) } : {};
     wire.say("INFO", hello.seq, { version, firmware: "test", ...info });
     wire.say("OK", decode(await wire.next())!.seq);
     const sync = decode(await wire.next())!;
@@ -89,6 +92,9 @@ for (const framed of [false, true]) {
         assert.equal(c.power?.percent, 81);
         // Its receiver is on, and has found no fix yet: a record with no source says nothing more.
         assert.deepEqual([c.fix?.receiver, c.fix?.source, c.fix?.altitude], [RECEIVER.searching, FIX_SOURCE.none, null]);
+        // A relay, set never to sleep, listens all the time; Bob has said nothing of sleeping.
+        assert.deepEqual(c.sleep, { wake: 0, listen: 2, state: SLEEP.awake, keeper: 0, retryAt: null });
+        assert.equal(c.contacts.get(BOB)?.wake, 0);
 
         const read = c.read(17);
         await expect();
@@ -262,6 +268,28 @@ for (const framed of [false, true]) {
         await expect();
         await keyed;
         assert.equal(c.self?.pairing, PAIRING.set);
+
+        // A leaf now, set to sleep: a wake too short is refused; it waits for a keeper, and takes
+        // its neighbour. A listen too short is refused, and four seconds is taken.
+        const leaf = c.set("role", 0);
+        await expect();
+        await leaf;
+        assert.equal(c.self?.role, 0);
+        const tooShort = c.setWake(WAKE_MIN - 1);
+        await expect();
+        await assert.rejects(tooShort, (e: unknown) => e instanceof Refused && e.code === 3);
+        const asleep = c.setWake(600);
+        await expect();
+        await asleep;
+        const keeper = [...c.neighbours.keys()][0];
+        assert.deepEqual(c.sleep, { wake: 600, listen: 2, state: SLEEP.asleep, keeper, retryAt: null });
+        const deaf = c.setListen(LISTEN_MIN - 1);
+        await expect();
+        await assert.rejects(deaf, (e: unknown) => e instanceof Refused && e.code === 3);
+        const listen = c.setListen(4);
+        await expect();
+        await listen;
+        assert.deepEqual(c.sleep, { wake: 600, listen: 4, state: SLEEP.asleep, keeper, retryAt: null });
 
         // Turned off: the node answers, and the client closes the connection and does not open
         // it again, nor say the node has gone.
@@ -752,4 +780,32 @@ test("a node that never answers OFF is taken as gone, not as turned off", async 
     await assert.rejects(off, (e: unknown) => e instanceof Refused && e.code === 0);
     assert.equal(c.turnedOff, false);
     await c.close();
+});
+
+test("a node of version 14 is not asked to sleep, and tells of no sleeping; one of 15 says it rests", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [["CONTACT", { address: BOB, session: 1, name: "Bob" }]], 14);
+    assert.deepEqual([c.can("SET", 8), c.can("SET", 9)], [false, false]);
+    await assert.rejects(c.setWake(600), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.setListen(4), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0);
+    assert.deepEqual([c.sleep, c.contacts.get(BOB)?.wake], [null, 0]);
+    await c.close();
+
+    // A node of version 15 resting a relay that does not answer polls, and a contact that sleeps.
+    const wire2 = new Wire(true);
+    const c2 = new Client(wire2, quick);
+    await bringUp(
+        wire2,
+        c2,
+        [
+            ["CONTACT", { address: BOB, session: 1, name: "Bob", wake: 900 }],
+            ["SLEEP", { wake: 3600, listen: 2, state: SLEEP.resting, keeper: 0xd82c1e1a, retry: 3581 }],
+        ],
+        15,
+    );
+    assert.equal(c2.contacts.get(BOB)?.wake, 900);
+    assert.deepEqual(c2.sleep, { wake: 3600, listen: 2, state: SLEEP.resting, keeper: 0xd82c1e1a, retryAt: quick.now() + 3581_000 });
+    await c2.close();
 });
