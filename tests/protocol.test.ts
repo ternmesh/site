@@ -17,6 +17,7 @@ interface Vectors {
     older: { version: number; frames: { from: string; type: string; seq: number; frame: string }[] }[];
     unknown_to_older: { type: string; version: number; frame: string; why: string; answer: number | null }[];
     bootloader: { from: string; type: string; seq: number; frame: string }[][];
+    forget: { from: string; type: string; seq: number; frame: string }[][];
 }
 
 const v: Vectors = JSON.parse(readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"));
@@ -77,8 +78,12 @@ test("streams: all at once, and a byte at a time", () => {
     }
 });
 
-test("exchange and older: every frame reads by the version spoken, and builds back to the same bytes", () => {
-    const connections = [{ version: VERSION, frames: v.exchange }, ...v.older];
+test("exchange, forget and older: every frame reads by the version spoken, and builds back to the same bytes", () => {
+    const connections = [
+        { version: VERSION, frames: v.exchange },
+        ...v.forget.map((frames) => ({ version: VERSION, frames })),
+        ...v.older,
+    ];
     for (const { version, frames } of connections) {
         for (const c of frames) {
             // Each older client's last request is one its version does not define, sent on purpose
@@ -212,4 +217,18 @@ test("encode refuses what is not a frame", () => {
     assert.throws(() => encode("HELLO", 1, {}));
     assert.throws(() => encode("UPDATE_DATA", 1, { offset: 0, data: "00".repeat(173) }));
     assert.throws(() => encode("SELF", 0, { address: "00".repeat(32), role: 0, region: "", power: 0, time: 0, card_name: "x" }));
+});
+
+test("forgetting: version 16, refused to a client of version 15", () => {
+    const fifteen = v.older.find((o) => o.version === 15)!.frames;
+    assert.deepEqual(
+        fifteen.slice(-2).map((c) => c.type),
+        ["FORGET", "ERROR"],
+    );
+    assert.equal(decode(bytes(fifteen.at(-2)!.frame), 15), null);
+    assert.deepEqual(decode(bytes(fifteen.at(-1)!.frame), 15)!.fields, { code: 1 });
+    assert.deepEqual(decode(bytes(v.forget[0]!.find((c) => c.type === "FORGET_GROUP")!.frame))!.fields, {
+        group: "c0037dcd77f6eac6",
+        through: 0xffffffff,
+    });
 });

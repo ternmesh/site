@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
+import { History } from "../src/lib/app/history.ts";
 import { routingId, routingIdFor } from "../src/lib/companion/ids.ts";
 import { Wire } from "./wire.ts";
 import {
@@ -24,7 +25,8 @@ import {
 } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
-const v: { exchange: { from: string; type: string; seq: number; frame: string }[] } = JSON.parse(
+type Step = { from: string; type: string; seq: number; frame: string };
+const v: { exchange: Step[]; forget: Step[][] } = JSON.parse(
     readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"),
 );
 const BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
@@ -808,4 +810,164 @@ test("a node of version 14 is not asked to sleep, and tells of no sleeping; one 
     assert.equal(c2.contacts.get(BOB)?.wake, 900);
     assert.deepEqual(c2.sleep, { wake: 3600, listen: 2, state: SLEEP.resting, keeper: 0xd82c1e1a, retryAt: quick.now() + 3581_000 });
     await c2.close();
+});
+
+/**
+ * Plays a node's side of one of the specification's connections to this client, from `at` until
+ * the next of the client's frames that is not yet written, and checks each of the client's against
+ * it. This client sets the node's clock before it syncs, which the connection leaves out: that is
+ * answered here, and the node's answers take the seq of the request this client sent.
+ */
+function playing(wire: Wire, steps: Step[]) {
+    let at = 0;
+    const seqs = new Map<number, number>();
+    const play = () => {
+        while (at < steps.length && steps[at]!.from === "node") {
+            const frame = unhex(steps[at++]!.frame)!;
+            if (frame[0]! >= 0x40 && frame[0]! < 0x80) {
+                frame[1] = seqs.get(frame[1]!)!;
+            }
+            wire.raw(frame);
+        }
+    };
+    const expect = async () => {
+        const step = steps[at++]!;
+        assert.equal(step.from, "client");
+        let got = await wire.next();
+        if (step.type !== "SET_TIME" && decode(got)!.type === "SET_TIME") {
+            wire.say("OK", got[1]!);
+            got = await wire.next();
+        }
+        const want = unhex(step.frame)!;
+        assert.equal(hex(got.subarray(2)), hex(want.subarray(2)), step.type);
+        assert.equal(got[0], want[0], step.type);
+        seqs.set(want[1]!, got[1]!);
+        play();
+    };
+    return { expect, play, done: () => at === steps.length };
+}
+
+const SELF_ADDRESS = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+const HUT = "c0037dcd77f6eac6";
+
+test("the specification's forgetting: Bob's conversation and the group's go, and only what came after is held", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, { ...quick, random: () => 0xc0ffee03 });
+    const p = playing(wire, v.forget[0]!);
+    const up = c.start();
+    await p.expect(); // HELLO
+    await p.expect(); // SYNC
+    await up;
+    assert.equal(c.version, 16);
+    assert.deepEqual([...c.messages.keys()].sort(), [17, 18, 19, 20, 21]);
+
+    const sent = c.send(BOB, "Coming down");
+    await p.expect();
+    assert.equal(await sent, 22);
+    // The node's own address is no conversation.
+    const own = c.forget(SELF_ADDRESS, 22);
+    await p.expect();
+    await assert.rejects(own, (e: unknown) => e instanceof Refused && e.code === 4);
+    // Bob's, with the message to him still waiting, through the last shown: the group's stay.
+    const bob = c.forget(BOB, 22);
+    await p.expect();
+    await bob;
+    assert.deepEqual([...c.messages.keys()].sort(), [20, 21]);
+    assert.equal(c.forgotten.get(BOB), 22);
+    // Through less than the record changes nothing, and is told nothing.
+    const less = c.forget(BOB, 18);
+    await p.expect();
+    await less;
+    assert.equal(c.forgotten.get(BOB), 22);
+    // A group's through all it may ever give is taken as the greatest it has given.
+    const hut = c.forgetGroup(HUT, 0xffffffff);
+    await p.expect();
+    await hut;
+    assert.equal(c.forgotten.get(HUT), 22);
+    // What comes after is kept as any other.
+    assert.ok(p.done());
+    assert.deepEqual([...c.messages.keys()], [23]);
+    assert.equal(c.messages.get(23)?.contact, BOB);
+    await c.close();
+});
+
+test("a client that was away is told what was forgotten, and what this browser keeps of it goes", async () => {
+    // What a browser kept of the conversations from before: messages 17 to 21, all at rest.
+    const before = new Wire(true);
+    const first = new Client(before, quick);
+    const p1 = playing(before, v.forget[0]!.slice(0, v.forget[0]!.findIndex((s) => s.type === "SYNCED") + 1));
+    const up1 = first.start();
+    await p1.expect();
+    await p1.expect();
+    await up1;
+    const s = new Map<string, string>();
+    const storage = { getItem: (k: string) => s.get(k) ?? null, setItem: (k: string, x: string) => void s.set(k, x) };
+    const kept = new History(SELF_ADDRESS, storage);
+    kept.absorb(first.messages.values());
+    assert.deepEqual(kept.kept.map((k) => k.id), [17, 18, 19, 20, 21]);
+    await first.close();
+
+    // This client syncs everything again, and so asks after 0 where the connection's asks after
+    // 21; the node sends what it holds, then its records, whatever the client asks after.
+    const steps = v.forget[1]!.map((x) => (x.type === "SYNC" ? { ...x, frame: "020200000000" } : x));
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const p = playing(wire, steps);
+    const up = c.start();
+    await p.expect();
+    await p.expect();
+    await up;
+    assert.ok(p.done());
+    assert.deepEqual([...c.messages.keys()], [23]);
+    assert.deepEqual([...c.forgotten], [[BOB, 22], [HUT, 22]]);
+    for (const [key, through] of c.forgotten) {
+        kept.forgotten(key, through);
+    }
+    kept.absorb(c.messages.values());
+    assert.deepEqual(kept.kept.map((k) => k.id), [23]);
+    // And for good: the browser's storage holds only it.
+    assert.deepEqual(new History(SELF_ADDRESS, storage).kept.map((k) => k.id), [23]);
+    await c.close();
+});
+
+test("a node of version 15 is not asked to forget, and a FORGOTTEN from it is not read", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    await bringUp(wire, c, [["MESSAGE", { id: 17, contact: BOB, time: 1, flags: 0, state: STATE.received, reason: 0, wait: 0, text: "hi" }]], 15);
+    assert.deepEqual([c.can("FORGET"), c.can("FORGET_GROUP")], [false, false]);
+    await assert.rejects(c.forget(BOB, 17), (e: unknown) => e instanceof Refused && e.code === 1);
+    await assert.rejects(c.forgetGroup(HUT, 17), (e: unknown) => e instanceof Refused && e.code === 1);
+    assert.equal(wire.wrote.length, 0, "nothing was asked of it");
+    wire.say("FORGOTTEN", 1, { contact: BOB, through: 17 });
+    assert.deepEqual([[...c.messages.keys()], c.forgotten.size], [[17], 0]);
+    await c.close();
+});
+
+test("a FORGOTTEN is taken even from a sync that missed news, and a GROUP_FORGOTTEN leaves invites to the group", async () => {
+    const wire = new Wire(true);
+    const c = new Client(wire, quick);
+    const up = c.start();
+    const hello = decode(await wire.next())!;
+    wire.say("INFO", hello.seq, { version: 16, firmware: "test", board: "heltec-v3", release: "0.6.0", update: 1 });
+    wire.say("OK", decode(await wire.next())!.seq);
+    let sync = decode(await wire.next())!;
+    const news: [string, Fields][] = [
+        ["MESSAGE", { id: 17, contact: BOB, time: 1, flags: 0, state: STATE.received, reason: 0, wait: 0, text: "hi" }],
+        ["INVITE", { id: 18, contact: BOB, group: HUT, time: 2, flags: 0, state: STATE.received, reason: 0, wait: 0, name: "Hut" }],
+        ["GROUP_MESSAGE", { id: 19, group: HUT, from: 1, time: 3, flags: 0, state: STATE.received, reason: 0, wait: 0, text: "yo" }],
+        ["MESSAGE", { id: 20, contact: CAROL, time: 4, flags: 0, state: STATE.received, reason: 0, wait: 0, text: "hey" }],
+    ];
+    news.forEach(([type, fields], i) => wire.say(type, i, fields));
+    // One lost here: the client cannot tell what this sync did not send from what it lost.
+    wire.say("GROUP_FORGOTTEN", news.length + 1, { group: HUT, through: 19 });
+    wire.say("SYNCED", sync.seq, { news: news.length + 2 });
+    sync = decode(await wire.next())!;
+    assert.equal(sync.type, "SYNC");
+    assert.deepEqual([...c.messages.keys()].sort(), [17, 18, 20]);
+    wire.say("FORGOTTEN", news.length + 2, { contact: BOB, through: 30 });
+    wire.say("GROUP_FORGOTTEN", news.length + 3, { group: HUT, through: 19 });
+    wire.say("SYNCED", sync.seq, { news: news.length + 4 });
+    await up;
+    assert.deepEqual([...c.messages.keys()], [20]);
+    await c.close();
 });

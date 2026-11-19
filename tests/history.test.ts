@@ -112,3 +112,24 @@ test("a group message rests once sent, and an invite is kept as one", () => {
     assert.equal(again.kept[0]?.invite, undefined);
     assert.deepEqual([...again.contacts()].sort(), [hut, BOB].sort());
 });
+
+test("what the user forgot goes from what is kept, and for good; a group's record leaves invites to it", () => {
+    const s = store();
+    const h = new History("node", s);
+    const hut = "0011223344556677";
+    h.absorb([
+        msg(1, BOB, 100, STATE.received, "one"),
+        { ...msg(2, BOB, 110, STATE.received, "Hut"), group: hut, invite: true },
+        { ...msg(3, hut, 120, STATE.received, "in the hut"), group: hut },
+        msg(4, A, 130, STATE.delivered, "to A"),
+        msg(5, BOB, 140, STATE.received, "after"),
+    ]);
+    h.forgotten(hut, 99);
+    assert.deepEqual(h.kept.map((k) => k.id), [1, 2, 4, 5]);
+    h.forgotten(BOB, 4);
+    assert.deepEqual(h.kept.map((k) => k.id), [4, 5]);
+    assert.deepEqual(new History("node", s).kept.map((k) => k.id), [4, 5]);
+    // A conversation deleted from here takes what it showed from this browser alone, whatever its id.
+    h.discard([{ id: 5, contact: BOB, time: 140, incoming: true, state: STATE.received, text: "after" }]);
+    assert.deepEqual(new History("node", s).kept.map((k) => k.id), [4]);
+});
