@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 14 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 15 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 14;
+export const VERSION = 15;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -44,7 +44,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 14, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 15, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -112,7 +112,16 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
         ],
         0,
     ],
-    0x81: ["CONTACT", [["address", "addr"], ["session", "u8"], ["name", "str", NAME_MAX]], 0],
+    0x81: [
+        "CONTACT",
+        [
+            ["address", "addr"],
+            ["session", "u8"],
+            ["name", "str", NAME_MAX],
+            ["wake", "u16", undefined, 15],
+        ],
+        0,
+    ],
     0x82: ["CONTACT_GONE", [["address", "addr"]], 0],
     0x83: [
         "MESSAGE",
@@ -186,6 +195,17 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
         ],
         8,
     ],
+    0x95: [
+        "SLEEP",
+        [
+            ["wake", "u16"],
+            ["listen", "u8"],
+            ["state", "u8"],
+            ["keeper", "u32"],
+            ["retry", "u16"],
+        ],
+        15,
+    ],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -201,9 +221,11 @@ const SETTINGS: Readonly<Record<number, readonly [Field, number]>> = {
     5: [["value", "u8"], 6],
     6: [["value", "str", NAME_MAX], 6],
     7: [["value", "u8"], 8],
+    8: [["value", "u16"], 15],
+    9: [["value", "u8"], 15],
 };
 
-export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6, receiver: 7 } as const;
+export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6, receiver: 7, wake: 8, listen: 9 } as const;
 /** Why a node refused first contact: ASKED's `why`. */
 export const ASKED = { notContact: 1, noRoom: 2 } as const;
 
@@ -211,6 +233,13 @@ export const ASKED = { notContact: 1, noRoom: 2 } as const;
 export const RECEIVER = { none: 0, off: 1, searching: 2, fixed: 3 } as const;
 /** Whose fix a FIX carries: FIX's `source`. */
 export const FIX_SOURCE = { none: 0, receiver: 1, client: 2 } as const;
+
+/** What a node set to sleep does now: SLEEP's `state` (version 15, draft/sleeping.md). */
+export const SLEEP = { awake: 0, asleep: 1, waiting: 2, resting: 3 } as const;
+/** The wakes a node may sleep for, and the least it listens after a poll, in seconds (draft/sleeping.md). */
+export const WAKE_MIN = 300;
+export const WAKE_MAX = 3600;
+export const LISTEN_MIN = 2;
 
 /** How a client gives the node new firmware: INFO's `update` (version 12). */
 export const UPDATE = { none: 0, link: 1, bootloader: 2 } as const;

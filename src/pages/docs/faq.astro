@@ -141,7 +141,10 @@ const org = "https://github.com/ternmesh";
         <summary>How long does a battery last?</summary>
         <p>
             Not measured yet. As a rule, an nRF52840 board runs for days on a cell where an ESP32 board runs for hours,
-            and a relay uses more than a leaf. Sleeping leaves are drafted in the specification and not yet built.
+            and a relay uses more than a leaf. A leaf that sleeps turns its radio off between wakes: the simulator
+            puts its radio at about 150 µA on average waking every 5 minutes, and about 51 µA every hour, against
+            about 4.65 mA listening all the time. Those are estimates, not measured on a board, and so far only the
+            radio sleeps, not the processor. Sleeping is on the firmware's main branch, not yet in a release.
         </p>
     </details>
 
@@ -176,7 +179,8 @@ const org = "https://github.com/ternmesh";
             <li>Bridges to the internet or to other meshes.</li>
             <li>Managing another node remotely.</li>
             <li>
-                Leaves that sleep on a schedule, and links that each pick their own speed. The airtime budget is in the
+                Leaves that sleep on a schedule are on the firmware's main branch, not yet in a release, with only the
+                radio asleep so far. Links that each pick their own speed are not built. The airtime budget is in the
                 firmware since 0.5, but has not yet been measured holding a frame back on a board.
             </li>
         </ul>

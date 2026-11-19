@@ -1,4 +1,4 @@
-// Versions 13 and 14 as a client sees them: HELLO says 14; UPDATE_BEGIN carries a signature only
+// Versions 13 and 14 as a client sees them: HELLO says this client's version; UPDATE_BEGIN carries a signature only
 // to a node of version 13 or later, and WIPE is asked only of one; ERROR 11 to UPDATE_BEGIN is a
 // signature the node does not take, and to UPDATE_END an image it will not run.
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ const quick = { answerWaitMs: 40, idleMs: 60_000, gapMs: 10, now: () => 1_790_00
 async function bringUp(wire: Wire, c: Client, version: number): Promise<void> {
     const up = c.start();
     const hello = decode(await wire.next())!;
-    assert.deepEqual([hello.type, hello.fields.version], ["HELLO", 14]);
+    assert.deepEqual([hello.type, hello.fields.version], ["HELLO", VERSION]);
     wire.say("INFO", hello.seq, { version, firmware: "test", board: "heltec-v3", release: "0.6.0", update: 1 });
     wire.say("OK", decode(await wire.next())!.seq);
     const sync = decode(await wire.next())!;
@@ -28,8 +28,8 @@ async function bringUp(wire: Wire, c: Client, version: number): Promise<void> {
     await up;
 }
 
-test("this client speaks version 14", () => {
-    assert.equal(VERSION, 14);
+test("this client speaks version 15", () => {
+    assert.equal(VERSION, 15);
 });
 
 test("UPDATE_BEGIN carries the signature to a node of version 13 or later, and not to one before", async () => {

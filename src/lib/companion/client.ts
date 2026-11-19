@@ -14,6 +14,7 @@ import {
     IDLE_MS,
     RECEIVER,
     SETTING,
+    SLEEP,
     STATE,
     StreamReader,
     VERSION,
@@ -54,6 +55,11 @@ export interface Contact {
     address: string;
     name: string;
     session: boolean;
+    /**
+     * How long the contact said it sleeps between wakes, in seconds (version 15): 0 if it does not,
+     * has said nothing, or shares no session. A message to it waits with its keeper until it wakes.
+     */
+    wake: number;
 }
 /** A group the node holds: its id, as lower-case hex, and the user's name for it. */
 export interface Group {
@@ -146,6 +152,21 @@ export interface Fix {
     /** When the fix was taken, by this client's clock, in milliseconds. */
     fixedAt: number;
 }
+/**
+ * Whether the node, as a leaf, sleeps (SLEEP, version 15): its radio off between polls of a relay,
+ * its keeper, that holds its messages. `state` is one of SLEEP.
+ */
+export interface Sleep {
+    /** The longest between polls, in seconds, or 0 if it is not to sleep. */
+    wake: number;
+    /** How long it listens after each poll, in seconds. */
+    listen: number;
+    state: number;
+    /** Asleep, its keeper's routing id; resting, the relay it tries again; otherwise 0. */
+    keeper: number;
+    /** Resting: when it tries `keeper` again, by this client's clock, in milliseconds; otherwise null. */
+    retryAt: number | null;
+}
 /** A presence card the node holds: who is about, by their own account. */
 export interface Card {
     address: string;
@@ -200,6 +221,7 @@ interface Seen {
     sharing: Set<string>;
     cards: Set<string>;
     fix: boolean;
+    sleep: boolean;
 }
 
 /** After a whole list: what the list did not send is no longer the node's. */
@@ -251,6 +273,8 @@ export class Client {
     power: Power | null = null;
     /** The node's own fix: null from a node before version 8, which tells of none. */
     fix: Fix | null = null;
+    /** Whether the node sleeps: null from a node before version 15, which tells of none. */
+    sleep: Sleep | null = null;
     /**
      * The node said OK to OFF, and is turning off: the connection is closed, and nothing in the
      * protocol turns the node on again, so it is not to be connected to until the user asks.
@@ -373,6 +397,7 @@ export class Client {
             sharing: new Set(),
             cards: new Set(),
             fix: false,
+            sleep: false,
         };
         this.syncSeen = seen;
         try {
@@ -395,6 +420,10 @@ export class Client {
             // From version 8 every sync sends one FIX; a node that sent none tells of no fix.
             if (!seen.fix) {
                 this.fix = null;
+            }
+            // From version 15 every sync sends one SLEEP.
+            if (!seen.sleep) {
+                this.sleep = null;
             }
         } finally {
             this.syncSeen = null;
@@ -479,6 +508,18 @@ export class Client {
      */
     async setReceiver(on: boolean): Promise<void> {
         await this.request("SET", { setting: SETTING.receiver, value: on ? 1 : 0 });
+    }
+    /**
+     * Sets how long the node, as a leaf, lets pass between polls when it sleeps, in seconds: 0 not
+     * to sleep, or WAKE_MIN to WAKE_MAX. Messages to it then wait until it wakes. Only ever
+     * because the user asked.
+     */
+    async setWake(seconds: number): Promise<void> {
+        await this.request("SET", { setting: SETTING.wake, value: seconds });
+    }
+    /** Sets how long the node listens after each poll when it sleeps, in seconds: LISTEN_MIN to 255. */
+    async setListen(seconds: number): Promise<void> {
+        await this.request("SET", { setting: SETTING.listen, value: seconds });
     }
     /**
      * Turns the node off, and closes the connection once it says OK: only the node itself, by its
@@ -585,7 +626,7 @@ export class Client {
      * Changes a setting. A node may restart to apply it once it has answered: the caller starts
      * the connection again.
      */
-    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName" | "receiver">, value: number | string): Promise<void> {
+    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName" | "receiver" | "wake" | "listen">, value: number | string): Promise<void> {
         await this.request("SET", { setting: SETTING[setting], value });
     }
     /** Lets go of an address the node said had asked. */
@@ -769,6 +810,7 @@ export class Client {
                     address: String(x.address),
                     name: String(x.name),
                     session: x.session === 1,
+                    wake: x.wake === undefined ? 0 : Number(x.wake),
                 });
                 this.syncSeen?.contacts.add(String(x.address));
                 if (x.session === 1) {
@@ -906,6 +948,18 @@ export class Client {
                 }
                 break;
             }
+            case "SLEEP":
+                this.sleep = {
+                    wake: Number(x.wake),
+                    listen: Number(x.listen),
+                    state: Number(x.state),
+                    keeper: Number(x.keeper),
+                    retryAt: Number(x.state) === SLEEP.resting ? this.now() + 1000 * Number(x.retry) : null,
+                };
+                if (this.syncSeen) {
+                    this.syncSeen.sleep = true;
+                }
+                break;
             case "POWER":
                 this.power = {
                     millivolts: Number(x.millivolts),

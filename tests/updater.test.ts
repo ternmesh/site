@@ -178,7 +178,7 @@ test("bootloader: a node of version 12 that its bootloader updates refuses the l
 test("bootloader: to a client of version 11 the same node names no board, and cannot be updated from it", () => {
     const [, older] = v.bootloader;
     const info = decode(unhex(older![1]!.frame)!, 11)!;
-    assert.deepEqual(info.fields, { version: 14, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
+    assert.deepEqual(info.fields, { version: 15, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
     assert.equal(wayOf({ version: 11, update: null, board: "" }), null);
     // That client's UPDATE_BEGIN is refused as this client's was.
     assert.deepEqual(decode(unhex(older![3]!.frame)!, 11)!.fields, { code: 5 });
