@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 15 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 16 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 15;
+export const VERSION = 16;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -44,7 +44,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 15, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 16, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -56,6 +56,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x06: ["OFF", [], 9],
     0x10: ["SEND", [["ref", "u32"], ["to", "addr"], ["text", "str", TEXT_MAX]], 0],
     0x11: ["READ", [["through", "u32"]], 0],
+    0x12: ["FORGET", [["contact", "addr"], ["through", "u32"]], 16],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]], 0],
     0x1a: ["END_SESSION", [["address", "addr"]], 1],
@@ -67,6 +68,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x25: ["JOIN", [["id", "u32"]], 2],
     0x26: ["GROUP_LINK", [["group", "gid"]], 7],
     0x27: ["JOIN_LINK", [["link", "str", LINK_MAX]], 7],
+    0x28: ["FORGET_GROUP", [["group", "gid"], ["through", "u32"]], 16],
     0x30: ["UPDATE_BEGIN", [["size", "u32"], ["digest", "digest"], ["signature", "bytes", SIGNATURE_MAX, 13]], 4],
     0x31: ["UPDATE_DATA", [["offset", "u32"], ["data", "bytes", UPDATE_CHUNK]], 4],
     0x32: ["UPDATE_END", [], 4],
@@ -206,6 +208,8 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
         ],
         15,
     ],
+    0x96: ["FORGOTTEN", [["contact", "addr"], ["through", "u32"]], 16],
+    0x97: ["GROUP_FORGOTTEN", [["group", "gid"], ["through", "u32"]], 16],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -240,6 +244,9 @@ export const SLEEP = { awake: 0, asleep: 1, waiting: 2, resting: 3 } as const;
 export const WAKE_MIN = 300;
 export const WAKE_MAX = 3600;
 export const LISTEN_MIN = 2;
+
+/** The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
+export const FORGOTTEN_KEPT = 16;
 
 /** How a client gives the node new firmware: INFO's `update` (version 12). */
 export const UPDATE = { none: 0, link: 1, bootloader: 2 } as const;

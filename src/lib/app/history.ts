@@ -135,6 +135,40 @@ export class History {
         }
     }
 
+    /**
+     * Lets go of what the user forgot (FORGOTTEN or GROUP_FORGOTTEN, version 16): every kept
+     * message and invite with `contact`, an address or a group's id, whose id is `through` or less.
+     * A group's invites are kept under the address they are with, so a group's record takes none.
+     */
+    forgotten(contact: string, through: number): void {
+        this.drop((k) => k.contact === contact && k.id <= through);
+    }
+
+    /**
+     * Lets go of these kept messages: those of a conversation the user deleted that were shown from
+     * here alone, which a node that has counted again since may give ids its record does not cover.
+     */
+    discard(gone: readonly Kept[]): void {
+        this.drop((k) => gone.some((g) => sameMessage(g, k)));
+    }
+
+    private drop(gone: (k: Kept) => boolean): void {
+        const before = this.kept.length;
+        for (let i = this.kept.length - 1; i >= 0; i--) {
+            if (gone(this.kept[i]!)) {
+                this.kept.splice(i, 1);
+            }
+        }
+        if (this.kept.length === before) {
+            return;
+        }
+        try {
+            this.storage?.setItem(this.key, JSON.stringify(this.kept));
+        } catch {
+            // Off: nothing was kept to begin with.
+        }
+    }
+
     /** The kept messages of one conversation that the node no longer holds. */
     earlier(contact: string, live: Message[]): Kept[] {
         const now = live.map(keptFrom);

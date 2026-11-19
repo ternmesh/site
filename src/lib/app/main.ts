@@ -84,6 +84,8 @@ let reading = false;
 let shownCode: { group: string; link: string } | null = null;
 /** The last node connected to was turned off from here: it is not connected to again until asked. */
 let turnedOff = false;
+/** The conversation in the chat list whose menu is open, if any. */
+let rowMenu: string | null = null;
 /**
  * Routing ids of the addresses the page knows, to put names to neighbours, group writers and
  * group positions: as the connected node makes them (blinded from version 14), which idsBlinded says.
@@ -618,6 +620,8 @@ function rowButton(key: string, sub: string, mark: Child): HTMLButtonElement {
 /** Every conversation, most recent first: who, what was said last, when, and how many are unread. */
 function drawTalks(): void {
     const list = $("talks");
+    // The list is drawn anew with each change: what had focus in it has it again.
+    const focused = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focus : undefined;
     list.replaceChildren();
     const all = talks();
     if (all.length === 0) {
@@ -643,7 +647,11 @@ function drawTalks(): void {
         }
         const button = el(
             "button",
-            { type: "button", class: ["talk-item", key === selected && "on", unread > 0 && "unread"].filter(Boolean).join(" ") },
+            {
+                type: "button",
+                class: ["talk-item", key === selected && "on", unread > 0 && "unread"].filter(Boolean).join(" "),
+                "data-focus": `talk ${key}`,
+            },
             avatar(key),
             el(
                 "span",
@@ -663,7 +671,48 @@ function drawTalks(): void {
             ),
         );
         button.addEventListener("click", () => select(key));
-        list.append(el("li", {}, button));
+        const row = el("li", { class: "talk-row" }, button);
+        if (canForget(key)) {
+            // What may be done to the conversation from the list: a menu button on each row, and a
+            // right click or a long press on the row itself.
+            const open = rowMenu === key;
+            const more = el(
+                "button",
+                {
+                    type: "button",
+                    class: "row-more",
+                    title: "More",
+                    "aria-label": `More for ${nameOf(key)}`,
+                    "aria-expanded": String(open),
+                    "aria-controls": `row-menu-${key}`,
+                    "data-focus": `more ${key}`,
+                },
+                icon("M5 12h.01M12 12h.01M19 12h.01"),
+            );
+            more.addEventListener("click", () => {
+                rowMenu = open ? null : key;
+                draw();
+            });
+            button.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                rowMenu = key;
+                draw();
+            });
+            row.append(more);
+            if (open) {
+                const forget = el("button", { type: "button", class: "small danger", "data-focus": `forget ${key}` }, "Delete chat");
+                forget.addEventListener("click", () => {
+                    rowMenu = null;
+                    draw();
+                    void forgetChat(key);
+                });
+                row.append(el("div", { class: "row-menu", id: `row-menu-${key}` }, forget));
+            }
+        }
+        list.append(row);
+    }
+    if (focused !== undefined) {
+        list.querySelector<HTMLElement>(`[data-focus="${focused}"]`)?.focus();
     }
 }
 
@@ -1792,8 +1841,15 @@ function talkTitle(key: string, sub: string): HTMLElement {
 function groupHead(id: string): void {
     const head = $("talk-head");
     const held = client?.groups.get(id);
+    const forget = canForget(id) && el("button", { type: "button", class: "small danger" }, "Delete chat");
+    if (forget) {
+        forget.addEventListener("click", () => void forgetChat(id));
+    }
     if (!held) {
-        head.append(talkTitle(id, "This node is not in this group now. What was said is kept in this browser."));
+        head.append(
+            talkTitle(id, "This node is not in this group now. What was said is kept in this browser."),
+            ...(forget ? [el("p", { class: "actions" }, forget)] : []),
+        );
         return;
     }
     const rename = el("button", { type: "button", class: "small" }, "Rename");
@@ -1805,14 +1861,29 @@ function groupHead(id: string): void {
     });
     const leave = el("button", { type: "button", class: "small" }, "Leave");
     leave.addEventListener("click", () => {
-        const sure = window.confirm(
-            `Leave ${nameOf(id)}? This node forgets the group's secret and can no longer read it. ` +
-                "The others are not told, and only an invite brings it back.",
-        );
-        if (sure) {
+        void (async () => {
+            const chat = forgettable(id);
+            const answer = await ask({
+                title: `Leave ${nameOf(id)}?`,
+                body: [
+                    "This node forgets the group's secret and can no longer read it. " +
+                        "The others are not told, and only an invite brings it back.",
+                ],
+                yes: "Leave",
+                also: chat && { label: "Also delete its messages", note: forgetNote(chat) },
+            });
+            if (!answer) {
+                return;
+            }
             shownCode = null;
-            act(() => client!.leaveGroup(id));
-        }
+            // Forgetting first, as a client that offers both does, and leaving only once it is done.
+            act(async () => {
+                if (answer.also && chat) {
+                    await forgetNow(id, chat);
+                }
+                await client!.leaveGroup(id);
+            });
+        })();
     });
     const code = client?.can("GROUP_LINK") && el("button", { type: "button", class: "small" }, "Join code");
     if (code) {
@@ -1861,7 +1932,7 @@ function groupHead(id: string): void {
                     "whoever is given the key can read all that was said, and nobody can be put out.",
             ),
             el("p", { class: "actions" }, whom.options.length > 0 && whom, whom.options.length > 0 && invite, code),
-            el("p", { class: "actions" }, rename, leave),
+            el("p", { class: "actions" }, rename, leave, forget),
         ),
         ...(shownCode?.group === id ? [joinCodePanel(shownCode.link)] : []),
         ...shareControls(id),
@@ -1927,9 +1998,25 @@ function personHead(address: string): void {
     const remove = contact && el("button", { type: "button", class: "small" }, "Remove");
     if (remove) {
         remove.addEventListener("click", () => {
-            if (window.confirm(`Remove ${nameOf(address)} from this node's contacts? Its messages are kept.`)) {
-                act(() => client!.removeContact(address));
-            }
+            void (async () => {
+                const chat = forgettable(address);
+                const answer = await ask({
+                    title: `Remove ${nameOf(address)} from this node's contacts?`,
+                    body: [chat ? "Its messages are kept, unless you delete them too." : "Its messages are kept."],
+                    yes: "Remove",
+                    also: chat && { label: "Also delete your chat with them", note: forgetNote(chat) },
+                });
+                if (!answer) {
+                    return;
+                }
+                // Forgetting first, as a client that offers both does, and removing only once it is done.
+                act(async () => {
+                    if (answer.also && chat) {
+                        await forgetNow(address, chat);
+                    }
+                    await client!.removeContact(address);
+                });
+            })();
         });
     }
     const end =
@@ -1947,6 +2034,10 @@ function personHead(address: string): void {
                 act(() => client!.endSession(address));
             }
         });
+    }
+    const forget = canForget(address) && el("button", { type: "button", class: "small danger" }, "Delete chat");
+    if (forget) {
+        forget.addEventListener("click", () => void forgetChat(address));
     }
     const code = codeOf(address);
     head.append(
@@ -1971,7 +2062,7 @@ function personHead(address: string): void {
                     ? "This node has a session with it."
                     : "No session yet: the first message makes first contact, directly or through relays.",
             ),
-            el("p", { class: "actions" }, rename, remove ?? null, end || null),
+            el("p", { class: "actions" }, rename, remove ?? null, end || null, forget || null),
         ),
         ...shareControls(address),
     );
@@ -2092,6 +2183,10 @@ function draw(): void {
             historyNode = client.self.address;
         }
         history?.absorb(client.messages.values());
+        // What the user forgot, here or on another client, goes from what this browser keeps too.
+        for (const [key, through] of client.forgotten) {
+            history?.forgotten(key, through);
+        }
         learnIds();
         askOffer(client);
         drawNode();
@@ -2204,6 +2299,132 @@ function act(what: () => Promise<unknown>): void {
     );
 }
 
+// ----- Asking first -----
+
+/** What the dialog asks: a title, its paragraphs, the button that does it, and a box to tick for more. */
+interface Asking {
+    title: string;
+    body: string[];
+    yes: string;
+    also?: { label: string; note: string } | null;
+}
+
+/**
+ * Asks in the page's dialog, for what a plain confirm cannot say: null if the user said no, or
+ * closed it, and otherwise whether they ticked the box. Cancel has the focus to begin with.
+ */
+function ask(a: Asking): Promise<{ also: boolean } | null> {
+    const dialog = $<HTMLDialogElement>("ask");
+    if (dialog.open) {
+        dialog.close();
+    }
+    $("ask-title").textContent = a.title;
+    $("ask-body").replaceChildren(...a.body.map((text) => el("p", {}, text)));
+    $("ask-also").hidden = !a.also;
+    $("ask-also-text").textContent = a.also?.label ?? "";
+    $("ask-also-note").textContent = a.also?.note ?? "";
+    const box = $<HTMLInputElement>("ask-also-box");
+    box.checked = false;
+    $("ask-yes").textContent = a.yes;
+    dialog.returnValue = "";
+    return new Promise((resolve) => {
+        dialog.addEventListener("close", () => resolve(dialog.returnValue === "yes" ? { also: !!a.also && box.checked } : null), {
+            once: true,
+        });
+        dialog.showModal();
+    });
+}
+
+// ----- Deleting a chat -----
+
+/**
+ * A conversation as the user is shown it, to forget (version 16): `through` is the greatest id
+ * shown, so that a message that arrives while they decide is not forgotten unseen, and `kept` what
+ * is shown from this browser alone. Taken from the node's messages while it holds any: a kept one
+ * from before the node counted again could have an id greater than any it has given.
+ */
+interface Forgettable {
+    through: number;
+    kept: Kept[];
+    /** Something in it is still to be sent, and will not be. */
+    unsent: boolean;
+}
+
+/** What the user would forget of a conversation now, or null if it cannot be: see canForget(). */
+function forgettable(key: string): Forgettable | null {
+    const c = client;
+    if (!c || !c.ready || c.closed || !c.can("FORGET")) {
+        return null;
+    }
+    const live = liveWith(key);
+    const kept = history?.earlier(key, live) ?? [];
+    const shownIds = (live.length > 0 ? live : kept).map((m) => m.id);
+    if (shownIds.length === 0) {
+        return null;
+    }
+    // A group message once sent is on the air: only one to an address, or an invite, waits after it.
+    const unsent = live.some(
+        (m) => m.state === STATE.waiting || (m.state === STATE.sent && !(m.group !== "" && !m.invite)),
+    );
+    return { through: Math.max(...shownIds), kept, unsent };
+}
+
+/** Whether the user may delete a conversation: the node can (version 16), the link is up, and it shows something. */
+function canForget(key: string): boolean {
+    return forgettable(key) !== null;
+}
+
+/** What goes with a conversation forgotten, for a dialog that offers it as well as something else. */
+function forgetNote(chat: Forgettable): string {
+    return (
+        "Erased from your node, and from every phone or computer connected to it, for good." +
+        (chat.unsent ? " Messages not yet delivered won't be sent." : "")
+    );
+}
+
+/**
+ * Forgets a conversation as far as the user was shown it. The node's FORGOTTEN takes it from the
+ * node's messages and from what this browser keeps; what was shown from this browser alone goes too.
+ */
+async function forgetNow(key: string, chat: Forgettable): Promise<void> {
+    const c = client!;
+    await (isGroup(key) ? c.forgetGroup(key, chat.through) : c.forget(key, chat.through));
+    history?.discard(chat.kept);
+    draw();
+}
+
+/** Asks, and deletes a conversation from the node and every client of it, for good. */
+async function forgetChat(key: string): Promise<void> {
+    const chat = forgettable(key);
+    if (!chat) {
+        return;
+    }
+    const group = isGroup(key);
+    const body = [
+        group
+            ? "Every message in this group's chat is erased from your node, and from every phone or computer connected to it. This can't be undone. You stay in the group."
+            : "Every message and invite in this chat is erased from your node, and from every phone or computer connected to it. This can't be undone. The contact and any secure session with them are kept.",
+    ];
+    if (chat.unsent) {
+        body.push("Messages not yet delivered won't be sent.");
+    }
+    const answer = await ask({ title: `Delete chat with ${nameOf(key)}?`, body, yes: "Delete chat" });
+    if (!answer) {
+        return;
+    }
+    try {
+        await forgetNow(key, chat);
+        // A conversation with nobody the node holds has nothing left to show.
+        if (selected === key && !client?.contacts.has(key) && !client?.groups.has(key)) {
+            selected = null;
+            draw();
+        }
+        say("Chat deleted.");
+    } catch (e) {
+        say(explain(e), true);
+    }
+}
+
 const CHOOSE = {
     serial: "Choose the board's port in the browser's list.",
     bluetooth:
@@ -2232,6 +2453,8 @@ async function connect(
     hasConsole = by === "serial";
     selected = null;
     shownCode = null;
+    rowMenu = null;
+    $<HTMLDialogElement>("ask").close();
     history = null;
     historyNode = "";
     ids.clear();
@@ -2486,6 +2709,21 @@ function start(): void {
         $("groups-card").scrollIntoView({ block: "start" });
     });
     $("status-close").addEventListener("click", () => say(""));
+    // A chat's menu in the list closes at a click elsewhere, or at Escape, which leaves the focus on its button.
+    document.addEventListener("click", (e) => {
+        if (rowMenu !== null && !(e.target instanceof Element && e.target.closest(".row-more, .row-menu"))) {
+            rowMenu = null;
+            draw();
+        }
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && rowMenu !== null) {
+            const key = rowMenu;
+            rowMenu = null;
+            draw();
+            requestAnimationFrame(() => $("talks").querySelector<HTMLElement>(`[data-focus="more ${key}"]`)?.focus());
+        }
+    });
     $("turn-off").addEventListener("click", () => {
         if (client) {
             void turnOff(client);

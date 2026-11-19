@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 14 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 16 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -276,6 +276,13 @@ export class Client {
     /** Whether the node sleeps: null from a node before version 15, which tells of none. */
     sleep: Sleep | null = null;
     /**
+     * How much of each conversation the user has forgotten (FORGOTTEN and GROUP_FORGOTTEN, version
+     * 16), by the contact's address or the group's id: every message and invite with that address,
+     * or group message to that group, whose id is this or less, is gone, here and wherever else a
+     * copy is kept. A record only grows, and every sync sends it again.
+     */
+    readonly forgotten = new Map<string, number>();
+    /**
      * The node said OK to OFF, and is turning off: the connection is closed, and nothing in the
      * protocol turns the node on again, so it is not to be connected to until the user asks.
      */
@@ -342,6 +349,7 @@ export class Client {
         // took this client for gone still holds them: either way, what it holds now is asked for
         // whole, and nothing held from before is taken to be the node's.
         this.messages.clear();
+        this.forgotten.clear();
         this.through = 0;
         this.version = Math.min(VERSION, Number(info.fields.version));
         this.firmware = String(info.fields.firmware);
@@ -608,6 +616,20 @@ export class Client {
 
     async read(through: number): Promise<void> {
         await this.request("READ", { through });
+    }
+    /**
+     * Forgets the conversation with an address on the node and every client of it, for good: every
+     * message and invite with it whose id is `through` or less (FORGET, version 16). Only ever because
+     * the user asked, having been told so, with `through` the greatest id they were shown in it, so
+     * that a message that arrives while they decide is not forgotten unseen. The node's FORGOTTEN
+     * takes them from here.
+     */
+    async forget(contact: string, through: number): Promise<void> {
+        await this.request("FORGET", { contact, through });
+    }
+    /** FORGET for a group's conversation: every group message to it whose id is `through` or less. */
+    async forgetGroup(group: string, through: number): Promise<void> {
+        await this.request("FORGET_GROUP", { group, through });
     }
     async saveContact(address: string, name: string): Promise<void> {
         await this.request("SAVE_CONTACT", { address, name });
@@ -960,6 +982,21 @@ export class Client {
                     this.syncSeen.sleep = true;
                 }
                 break;
+            case "FORGOTTEN":
+            case "GROUP_FORGOTTEN": {
+                // Told outright, so taken even from a sync that missed news. A FORGOTTEN covers
+                // messages and invites with the address, whose `contact` is it; a GROUP_FORGOTTEN
+                // the group's messages, whose `contact` is the group's id, and not invites to it.
+                const key = String(f.type === "FORGOTTEN" ? x.contact : x.group);
+                const through = Math.max(this.forgotten.get(key) ?? 0, Number(x.through));
+                this.forgotten.set(key, through);
+                for (const [id, m] of this.messages) {
+                    if (m.contact === key && id <= through) {
+                        this.messages.delete(id);
+                    }
+                }
+                break;
+            }
             case "POWER":
                 this.power = {
                     millivolts: Number(x.millivolts),
