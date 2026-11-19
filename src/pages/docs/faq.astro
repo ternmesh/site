@@ -80,8 +80,8 @@ const org = "https://github.com/ternmesh";
         <ul>
             <li>
                 That nodes are there, and roughly how they are linked: each node announces itself in clear, with a short
-                routing id, its role and the neighbours it hears. Its address goes to its neighbours this way too, so
-                anyone nearby can learn it.
+                routing id, its role and the neighbours it hears. The id is a pseudonym: its address never goes on the
+                air, and only someone who already knows the address can tell which id is its.
             </li>
             <li>
                 Which node a message is going to, by routing id, but not what it says, and not who sent it, but for
