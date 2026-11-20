@@ -277,6 +277,7 @@ const ERRORS: Readonly<Record<number, string>> = {
     12: "that address is not a contact",
     13: "a node does not do that when managed over the mesh",
     14: "the node's Bluetooth is locked: only USB, or one of its owners over the mesh, can change it",
+    15: "not an owner: a node managed over the mesh answers only its owners",
 };
 
 export interface Options {
