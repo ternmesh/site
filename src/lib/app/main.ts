@@ -5,7 +5,8 @@
 // every string goes in as a text node.
 
 import { Client, Refused } from "../companion/client.ts";
-import type { Fix, Message, Position, Sharing, Sleep, Transport } from "../companion/client.ts";
+import type { Fix, Message, OwnerChange, Position, Sharing, Sleep, Transport } from "../companion/client.ts";
+import { Managed, RESTARTS } from "../companion/remote.ts";
 import { openDemo } from "../companion/demo.ts";
 import { BLINDED_SINCE, parseAddress, routingIdFor, routingIdText } from "../companion/ids.ts";
 import {
@@ -13,9 +14,11 @@ import {
     FIX_SOURCE,
     LISTEN_MIN,
     NAME_MAX,
+    OWNER_BY,
     PAIRING,
     POWER_MOST,
     RECEIVER,
+    SETTING,
     SLEEP,
     STATE,
     TEXT_MAX,
@@ -331,6 +334,7 @@ function drawNode(): void {
         c.self.region || "no region set",
         `${c.self.power} dBm${c.self.most ? " (the most allowed)" : ""}`,
         c.self.role === 1 ? "Relay: helps the mesh" : "Leaf: just me",
+        c.self.locked ? "Bluetooth locked" : "",
         demo ? "" : c.release || c.firmware,
     ].filter((x) => x !== "");
     const meters = el("div", { class: "meters" });
@@ -374,6 +378,7 @@ function drawNode(): void {
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
     // Not of the demo, which has no firmware to update.
     const missing = [
+        [17, "manage another node over the mesh, or be managed by its owners"],
         [14, "keep its address off the air in what it sends to route"],
         [13, "check that an update is signed by Tern, or be erased from here"],
         [9, "be turned off from here"],
@@ -405,6 +410,16 @@ function drawNode(): void {
                 { class: "muted facts" },
                 "It has no screen, and pairs over Bluetooth with the default passkey, 123456, until a passkey of your own is set on it" +
                     (c.version >= SIGNED_SINCE ? ": a new phone or computer only within 3 minutes of a press of its button or of turning it on." : "."),
+            ),
+        );
+    }
+    if (c.self.locked) {
+        box.append(
+            el(
+                "p",
+                { class: "muted facts" },
+                "Its Bluetooth is locked: a phone or computer paired with it can reach it, but cannot read or change anything. " +
+                    "Only USB, or one of its owners over the mesh, can unlock it.",
             ),
         );
     }
@@ -514,9 +529,36 @@ function receiverSettable(c: Client): boolean {
     return c.can("SET", 7) && c.fix !== null && c.fix.receiver !== RECEIVER.none;
 }
 
+/** What an owner change a node told of says, in a sentence. */
+function ownerChangeText(o: OwnerChange): string {
+    const self = client?.self?.address;
+    const who = o.contact === self ? "Your node" : nameOf(o.contact);
+    const how = o.by === OWNER_BY.mesh ? "by one of its owners, over the mesh" : "at the node, over USB or Bluetooth";
+    return `${nameOf(o.from)} says: ${who} ${o.owner ? "was made one of its owners" : "is no longer one of its owners"}, ${how}.`;
+}
+
 function drawAsked(): void {
     const list = $("asked");
     list.replaceChildren();
+    for (const o of client?.ownerChanges ?? []) {
+        const dismiss = el("button", { type: "button", class: "small" }, "Dismiss");
+        dismiss.addEventListener("click", () => client?.forgetOwnerChange(o));
+        list.append(
+            el(
+                "li",
+                {},
+                el("p", {}, ownerChangeText(o)),
+                el(
+                    "p",
+                    { class: "muted small-print" },
+                    o.by === OWNER_BY.link
+                        ? "If nobody you know did that, someone had the node in their hands: remove that owner, and lock its Bluetooth."
+                        : "",
+                ),
+                el("p", { class: "actions" }, dismiss),
+            ),
+        );
+    }
     for (const [address, why] of client?.asked ?? []) {
         const known = client?.contacts.has(address) ?? false;
         const dismiss = el("button", { type: "button", class: "small" }, "Dismiss");
@@ -597,7 +639,9 @@ function drawPeople(): void {
                 rowButton(
                     address,
                     contact ? (codeOf(address) || short(address)) : "Not a contact",
-                    contact?.session && el("span", { class: "tag good", title: "This node has a session with it" }, "Session"),
+                    contact?.owner
+                        ? el("span", { class: "tag good", title: "It may manage this node over the mesh" }, "Owner")
+                        : contact?.session && el("span", { class: "tag good", title: "This node has a session with it" }, "Session"),
                 ),
             ),
         );
@@ -2039,12 +2083,17 @@ function personHead(address: string): void {
     if (forget) {
         forget.addEventListener("click", () => void forgetChat(address));
     }
+    const owner = contact && client?.can("OWNER") && el("button", { type: "button", class: "small" }, contact.owner ? "Not an owner" : "Make an owner");
+    if (owner) {
+        owner.addEventListener("click", () => void toggleOwner(address));
+    }
     const code = codeOf(address);
     head.append(
         talkTitle(
             address,
             [
                 contact?.session ? "Session open" : "No session yet",
+                contact?.owner ? "Owner of this node" : "",
                 contact?.wake ? `Sleeps, wakes every ${wakeText(contact.wake)}` : "",
                 code && `code ${code}`,
             ]
@@ -2062,10 +2111,440 @@ function personHead(address: string): void {
                     ? "This node has a session with it."
                     : "No session yet: the first message makes first contact, directly or through relays.",
             ),
-            el("p", { class: "actions" }, rename, remove ?? null, end || null, forget || null),
+            contact?.owner &&
+                el("p", { class: "muted" }, "An owner of this node: it can change its settings and who it takes, from anywhere on the mesh."),
+            el("p", { class: "actions" }, rename, owner || null, remove ?? null, end || null, forget || null),
         ),
+        ...(contact && client?.can("MANAGE") ? [fold(address, "Manage this node", ...managePanel(address))] : []),
         ...shareControls(address),
     );
+}
+
+/** Makes a contact an owner of the connected node, or not, once the user has said yes. */
+async function toggleOwner(address: string): Promise<void> {
+    const contact = client?.contacts.get(address);
+    if (!contact) {
+        return;
+    }
+    const answer = contact.owner
+        ? await ask({
+              title: `Stop ${nameOf(address)} being an owner?`,
+              body: ["It can no longer manage this node over the mesh. The other owners are told."],
+              yes: "Not an owner",
+          })
+        : await ask({
+              title: `Make ${nameOf(address)} an owner of this node?`,
+              body: [
+                  "An owner can change this node's settings and who it takes, lock its Bluetooth and restart it, from anywhere on the mesh. " +
+                      "It is proved by its session: no password crosses the air.",
+                  "The other owners are told. A node holds 4 owners at most.",
+              ],
+              yes: "Make an owner",
+          });
+    if (answer) {
+        act(() => client!.setOwner(address, !contact.owner));
+    }
+}
+
+// ----- Managing another node over the mesh -----
+
+/** The node managed over the mesh, if any: one at a time, through the connected node. */
+let managed: Managed | null = null;
+/** What is under way for it, and the last thing that came of it, for the panel to say. */
+let manageBusy = "";
+let manageNote = "";
+let manageNoteBad = false;
+/** Its settings form, kept across redrawing so that what is typed stays, until the node's change. */
+let manageForm: { key: string; form: HTMLFormElement } | null = null;
+
+function stopManaging(): void {
+    void managed?.close();
+    managed = null;
+    manageBusy = "";
+    manageNote = "";
+    manageForm = null;
+}
+
+/** Where the request under way is, in a few words. */
+function manageProgress(m: Managed): string {
+    const p = m.transport.progress;
+    if (!p) {
+        return "";
+    }
+    const tries = p.attempt > 1 ? ` (try ${p.attempt} of 3)` : "";
+    switch (p.state) {
+        case null:
+            return `Handing it to your node${tries}.`;
+        case STATE.waiting:
+            return `${REASONS[p.reason] ?? "Waiting"}${tries}.`.replace(/^./, (x) => x.toUpperCase());
+        case STATE.sent:
+            return `On its way${tries}.`;
+        case STATE.delivered:
+            return `Delivered${tries}: waiting for its answer, up to 2 minutes.`;
+        default:
+            return `Not delivered${tries}: trying again shortly.`;
+    }
+}
+
+/** What went wrong managing, in a sentence. */
+function manageError(e: unknown): string {
+    if (e instanceof Refused) {
+        if (e.code === 13) {
+            return "That can't be done over the mesh: only at the node, over USB or Bluetooth.";
+        }
+        if (e.code === 0 && /did not answer/.test(e.message)) {
+            return "Delivered, but no answer. A node answers only its owners: make your node one of them at that node, over USB or Bluetooth.";
+        }
+        if (e.code === 0 && /not delivered/.test(e.message)) {
+            return "Not delivered: the node may be out of reach, or restarting. Try again in a while.";
+        }
+    }
+    return explain(e);
+}
+
+/** Runs something on the managed node, saying what is under way and what came of it. */
+async function manageDo(busy: string, what: (m: Managed) => Promise<string>): Promise<void> {
+    const m = managed;
+    if (!m || manageBusy !== "") {
+        return;
+    }
+    manageBusy = busy;
+    manageNote = "";
+    draw();
+    try {
+        const note = await what(m);
+        if (managed === m) {
+            manageNote = note;
+            manageNoteBad = false;
+        }
+    } catch (e) {
+        if (managed === m) {
+            manageNote = manageError(e);
+            manageNoteBad = true;
+        }
+    } finally {
+        if (managed === m) {
+            manageBusy = "";
+            manageForm = null;
+        }
+        draw();
+    }
+}
+
+/** Changes settings on the managed node, one at a time, each on trial until a PING confirms it. */
+async function manageSettings(m: Managed, changes: [setting: number, apply: (c: Client) => Promise<void>][]): Promise<string> {
+    if (changes.length === 0) {
+        return "Nothing to change.";
+    }
+    let confirmed = true;
+    for (const [setting, apply] of changes) {
+        confirmed = (await m.set(apply, RESTARTS.has(setting))) && confirmed;
+    }
+    return confirmed
+        ? "Applied, and confirmed: the node heard from you again, and keeps it."
+        : "Applied, but not confirmed: it goes back within 15 minutes unless the node hears from you. Refresh to confirm.";
+}
+
+/** The panel in a contact's head that manages its node over the mesh, as one of its owners. */
+function managePanel(address: string): Child[] {
+    const m = managed?.address === address ? managed : null;
+    const start = el("button", { type: "button", class: "small primary" }, m ? "Connect again" : "Connect over the mesh");
+    start.addEventListener("click", () => {
+        stopManaging();
+        const next = new Managed(client!, address);
+        managed = next;
+        next.client.onChange = draw;
+        next.transport.onProgress = draw;
+        void manageDo("Connecting over the mesh…", async (x) => {
+            await x.start();
+            return "";
+        });
+    });
+    const busy = manageBusy !== "" && el("p", { class: "state-line" }, manageBusy, " ", el("span", { class: "muted" }, m ? manageProgress(m) : ""));
+    const note = manageNote !== "" && el("p", { class: manageNoteBad ? "state-line bad" : "state-line" }, manageNote);
+    if (!m || !m.client.ready || !m.client.self) {
+        return [
+            el(
+                "p",
+                { class: "muted" },
+                "See and change this node's settings, owners and Bluetooth lock, or restart it, from here over the mesh. " +
+                    "It answers only if your node is one of its owners, made so at that node. Each request takes seconds to minutes.",
+            ),
+            busy,
+            note,
+            el("p", { class: "actions" }, manageBusy === "" && start),
+        ];
+    }
+    const r = m.client;
+    const self = r.self!;
+    const facts = [
+        self.region || "no region set",
+        `${self.power} dBm`,
+        self.role === 1 ? "relay" : "leaf",
+        r.release || r.firmware,
+        r.power && r.power.percent <= 100 ? `battery ${r.power.percent}%` : "",
+        `${r.neighbours.size} neighbour${r.neighbours.size === 1 ? "" : "s"}`,
+        self.locked ? "Bluetooth locked" : "",
+    ].filter((x) => x !== "");
+    const trial =
+        m.trialEnds !== null &&
+        el(
+            "p",
+            { class: "state-line" },
+            m.settling
+                ? "The node restarts to apply it; confirming once it can answer."
+                : `On trial: it goes back at ${new Date(m.trialEnds).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} unless confirmed.`,
+        );
+    const idle = manageBusy === "";
+    const button = (label: string, cls = "small"): HTMLButtonElement => {
+        const b = el("button", { type: "button", class: cls }, label);
+        b.disabled = !idle;
+        return b;
+    };
+
+    const refresh = button("Refresh");
+    refresh.addEventListener("click", () =>
+        void manageDo("Asking for its state…", async (x) => {
+            await x.run((c) => c.sync());
+            // Any request from an owner confirms a setting on trial.
+            x.trialEnds = null;
+            return "";
+        }),
+    );
+    const stop = button("Disconnect");
+    stop.addEventListener("click", () => {
+        stopManaging();
+        draw();
+    });
+    const restart = button("Restart it", "small danger");
+    restart.addEventListener("click", () => {
+        void (async () => {
+            const sure = await ask({
+                title: `Restart ${nameOf(address)}?`,
+                body: ["It restarts at once, and for a minute or so neither relays nor answers. It keeps its settings, contacts and owners."],
+                yes: "Restart",
+            });
+            if (sure) {
+                void manageDo("Restarting it…", async (x) => {
+                    await x.run((c) => c.restart());
+                    return "It is restarting. Refresh in a minute to see it again.";
+                });
+            }
+        })();
+    });
+    const lock = r.can("SET", SETTING.lock) && button(self.locked ? "Unlock Bluetooth" : "Lock Bluetooth");
+    if (lock) {
+        lock.addEventListener("click", () => {
+            void (async () => {
+                const on = !self.locked;
+                const sure = await ask(
+                    on
+                        ? {
+                              title: `Lock ${nameOf(address)}'s Bluetooth?`,
+                              body: [
+                                  "Anyone who pairs with it over Bluetooth can then reach it, but not read or change anything. " +
+                                      "Only USB, or one of its owners over the mesh, can unlock it.",
+                              ],
+                              yes: "Lock",
+                          }
+                        : { title: `Unlock ${nameOf(address)}'s Bluetooth?`, body: ["Whoever pairs with it can then change it."], yes: "Unlock" },
+                );
+                if (sure) {
+                    void manageDo(on ? "Locking its Bluetooth…" : "Unlocking its Bluetooth…", async (x) => {
+                        const note = await manageSettings(x, [[SETTING.lock, (c) => c.setLock(on)]]);
+                        await x.run((c) => c.sync());
+                        return note;
+                    });
+                }
+            })();
+        });
+    }
+
+    // Owners: the managed node's contacts, each with whether it is one.
+    const owners = el("ul", { class: "rows owners" });
+    const mine = client?.self?.address;
+    for (const k of r.contacts.values()) {
+        const who = k.address === mine ? "Your node" : k.name || nameOf(k.address);
+        const flip = button(k.owner ? "Remove as owner" : "Make an owner");
+        flip.addEventListener("click", () => {
+            void (async () => {
+                const sure = await ask(
+                    k.owner
+                        ? {
+                              title: `Remove ${who} as an owner?`,
+                              body: [
+                                  k.address === mine
+                                      ? "Your node can then no longer manage it, from here or anywhere."
+                                      : "It can then no longer manage the node. The other owners are told.",
+                              ],
+                              yes: "Remove",
+                          }
+                        : {
+                              title: `Make ${who} an owner?`,
+                              body: ["An owner can change the node's settings and who it takes, from anywhere on the mesh. The other owners are told."],
+                              yes: "Make an owner",
+                          },
+                );
+                if (sure) {
+                    void manageDo("Changing its owners…", async (x) => {
+                        await x.run((c) => c.setOwner(k.address, !k.owner));
+                        return "Done.";
+                    });
+                }
+            })();
+        });
+        owners.append(
+            el(
+                "li",
+                {},
+                el("span", { class: "row-main" }, el("span", { class: "row-title" }, who), el("span", { class: "row-sub" }, k.owner ? "Owner" : "Contact")),
+                flip,
+            ),
+        );
+    }
+    const addOwner = el("form", { class: "inline add-owner" });
+    const ownerAddress = el("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "a new owner's address", "aria-label": "A new owner's address" });
+    const addButton = el("button", { type: "submit", class: "small" }, "Add owner");
+    addButton.disabled = !idle;
+    addOwner.append(ownerAddress, addButton);
+    addOwner.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const a = parseAddress(ownerAddress.value);
+        if (!a) {
+            say("An address is 64 hex digits, or a node's link.", true);
+            return;
+        }
+        void (async () => {
+            const sure = await ask({
+                title: `Make ${nameOf(a)} an owner of ${nameOf(address)}?`,
+                body: ["It is saved as a contact there, and can then change the node's settings and who it takes, from anywhere on the mesh. The other owners are told."],
+                yes: "Make an owner",
+            });
+            if (sure) {
+                void manageDo("Adding an owner…", async (x) => {
+                    if (!x.client.contacts.has(a)) {
+                        await x.run((c) => c.saveContact(a, client?.contacts.get(a)?.name ?? ""));
+                    }
+                    await x.run((c) => c.setOwner(a, true));
+                    return "Done.";
+                });
+            }
+        })();
+    });
+
+    return [
+        el("p", { class: "muted" }, `${facts.join(" · ")}.`),
+        r.sleep && el("p", { class: "muted" }, sleepText(r.sleep, self.role === 1)),
+        trial,
+        busy,
+        note,
+        manageSettingsForm(m),
+        el("h4", {}, "Owners"),
+        owners,
+        addOwner,
+        el("p", { class: "actions" }, refresh, lock || null, restart, stop),
+    ];
+}
+
+/** The managed node's settings that may change over the mesh: all but its region and passkey. */
+function manageSettingsForm(m: Managed): HTMLFormElement {
+    const r = m.client;
+    const self = r.self!;
+    const receiver = r.can("SET", 7) && r.fix !== null && r.fix.receiver !== RECEIVER.none;
+    const key = `${m.address}/${self.power}/${self.role}/${self.cards}/${self.cardName}/${receiver && r.fix!.receiver}/${r.sleep?.wake}`;
+    if (manageForm?.key === key) {
+        for (const b of manageForm.form.querySelectorAll("button")) {
+            b.disabled = manageBusy !== "";
+        }
+        return manageForm.form;
+    }
+    const power = el("input", { type: "number", min: "-9", max: "22", step: "1", value: String(self.power), id: "manage-power" });
+    const role = el("select", { id: "manage-role" }, el("option", { value: "1" }, "Help the mesh: relay others' messages"), el("option", { value: "0" }, "Just me: send and receive my own"));
+    role.value = String(self.role);
+    const cards = self.cards !== null && el("input", { type: "checkbox", id: "manage-cards" });
+    if (cards) {
+        cards.checked = self.cards === true;
+    }
+    const cardName = self.cardName !== null && el("input", { type: "text", maxlength: String(NAME_MAX), id: "manage-card-name", value: self.cardName ?? "", placeholder: "empty for none; sent in clear" });
+    const gps = receiver && el("input", { type: "checkbox", id: "manage-gps" });
+    if (gps) {
+        gps.checked = r.fix!.receiver !== RECEIVER.off;
+    }
+    const wake = r.sleep !== null && r.can("SET", 8) && el("select", { id: "manage-wake" }, el("option", { value: "0" }, "never: listen all the time"));
+    if (wake) {
+        for (const w of WAKES) {
+            wake.append(el("option", { value: String(w) }, `wake every ${wakeText(w)}`));
+        }
+        if (!WAKES.includes(r.sleep!.wake) && r.sleep!.wake !== 0) {
+            wake.append(el("option", { value: String(r.sleep!.wake) }, `wake every ${wakeText(r.sleep!.wake)}`));
+        }
+        wake.value = String(r.sleep!.wake);
+    }
+    const apply = el("button", { type: "submit", class: "small primary" }, "Apply");
+    const form = el(
+        "form",
+        { class: "share manage" },
+        el("label", { for: "manage-power" }, "Transmit power, in dBm"),
+        power,
+        el("label", { for: "manage-role" }, "Role"),
+        role,
+        cards && el("label", { class: "check" }, cards, " Send its presence card"),
+        cardName && el("label", { for: "manage-card-name" }, "The name its card carries"),
+        cardName,
+        gps && el("label", { class: "check" }, gps, " Run its GPS"),
+        wake && el("label", { for: "manage-wake" }, "Sleep"),
+        wake,
+        el(
+            "p",
+            { class: "muted small-print" },
+            "A setting changed over the mesh is on trial: the node takes it back after 15 minutes unless it hears from you again, " +
+                "which this page asks it at once. So a change that leaves it out of reach undoes itself. Its region can be changed only at the node.",
+        ),
+        apply,
+    );
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const s = r.self;
+        if (!s) {
+            return;
+        }
+        const changes: [number, (c: Client) => Promise<void>][] = [];
+        if (cards && cards.checked !== s.cards) {
+            const on = cards.checked;
+            changes.push([SETTING.cards, (c) => c.setCards(on)]);
+        }
+        if (cardName && cardName.value.trim() !== s.cardName) {
+            const name = clip(cardName.value.trim(), NAME_MAX);
+            changes.push([SETTING.cardName, (c) => c.setCardName(name)]);
+        }
+        if (gps && gps.checked !== (r.fix!.receiver !== RECEIVER.off)) {
+            const on = gps.checked;
+            changes.push([SETTING.receiver, (c) => c.setReceiver(on)]);
+        }
+        if (wake && Number(wake.value) !== r.sleep?.wake) {
+            const w = Number(wake.value);
+            changes.push([SETTING.wake, (c) => c.setWake(w)]);
+        }
+        // Last, those it restarts to apply.
+        if (Number(role.value) !== s.role) {
+            const v = Number(role.value);
+            changes.push([SETTING.role, (c) => c.set("role", v)]);
+        }
+        const p = Math.round(Number(power.value));
+        if (Number.isFinite(p) && p !== s.power) {
+            changes.push([SETTING.power, (c) => c.set("power", p)]);
+        }
+        void manageDo("Applying…", async (x) => {
+            const note = await manageSettings(x, changes);
+            await x.run((c) => c.sync());
+            return note;
+        });
+    });
+    for (const b of form.querySelectorAll("button")) {
+        b.disabled = manageBusy !== "";
+    }
+    manageForm = { key, form };
+    return form;
 }
 
 function drawMessages(address: string): void {
@@ -2128,7 +2607,7 @@ function drawTabs(): void {
     // On a phone a conversation opens over the list, and Back closes it.
     $("pane-chats").classList.toggle("open", selected !== null);
     $("live").classList.toggle("talking", tab === "chats" && selected !== null);
-    const unread = talks().reduce((n, key) => n + unreadOf(key), 0) + (client?.asked.size ?? 0);
+    const unread = talks().reduce((n, key) => n + unreadOf(key), 0) + (client?.asked.size ?? 0) + (client?.ownerChanges.length ?? 0);
     const total = $("unread-total");
     total.hidden = unread === 0;
     total.textContent = String(unread);
@@ -2192,7 +2671,10 @@ function draw(): void {
         drawNode();
         // Not while an update is under way: the node would be left between two images.
         $("turn-off").hidden = !client.can("OFF") || (updating !== null && updating.node === client.self?.address);
-        $("wipe").hidden = !client.can("WIPE") || (updating !== null && updating.node === client.self?.address);
+        const lock = $<HTMLButtonElement>("lock");
+    lock.hidden = !client.can("SET", SETTING.lock) || client.self?.locked === null;
+    lock.textContent = client.self?.locked ? "Unlock Bluetooth" : "Lock Bluetooth";
+    $("wipe").hidden = !client.can("WIPE") || (updating !== null && updating.node === client.self?.address);
         drawUpdate();
         drawSettings();
         drawCard();
@@ -2461,6 +2943,7 @@ async function connect(
     settingsShown = "";
     cardShown = "";
     sleepShown = "";
+    stopManaging();
     sharingWith = null;
     offer = null;
     offerAsked = "";
@@ -2490,7 +2973,12 @@ async function connect(
         return;
     }
     if (!c.closed) {
-        say(`${explain(failed)} Is this a Tern node? Flash the firmware first.`, true);
+        say(
+            failed instanceof Refused && failed.code === 14
+                ? "This node's Bluetooth is locked. Connect to it over USB, or manage it over the mesh from a node that is one of its owners."
+                : `${explain(failed)} Is this a Tern node? Flash the firmware first.`,
+            true,
+        );
     }
     await c.close();
     draw();
@@ -2552,6 +3040,27 @@ async function turnOff(c: Client): Promise<void> {
     turnedOff = true;
     say("");
     draw();
+}
+
+/** Locks the node's Bluetooth, or unlocks it, once the user has been told who can unlock it. */
+async function lockBluetooth(c: Client): Promise<void> {
+    const on = !c.self?.locked;
+    const answer = await ask(
+        on
+            ? {
+                  title: "Lock this node's Bluetooth?",
+                  body: [
+                      "A phone or computer paired with it can then reach it, but not read or change anything: not even this node's own app. " +
+                          "Only USB, or one of its owners over the mesh, can unlock it.",
+                      ...(linkKind === "bluetooth" ? ["This page reaches it over Bluetooth, so it will be locked out too."] : []),
+                  ],
+                  yes: "Lock",
+              }
+            : { title: "Unlock this node's Bluetooth?", body: ["Whoever pairs with it can then change it."], yes: "Unlock" },
+    );
+    if (answer) {
+        act(() => c.setLock(on));
+    }
 }
 
 /**
@@ -2727,6 +3236,11 @@ function start(): void {
     $("turn-off").addEventListener("click", () => {
         if (client) {
             void turnOff(client);
+        }
+    });
+    $("lock").addEventListener("click", () => {
+        if (client) {
+            void lockBluetooth(client);
         }
     });
     $("wipe").addEventListener("click", () => {

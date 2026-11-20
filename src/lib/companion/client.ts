@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 16 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 17 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -21,6 +21,7 @@ import {
     decode,
     encode,
     fieldsFor,
+    hex,
     settingSince,
     since,
     wrap,
@@ -50,6 +51,8 @@ export interface Self {
     most: boolean | null;
     /** How it pairs over Bluetooth (PAIRING): null before version 11. */
     pairing: number | null;
+    /** Whether its Bluetooth is locked, so that only USB and its owners change it: null before version 17. */
+    locked: boolean | null;
 }
 export interface Contact {
     address: string;
@@ -60,6 +63,21 @@ export interface Contact {
      * has said nothing, or shares no session. A message to it waits with its keeper until it wakes.
      */
     wake: number;
+    /** Whether it is one of the node's owners, who may manage it over the mesh (version 17). */
+    owner: boolean;
+}
+/**
+ * A node told this one that its owners changed (OWNER_CHANGED, version 17): `contact` became one
+ * of them, or stopped being one, at the node over USB or Bluetooth (`by` OWNER_BY.link) or by an
+ * owner over the mesh. The node does not keep these, so neither does a sync.
+ */
+export interface OwnerChange {
+    from: string;
+    contact: string;
+    owner: boolean;
+    by: number;
+    /** When it was told, by this client's clock, in milliseconds. */
+    at: number;
 }
 /** A group the node holds: its id, as lower-case hex, and the user's name for it. */
 export interface Group {
@@ -203,6 +221,8 @@ const ERRORS: Readonly<Record<number, string>> = {
     10: "the node is not where the update is",
     11: "the node will not run that image",
     12: "that address is not a contact",
+    13: "a node does not do that when managed over the mesh",
+    14: "the node's Bluetooth is locked: only USB, or one of its owners over the mesh, can change it",
 };
 
 export interface Options {
@@ -211,6 +231,10 @@ export interface Options {
     answerWaitMs?: number;
     idleMs?: number;
     gapMs?: number;
+    /** Whether to PING when there is nothing to ask, so that the node does not let go: not over the mesh. */
+    keepAlive?: boolean;
+    /** Whether start() sets the node's clock: not over the mesh, where each request costs airtime. */
+    setsTime?: boolean;
 }
 
 interface Seen {
@@ -269,6 +293,8 @@ export class Client {
      * the page lets go of them, or the node gains a session with the address.
      */
     readonly asked = new Map<string, number>();
+    /** Owner changes nodes told this one of since this client connected, oldest first, until the page lets go. */
+    readonly ownerChanges: OwnerChange[] = [];
     airtime: Airtime | null = null;
     power: Power | null = null;
     /** The node's own fix: null from a node before version 8, which tells of none. */
@@ -296,6 +322,8 @@ export class Client {
     onChange: () => void = () => {};
     onConsole: (text: string) => void = () => {};
     onClosed: (why: string) => void = () => {};
+    /** Every news frame as it is read, for what drives another node through this one (remote.ts). */
+    readonly newsTaps = new Set<(f: Frame) => void>();
 
     private readonly transport: Transport;
     private readonly now: () => number;
@@ -303,6 +331,8 @@ export class Client {
     private readonly answerWaitMs: number;
     private readonly idleMs: number;
     private readonly gapMs: number;
+    private readonly keepAlive: boolean;
+    private readonly setsTime: boolean;
     private readonly reader = new StreamReader();
     private readonly text = new TextDecoder();
     private gap: ReturnType<typeof setTimeout> | null = null;
@@ -327,6 +357,8 @@ export class Client {
         this.answerWaitMs = options.answerWaitMs ?? ANSWER_WAIT_MS;
         this.idleMs = options.idleMs ?? IDLE_MS / 2;
         this.gapMs = options.gapMs ?? GAP_MS;
+        this.keepAlive = options.keepAlive ?? true;
+        this.setsTime = options.setsTime ?? true;
         transport.onData = (data) => this.received(data);
         transport.onClose = (why) => this.ended(why);
     }
@@ -357,7 +389,9 @@ export class Client {
         this.release = String(info.fields.release ?? "");
         this.update = info.fields.update === undefined ? null : Number(info.fields.update);
         this.greeted = true;
-        await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
+        if (this.setsTime) {
+            await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
+        }
         await this.sync();
         this.ready = true;
         this.onChange();
@@ -530,6 +564,42 @@ export class Client {
         await this.request("SET", { setting: SETTING.listen, value: seconds });
     }
     /**
+     * Locks the node's Bluetooth, or unlocks it (SET 10, version 17): while locked it does nothing
+     * asked over Bluetooth but HELLO and PING, and only USB or its owners over the mesh unlock it.
+     * Only ever because the user asked, having been told so.
+     */
+    async setLock(on: boolean): Promise<void> {
+        await this.request("SET", { setting: SETTING.lock, value: on ? 1 : 0 });
+    }
+    /**
+     * Makes a contact one of the node's owners, who may manage it over the mesh, or not (OWNER,
+     * version 17). Only ever because the user asked, having been told what an owner can do.
+     */
+    async setOwner(address: string, owner: boolean): Promise<void> {
+        await this.request("OWNER", { address, owner: owner ? 1 : 0 });
+    }
+    /** Restarts the node (RESTART, version 17): it answers, and then restarts, and every connection drops. */
+    async restart(): Promise<void> {
+        await this.request("RESTART");
+    }
+    /**
+     * Sends one companion request, as its frame, to the node at `to` over the mesh, to manage it
+     * (MANAGE, version 17), and returns the id that STATE news about it carries. Its answer comes
+     * back as MANAGED news: remote.ts reads both.
+     */
+    async manage(to: string, frame: Uint8Array, ref: number = this.random()): Promise<number> {
+        return Number((await this.request("MANAGE", { ref, to, request: hex(frame) })).fields.id);
+    }
+    /** Lets go of an owner change the page has shown. */
+    forgetOwnerChange(change: OwnerChange): void {
+        const at = this.ownerChanges.indexOf(change);
+        if (at >= 0) {
+            this.ownerChanges.splice(at, 1);
+            this.onChange();
+        }
+    }
+
+    /**
      * Turns the node off, and closes the connection once it says OK: only the node itself, by its
      * button, its reset or its power, turns it on again. Only ever because the user asked, having
      * been told so. A try the node never answered is made once more, since OFF does no harm sent
@@ -648,7 +718,7 @@ export class Client {
      * Changes a setting. A node may restart to apply it once it has answered: the caller starts
      * the connection again.
      */
-    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName" | "receiver" | "wake" | "listen">, value: number | string): Promise<void> {
+    async set(setting: Exclude<keyof typeof SETTING, "cards" | "cardName" | "receiver" | "wake" | "listen" | "lock">, value: number | string): Promise<void> {
         await this.request("SET", { setting: SETTING[setting], value });
     }
     /** Lets go of an address the node said had asked. */
@@ -718,7 +788,7 @@ export class Client {
         if (this.idle) {
             clearTimeout(this.idle);
         }
-        if (this.closed) {
+        if (this.closed || !this.keepAlive) {
             return;
         }
         this.idle = setTimeout(() => {
@@ -771,6 +841,9 @@ export class Client {
             }
             this.newsSeq = (f.seq + 1) & 0xff;
             this.news(f);
+            for (const tap of this.newsTaps) {
+                tap(f);
+            }
             const counted = f.type === "MESSAGE" || f.type === "GROUP_MESSAGE" || f.type === "INVITE";
             if (counted && !this.missed && !this.syncSeen) {
                 // In step, so nothing before it was missed.
@@ -825,6 +898,7 @@ export class Client {
                     cardName: x.card_name === undefined ? null : String(x.card_name),
                     most: x.most === undefined ? null : x.most === 1,
                     pairing: x.pairing === undefined ? null : Number(x.pairing),
+                    locked: x.locked === undefined ? null : x.locked === 1,
                 };
                 break;
             case "CONTACT":
@@ -833,6 +907,7 @@ export class Client {
                     name: String(x.name),
                     session: x.session === 1,
                     wake: x.wake === undefined ? 0 : Number(x.wake),
+                    owner: x.owner === 1,
                 });
                 this.syncSeen?.contacts.add(String(x.address));
                 if (x.session === 1) {
@@ -997,6 +1072,15 @@ export class Client {
                 }
                 break;
             }
+            case "OWNER_CHANGED":
+                this.ownerChanges.push({
+                    from: String(x.from),
+                    contact: String(x.contact),
+                    owner: x.owner === 1,
+                    by: Number(x.by),
+                    at: this.now(),
+                });
+                break;
             case "POWER":
                 this.power = {
                     millivolts: Number(x.millivolts),

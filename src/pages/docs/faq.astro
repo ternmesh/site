@@ -29,6 +29,10 @@ const org = "https://github.com/ternmesh";
                 find each other nearby through presence cards, which are off until you turn yours on.
             </li>
             <li>
+                <strong>Relays managed by their owners, not a password.</strong> A node's owners are a list of
+                addresses, each proved by its session, and are told when that list changes.
+            </li>
+            <li>
                 <strong>An open specification first.</strong> The protocol is a written{" "}
                 <a href={`${org}/spec`}>specification</a> with test vectors; the firmware and apps are implementations of
                 it, and anyone may write another.
@@ -174,6 +178,21 @@ const org = "https://github.com/ternmesh";
         </p>
     </details>
     <details>
+        <summary>Can I change a relay without going to it?</summary>
+        <p>
+            Yes, with firmware that knows how, which is not yet in a release. At the relay, over USB or Bluetooth, make
+            your own node one of its owners; from then on the web app can, from your node, see the relay's state, change
+            its settings but its region, change its owners, lock its Bluetooth and restart it, over the mesh. Only
+            owners are answered, each proved by its session: no password crosses the air. Every owner is told when the
+            owners change.
+        </p>
+        <p>
+            A setting changed over the mesh goes back after 15 minutes unless the relay hears from you again, which the
+            app asks it at once; so a change that leaves it out of your reach undoes itself. A locked relay does nothing
+            asked over Bluetooth: only USB or its owners unlock it.
+        </p>
+    </details>
+    <details>
         <summary>Does it cost anything?</summary>
         <p>
             No. The firmware, the apps and this site are open source, under the Apache License 2.0, and the specification
@@ -186,7 +205,6 @@ const org = "https://github.com/ternmesh";
             <li>Telemetry and sensors, and a view of the path a message took.</li>
             <li>Holding messages for a node that is away, beyond what its own node keeps.</li>
             <li>Bridges to the internet or to other meshes.</li>
-            <li>Managing another node remotely.</li>
             <li>
                 Leaves that sleep on a schedule are on the firmware's main branch, not yet in a release, with only the
                 radio asleep so far. Links that each pick their own speed are not built. The airtime budget is in the

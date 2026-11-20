@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { Client, Refused, positionKey } from "../src/lib/companion/client.ts";
 import { History } from "../src/lib/app/history.ts";
 import { routingId, routingIdFor } from "../src/lib/companion/ids.ts";
-import { Wire } from "./wire.ts";
+import { Wire, playing } from "./wire.ts";
+import type { Step } from "./wire.ts";
 import {
     FIX_SOURCE,
     LISTEN_MIN,
@@ -25,7 +26,6 @@ import {
 } from "../src/lib/companion/protocol.ts";
 import type { Fields } from "../src/lib/companion/protocol.ts";
 
-type Step = { from: string; type: string; seq: number; frame: string };
 const v: { exchange: Step[]; forget: Step[][] } = JSON.parse(
     readFileSync(new URL("./vectors/companion.json", import.meta.url), "utf8"),
 );
@@ -812,41 +812,6 @@ test("a node of version 14 is not asked to sleep, and tells of no sleeping; one 
     await c2.close();
 });
 
-/**
- * Plays a node's side of one of the specification's connections to this client, from `at` until
- * the next of the client's frames that is not yet written, and checks each of the client's against
- * it. This client sets the node's clock before it syncs, which the connection leaves out: that is
- * answered here, and the node's answers take the seq of the request this client sent.
- */
-function playing(wire: Wire, steps: Step[]) {
-    let at = 0;
-    const seqs = new Map<number, number>();
-    const play = () => {
-        while (at < steps.length && steps[at]!.from === "node") {
-            const frame = unhex(steps[at++]!.frame)!;
-            if (frame[0]! >= 0x40 && frame[0]! < 0x80) {
-                frame[1] = seqs.get(frame[1]!)!;
-            }
-            wire.raw(frame);
-        }
-    };
-    const expect = async () => {
-        const step = steps[at++]!;
-        assert.equal(step.from, "client");
-        let got = await wire.next();
-        if (step.type !== "SET_TIME" && decode(got)!.type === "SET_TIME") {
-            wire.say("OK", got[1]!);
-            got = await wire.next();
-        }
-        const want = unhex(step.frame)!;
-        assert.equal(hex(got.subarray(2)), hex(want.subarray(2)), step.type);
-        assert.equal(got[0], want[0], step.type);
-        seqs.set(want[1]!, got[1]!);
-        play();
-    };
-    return { expect, play, done: () => at === steps.length };
-}
-
 const SELF_ADDRESS = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 const HUT = "c0037dcd77f6eac6";
 
@@ -858,7 +823,7 @@ test("the specification's forgetting: Bob's conversation and the group's go, and
     await p.expect(); // HELLO
     await p.expect(); // SYNC
     await up;
-    assert.equal(c.version, 16);
+    assert.equal(c.version, VERSION);
     assert.deepEqual([...c.messages.keys()].sort(), [17, 18, 19, 20, 21]);
 
     const sent = c.send(BOB, "Coming down");
