@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 17 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 18 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -17,6 +17,7 @@ import {
     SLEEP,
     STATE,
     StreamReader,
+    TRACE_RESULT,
     VERSION,
     decode,
     encode,
@@ -24,9 +25,10 @@ import {
     hex,
     settingSince,
     since,
+    traceHops,
     wrap,
 } from "./protocol.ts";
-import type { Fields, Frame } from "./protocol.ts";
+import type { Fields, Frame, TraceHop } from "./protocol.ts";
 
 export interface Transport {
     /** Whether the link carries whole frames, as Bluetooth does; a byte stream needs them wrapped. */
@@ -103,6 +105,58 @@ export interface Message {
     reason: number;
     wait: number;
     text: string;
+}
+/**
+ * How a message, a group message or an invite went, as the node's last ROUTE for it said (version
+ * 18). `hops` is how many hops the frame that brought it came, 1 for straight from its sender and 0
+ * for unknown; for a group message received, the most it can have come. `snr` (quarters of a dB) and
+ * `rssi` (dBm) are how that frame was heard. For one sent, `via` is the routing id of the neighbour
+ * it last went to, the destination's own when it went straight there, 0 while it has gone nowhere;
+ * `goes` how many tries have gone on the air; and once it is delivered, `hops`, `snr` and `rssi`
+ * are the acknowledgement's on its way back, and `took` the round trip in milliseconds.
+ */
+export interface Route {
+    hops: number;
+    snr: number;
+    rssi: number;
+    via: number;
+    goes: number;
+    took: number;
+}
+/**
+ * A trace to the routing id `to` (version 18), from when it was asked for until it ends: `id` once
+ * the node took it, where it is on the air from its STATE, and how it ended (TRACED), or `failed`,
+ * why the node did not take it. A TRACED for a trace another client began is kept likewise.
+ */
+export interface Trace {
+    to: number;
+    id: number | null;
+    /** Its STATE: null until the node says. */
+    state: number | null;
+    reason: number;
+    wait: number;
+    /** When it ended: TRACE_RESULT, and for one answered the hops each way. */
+    ended: Traced | null;
+    failed: Refused | null;
+}
+export interface Traced {
+    result: number;
+    /** The nodes that passed it on, and last the one that answered. */
+    wayOut: TraceHop[];
+    /** The nodes that passed the answer back, before it reached this node. */
+    wayBack: TraceHop[];
+    /** How well this node heard the answer, in quarters of a dB. */
+    snr: number;
+    /** From the trace first going on the air until its answer came, in milliseconds. */
+    took: number;
+}
+/** Whether a trace is still on its way: neither ended nor refused. */
+export function tracing(t: Trace | undefined): boolean {
+    return t !== undefined && t.ended === null && t.failed === null;
+}
+/** Whether something answered a trace: its destination, its keeper, or a relay with no route. */
+export function answered(t: Traced): boolean {
+    return t.result <= TRACE_RESULT.noRoute;
 }
 export interface Neighbour {
     routingId: number;
@@ -281,6 +335,14 @@ export class Client {
     readonly contacts = new Map<string, Contact>();
     readonly groups = new Map<string, Group>();
     readonly messages = new Map<number, Message>();
+    /**
+     * How each message went, by its id, as the node's last ROUTE for it said (version 18). Not every
+     * message has one: a node keeps none for one from before it kept them, and may keep none across a
+     * restart, so a sync that sends none takes none away; one goes with its message when forgotten.
+     */
+    readonly routes = new Map<number, Route>();
+    /** Traces, by the routing id each is to: the last to each, until another. Not kept by the node. */
+    readonly traces = new Map<number, Trace>();
     readonly neighbours = new Map<number, Neighbour>();
     /** By positionKey(). */
     readonly positions = new Map<string, Position>();
@@ -349,6 +411,8 @@ export class Client {
     private greeted = false;
     /** During a sync: what it has sent of each list, to forget the rest when it ends. */
     private syncSeen: Seen | null = null;
+    /** STATEs for ids no message has, which may be a trace's before its QUEUED is read. */
+    private readonly otherStates = new Map<number, { state: number; reason: number; wait: number }>();
 
     constructor(transport: Transport, options: Options = {}) {
         this.transport = transport;
@@ -380,9 +444,39 @@ export class Client {
         // A node that has restarted counts its messages from the start again, and one that only
         // took this client for gone still holds them: either way, what it holds now is asked for
         // whole, and nothing held from before is taken to be the node's.
+        const before = new Map(this.messages);
         this.messages.clear();
         this.forgotten.clear();
         this.through = 0;
+        this.traces.clear();
+        this.otherStates.clear();
+        const routed = new Set<number>();
+        const tap = (f: Frame) => {
+            if (f.type === "ROUTE") {
+                routed.add(Number(f.fields.id));
+            }
+        };
+        this.newsTaps.add(tap);
+        try {
+            await this.greet(info);
+        } finally {
+            this.newsTaps.delete(tap);
+        }
+        // A route the sync did not send again is kept only for the same message: a node that keeps
+        // none across a restart sends none, and one that counts again may give an old id to a new one.
+        for (const id of [...this.routes.keys()]) {
+            const was = before.get(id);
+            const is = this.messages.get(id);
+            const same = was && is && was.contact === is.contact && was.time === is.time && was.text === is.text && was.invite === is.invite;
+            if (!routed.has(id) && !same) {
+                this.routes.delete(id);
+            }
+        }
+        this.ready = true;
+        this.onChange();
+    }
+
+    private async greet(info: Frame): Promise<void> {
         this.version = Math.min(VERSION, Number(info.fields.version));
         this.firmware = String(info.fields.firmware);
         this.board = String(info.fields.board ?? "");
@@ -393,8 +487,6 @@ export class Client {
             await this.request("SET_TIME", { time: Math.floor(this.now() / 1000) });
         }
         await this.sync();
-        this.ready = true;
-        this.onChange();
     }
 
     /**
@@ -590,6 +682,39 @@ export class Client {
     async manage(to: string, frame: Uint8Array, ref: number = this.random()): Promise<number> {
         return Number((await this.request("MANAGE", { ref, to, request: hex(frame) })).fields.id);
     }
+    /**
+     * Traces the way frames go to the node whose routing id is `to`, and back (TRACE, version 18):
+     * a contact's, a neighbour's, or any other. Its STATE and TRACED land in `traces`. One to an id
+     * a trace is already out to is not asked: the node would refuse it. Rejects with Refused if the
+     * node refused: ERROR 3 for a reserved id or its own, 8 for one already out.
+     */
+    async trace(to: number, ref?: number): Promise<number> {
+        if (tracing(this.traces.get(to))) {
+            throw new Refused(8, ERRORS[8]!);
+        }
+        ref ??= this.random();
+        const run: Trace = { to, id: null, state: null, reason: 0, wait: 0, ended: null, failed: null };
+        this.traces.set(to, run);
+        this.onChange();
+        try {
+            const id = Number((await this.request("TRACE", { ref, to })).fields.id);
+            if (run.id === null) {
+                run.id = id;
+            }
+            const early = this.otherStates.get(id);
+            if (early) {
+                Object.assign(run, early);
+                this.otherStates.delete(id);
+            }
+            this.onChange();
+            return id;
+        } catch (e) {
+            run.failed = e instanceof Refused ? e : new Refused(0, String(e));
+            this.onChange();
+            throw e;
+        }
+    }
+
     /** Lets go of an owner change the page has shown. */
     forgetOwnerChange(change: OwnerChange): void {
         const at = this.ownerChanges.indexOf(change);
@@ -944,11 +1069,51 @@ export class Client {
                 this.groups.delete(String(x.group));
                 break;
             case "STATE": {
-                const m = this.messages.get(Number(x.id));
+                const id = Number(x.id);
+                const now = { state: Number(x.state), reason: Number(x.reason), wait: Number(x.wait) };
+                const m = this.messages.get(id);
                 if (m) {
-                    m.state = Number(x.state);
-                    m.reason = Number(x.reason);
-                    m.wait = Number(x.wait);
+                    Object.assign(m, now);
+                    break;
+                }
+                // A trace's, or a MANAGE's: it changes no message.
+                const run = [...this.traces.values()].find((t) => t.id === id && tracing(t));
+                if (run) {
+                    Object.assign(run, now);
+                } else {
+                    this.otherStates.set(id, now);
+                    if (this.otherStates.size > 16) {
+                        this.otherStates.delete(this.otherStates.keys().next().value!);
+                    }
+                }
+                break;
+            }
+            case "ROUTE":
+                this.routes.set(Number(x.id), {
+                    hops: Number(x.hops),
+                    snr: Number(x.snr),
+                    rssi: Number(x.rssi),
+                    via: Number(x.via),
+                    goes: Number(x.goes),
+                    took: Number(x.took),
+                });
+                break;
+            case "TRACED": {
+                const to = Number(x.to);
+                const id = Number(x.id);
+                const ended: Traced = {
+                    result: Number(x.result),
+                    ...traceHops(String(x.entries), Number(x.out)),
+                    snr: Number(x.snr),
+                    took: Number(x.took),
+                };
+                const mine = this.traces.get(to);
+                if (mine && (mine.id === id || (mine.id === null && tracing(mine)))) {
+                    mine.id = id;
+                    mine.ended = ended;
+                } else if (!tracing(mine)) {
+                    // Another client's trace, or one from before this connection: shown all the same.
+                    this.traces.set(to, { to, id, state: null, reason: 0, wait: 0, ended, failed: null });
                 }
                 break;
             }
@@ -1068,6 +1233,7 @@ export class Client {
                 for (const [id, m] of this.messages) {
                     if (m.contact === key && id <= through) {
                         this.messages.delete(id);
+                        this.routes.delete(id); // and how it went
                     }
                 }
                 break;

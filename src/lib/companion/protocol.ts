@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 17 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 18 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 17;
+export const VERSION = 18;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -24,6 +24,10 @@ export const LINK_MAX = 102;
 /** The longest a MANAGE's `request` and a MANAGED's `answer` are (version 17, draft/managing.md). */
 export const REQUEST_MAX = 128;
 export const ANSWER_MAX = 128;
+/** The longest a TRACED's `entries` are (version 18): sixteen entries each way. */
+export const TRACE_ENTRIES_MAX = 160;
+/** One entry of a trace: a routing id, 4 bytes, and the SNR its node heard the frame at, an i8 in quarters of a dB. */
+export const TRACE_ENTRY = 5;
 
 type Kind = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "addr" | "gid" | "digest" | "str" | "bytes";
 /** How many bytes a field of fixed bytes is: an address, a group's id or a digest. */
@@ -47,7 +51,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 17, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 18, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -62,6 +66,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x12: ["FORGET", [["contact", "addr"], ["through", "u32"]], 16],
     0x13: ["MANAGE", [["ref", "u32"], ["to", "addr"], ["request", "bytes", REQUEST_MAX]], 17],
     0x14: ["OWNER", [["address", "addr"], ["owner", "u8"]], 17],
+    0x15: ["TRACE", [["ref", "u32"], ["to", "u32"]], 18],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]], 0],
     0x1a: ["END_SESSION", [["address", "addr"]], 1],
@@ -220,6 +225,32 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x97: ["GROUP_FORGOTTEN", [["group", "gid"], ["through", "u32"]], 16],
     0x98: ["MANAGED", [["from", "addr"], ["answer", "bytes", ANSWER_MAX]], 17],
     0x99: ["OWNER_CHANGED", [["from", "addr"], ["contact", "addr"], ["owner", "u8"], ["by", "u8"]], 17],
+    0x9a: [
+        "ROUTE",
+        [
+            ["id", "u32"],
+            ["hops", "u8"],
+            ["snr", "i8"],
+            ["rssi", "i16"],
+            ["via", "u32"],
+            ["goes", "u8"],
+            ["took", "u32"],
+        ],
+        18,
+    ],
+    0x9b: [
+        "TRACED",
+        [
+            ["id", "u32"],
+            ["to", "u32"],
+            ["result", "u8"],
+            ["out", "u8"],
+            ["took", "u32"],
+            ["snr", "i8"],
+            ["entries", "bytes", TRACE_ENTRIES_MAX],
+        ],
+        18,
+    ],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -290,6 +321,30 @@ export function unpackAnswer(answer: Uint8Array): Uint8Array[] | null {
         at += 1 + n;
     }
     return frames;
+}
+
+/** How a trace ended: TRACED's `result` (version 18). */
+export const TRACE_RESULT = { answered: 0, keeper: 1, noRoute: 2, notAnswered: 3, notBegun: 4 } as const;
+
+/** One entry of a trace: a node that passed it on or answered it, and how well it heard the node before, in quarters of a dB. */
+export interface TraceHop {
+    routingId: number;
+    snr: number;
+}
+
+/**
+ * A TRACED's `entries` as hops (version 18, draft/forwarding.md "Traces"): the first `out` the way
+ * out, ending with the node that answered, and the rest the way back. An entry cut short is no hop.
+ */
+export function traceHops(entries: string, out: number): { wayOut: TraceHop[]; wayBack: TraceHop[] } {
+    const bytes = unhex(entries) ?? new Uint8Array(0);
+    const hops: TraceHop[] = [];
+    for (let at = 0; at + TRACE_ENTRY <= bytes.length; at += TRACE_ENTRY) {
+        const id = ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0;
+        const q = bytes[at + 4]!;
+        hops.push({ routingId: id, snr: q >= 128 ? q - 256 : q });
+    }
+    return { wayOut: hops.slice(0, out), wayBack: hops.slice(out) };
 }
 
 /** How a client gives the node new firmware: INFO's `update` (version 12). */
@@ -435,6 +490,12 @@ export function encode(type: string, seq: number, fields: Fields = {}): Uint8Arr
                 throw new Error(`${type}.${name} is not a whole number`);
             }
             const size = WIDTH[kind]!;
+            const signed = kind[0] === "i";
+            const least = signed ? -(2 ** (8 * size - 1)) : 0;
+            const most = signed ? 2 ** (8 * size - 1) - 1 : 2 ** (8 * size) - 1;
+            if (v < least || v > most) {
+                throw new Error(`${type}.${name} is out of range for ${kind}`);
+            }
             const n = v < 0 ? v + 2 ** (8 * size) : v;
             for (let i = size - 1; i >= 0; i--) {
                 out.push(Math.floor(n / 2 ** (8 * i)) & 0xff);
