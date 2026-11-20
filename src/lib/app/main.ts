@@ -4,8 +4,8 @@
 // Everything a node sends is untrusted text from the air, so nothing here is ever set as HTML:
 // every string goes in as a text node.
 
-import { Client, Refused } from "../companion/client.ts";
-import type { Fix, Message, OwnerChange, Position, Sharing, Sleep, Transport } from "../companion/client.ts";
+import { Client, Refused, answered, tracing } from "../companion/client.ts";
+import type { Fix, Message, OwnerChange, Position, Route, Sharing, Sleep, Transport } from "../companion/client.ts";
 import { Managed, RESTARTS } from "../companion/remote.ts";
 import { openDemo } from "../companion/demo.ts";
 import { BLINDED_SINCE, parseAddress, routingIdFor, routingIdText } from "../companion/ids.ts";
@@ -37,6 +37,30 @@ import type { DfuStage, Package } from "../companion/dfu.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
+import {
+    LEAF_HINT,
+    RANGE_DEFAULT_MS,
+    ROUTE_SINCE,
+    RangeTest,
+    TRACE_DISCLAIMER,
+    TRACE_NEEDS_UPDATE,
+    fixText,
+    isLeaf,
+    leafWithoutSession,
+    rangeCsv,
+    rangeRowText,
+    rangeRows,
+    rangeTally,
+    routeFacts,
+    routeLine,
+    snrText,
+    traceExplained,
+    traceResultText,
+    traceStepText,
+    traceSummary,
+    wentOf,
+} from "./route.ts";
+import type { PhoneFix, Went } from "./route.ts";
 import { boards, familyOf } from "../../data/boards.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -378,6 +402,7 @@ function drawNode(): void {
     // What the firmware's version leaves out, newest first, so the list says what an update brings.
     // Not of the demo, which has no firmware to update.
     const missing = [
+        [18, "say how each message went, or trace the way to a node"],
         [17, "manage another node over the mesh, or be managed by its owners"],
         [14, "keep its address off the air in what it sends to route"],
         [13, "check that an update is signed by Tern, or be erased from here"],
@@ -793,22 +818,32 @@ function drawNeighbours(): void {
     }
     for (const n of all) {
         const who = [...ids].find(([, id]) => id === n.routingId)?.[0];
-        const name = who ? nameOf(who) : routingIdText(n.routingId);
-        list.append(
-            el(
-                "li",
-                {},
-                who ? avatar(who, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, "?"),
-                el(
-                    "span",
-                    { class: "row-main" },
-                    el("span", { class: "row-title" }, name, " ", el("span", { class: "tag" }, n.role === 1 ? "Relay" : "Leaf")),
-                    el("span", { class: "row-sub" }, `${n.snrDb.toFixed(1)} dB · ${ago(n.heardAt)}`),
-                ),
-                signalBars(n.snrDb),
-            ),
+        // Not a contact's: named by the user in this browser, or by what its card claims, if any.
+        const known = who ? nameOf(who) : routingName(n.routingId);
+        const name = known ?? routingIdText(n.routingId);
+        const main = el(
+            "span",
+            { class: "row-main" },
+            el("span", { class: "row-title" }, name, " ", el("span", { class: "tag" }, n.role === 1 ? "Relay" : "Leaf")),
+            el("span", { class: "row-sub" }, `${n.snrDb.toFixed(1)} dB · ${ago(n.heardAt)}`),
         );
+        const mark = who ? avatar(who, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, "?");
+        let named: Child = main;
+        if (!who) {
+            // One no contact names is named in this browser on choosing it.
+            const b = el("button", { type: "button", class: "row-button", title: "Name it in this browser" }, mark, main);
+            b.addEventListener("click", () => nameRoutingId(n.routingId));
+            named = b;
+        }
+        const trace = canTrace() && el("button", { type: "button", class: "small" }, "Trace");
+        if (trace) {
+            trace.disabled = !client?.ready || tracing(client.traces.get(n.routingId));
+            trace.addEventListener("click", () => openTrace(n.routingId));
+        }
+        list.append(el("li", {}, who ? mark : null, named, signalBars(n.snrDb), trace || null));
     }
+    // A leaf answers traces only from a node it shares a session with: said before Trace is chosen.
+    $("neighbours-leaf").hidden = !(canTrace() && all.some((n) => leafNoSession(n.routingId)));
 }
 
 /** Short codes worked out so far, by address: what two people compare to know it is the same node. */
@@ -1756,13 +1791,25 @@ function bubble(m: {
     failed?: boolean;
     who?: string;
     action?: Child;
+    /** How it went, under it (version 18), and what showing the details does. */
+    route?: string | null;
+    details?: (() => void) | null;
 }): HTMLElement {
+    const meta = el("p", { class: "meta" }, [when(m.time), m.note].filter((x) => x !== "").join(" · "));
+    const route = m.route ? el("p", { class: "route" }, m.route) : null;
+    let foot: Child = el("div", {}, meta, route);
+    if (m.details) {
+        // The time, the state and how it went: choosing them says all of it.
+        const b = el("button", { type: "button", class: "meta-button", title: "How it went" }, meta, route);
+        b.addEventListener("click", m.details);
+        foot = b;
+    }
     return el(
         "li",
         { class: m.incoming ? "in" : m.failed ? "out failed" : "out" },
         m.who !== undefined && el("p", { class: "who" }, m.who),
         el("p", { class: "text" }, m.text),
-        el("p", { class: "meta" }, [when(m.time), m.note].filter((x) => x !== "").join(" · ")),
+        foot,
         m.action,
     );
 }
@@ -1784,6 +1831,9 @@ function shown(m: {
     id?: number;
     /** The contact's wake, if it sleeps: a message sent to it is held until it wakes. */
     wake?: number;
+    /** How it went, as the node's last ROUTE said, and whom it is with. */
+    route?: Route | undefined;
+    contact?: string;
 }): HTMLElement {
     let text = m.text;
     let action: Child = null;
@@ -1818,7 +1868,24 @@ function shown(m: {
         failed: m.state === STATE.notDelivered,
         ...(m.incoming && m.from ? { who: writer(m.from) } : {}),
         action,
+        ...routeOf(m),
     });
+}
+
+/** The line under a message that says how it went, and its details: from a node of version 18. */
+function routeOf(m: { state: number; group?: string; invite?: boolean; contact?: string; route?: Route | undefined }): {
+    route: string | null;
+    details: (() => void) | null;
+} {
+    const contact = m.contact ?? "";
+    const groupMessage = isGroup(contact) && !m.invite;
+    const to = groupMessage ? null : ids.get(contact) || null;
+    const went = wentOf({ state: m.state, group: groupMessage ? contact : "", invite: !!m.invite }, to);
+    const route = m.route;
+    return {
+        route: routeLine(went, route, routingName),
+        details: canTrace() || route ? () => showRoute(went, route) : null,
+    };
 }
 
 function drawTalk(): void {
@@ -2087,6 +2154,18 @@ function personHead(address: string): void {
     if (owner) {
         owner.addEventListener("click", () => void toggleOwner(address));
     }
+    // How frames go to it (version 18): a trace, and a range test.
+    const routing = ids.get(address) ?? 0;
+    const trace = contact && el("button", { type: "button", class: "small" }, "Trace route");
+    if (trace) {
+        trace.disabled = !canTrace() || routing === 0;
+        if (!canTrace()) {
+            trace.title = TRACE_NEEDS_UPDATE;
+        }
+        trace.addEventListener("click", () => openTrace(routing));
+    }
+    const rangeButton = contact && el("button", { type: "button", class: "small" }, "Range test");
+    rangeButton?.addEventListener("click", () => openRange(address));
     const code = codeOf(address);
     head.append(
         talkTitle(
@@ -2114,6 +2193,9 @@ function personHead(address: string): void {
             contact?.owner &&
                 el("p", { class: "muted" }, "An owner of this node: it can change its settings and who it takes, from anywhere on the mesh."),
             el("p", { class: "actions" }, rename, owner || null, remove ?? null, end || null, forget || null),
+            contact &&
+                el("p", { class: "actions" }, trace || null, rangeButton || null),
+            contact && !canTrace() && el("p", { class: "muted small-print" }, TRACE_NEEDS_UPDATE),
         ),
         ...(contact && client?.can("MANAGE") ? [fold(address, "Manage this node", ...managePanel(address))] : []),
         ...shareControls(address),
@@ -2556,7 +2638,9 @@ function drawMessages(address: string): void {
     list.replaceChildren(
         // An invite kept from before is not one to take: the node no longer holds it.
         ...earlier.map((k) => shown(k)),
-        ...live.map((m) => shown({ ...m, incoming: m.state === STATE.received, wake: client?.contacts.get(address)?.wake ?? 0 })),
+        ...live.map((m) =>
+            shown({ ...m, incoming: m.state === STATE.received, wake: client?.contacts.get(address)?.wake ?? 0, route: client?.routes.get(m.id) ?? history?.routeOf(m) }),
+        ),
     );
     if (earlier.length + live.length === 0) {
         list.append(
@@ -2661,7 +2745,7 @@ function draw(): void {
             history = new History(client.self.address, demo ? null : local());
             historyNode = client.self.address;
         }
-        history?.absorb(client.messages.values());
+        history?.absorb(client.messages.values(), client.routes);
         // What the user forgot, here or on another client, goes from what this browser keeps too.
         for (const [key, through] of client.forgotten) {
             history?.forgotten(key, through);
@@ -2688,6 +2772,8 @@ function draw(): void {
         drawPlaces();
         drawNeighbours();
         drawTalk();
+        drawTrace();
+        drawRange();
     });
 }
 
@@ -2706,7 +2792,37 @@ function learnIds(): void {
     const blinded = version >= BLINDED_SINCE;
     if (blinded !== idsBlinded) {
         ids.clear();
+        cardIds.clear();
+        selfId = null;
         idsBlinded = blinded;
+    }
+    // The node's own, and each card's, to name what a trace or a ROUTE gives by routing id.
+    const self = client?.self?.address;
+    if (self && selfId?.address !== self) {
+        selfId = { address: self, id: 0 };
+        routingIdFor(self, version).then(
+            (id) => {
+                if (idsBlinded === blinded && selfId?.address === self) {
+                    selfId = { address: self, id };
+                    draw();
+                }
+            },
+            () => {},
+        );
+    }
+    for (const address of client?.cards.keys() ?? []) {
+        if (!cardIds.has(address)) {
+            cardIds.set(address, 0);
+            routingIdFor(address, version).then(
+                (id) => {
+                    if (idsBlinded === blinded) {
+                        cardIds.set(address, id);
+                        draw();
+                    }
+                },
+                () => {},
+            );
+        }
     }
     for (const address of people()) {
         if (!ids.has(address)) {
@@ -2778,6 +2894,425 @@ function act(what: () => Promise<unknown>): void {
     what().then(
         () => say(""),
         (e: unknown) => say(explain(e), true),
+    );
+}
+
+// ----- How messages went, traces and the range test (version 18) -----
+
+/** Names the user gave routing ids no contact has, relays most often: in this browser alone, never sent. */
+const NAMES_KEY = "tern.names";
+let localNames: Record<string, string> | null = null;
+function namesHeld(): Record<string, string> {
+    if (localNames === null) {
+        localNames = {};
+        try {
+            const saved: unknown = JSON.parse(local()?.getItem(NAMES_KEY) ?? "{}");
+            if (saved && typeof saved === "object") {
+                for (const [k, v] of Object.entries(saved as Record<string, unknown>)) {
+                    if (/^[0-9a-f]{8}$/.test(k) && typeof v === "string" && v !== "") {
+                        localNames[k] = v;
+                    }
+                }
+            }
+        } catch {
+            // Unreadable, or storage is off: no names.
+        }
+    }
+    return localNames;
+}
+
+/** Names the routing id `id` in this browser alone, or with an empty name takes it away. Nothing is sent. */
+function nameRoutingId(id: number): void {
+    const key = routingIdText(id);
+    const now = namesHeld()[key] ?? "";
+    const name = window.prompt(
+        `A name for ${key}, shown only in this browser. Nothing is sent, and a contact's name comes first.`,
+        now,
+    );
+    if (name === null) {
+        return;
+    }
+    const trimmed = clip(name.trim(), NAME_MAX);
+    const names = namesHeld();
+    if (trimmed === "") {
+        delete names[key];
+    } else {
+        names[key] = trimmed;
+    }
+    try {
+        local()?.setItem(NAMES_KEY, JSON.stringify(names));
+    } catch {
+        // Off: the name lasts until the page is closed.
+    }
+    draw();
+}
+
+/** The routing id of the connected node itself, and of each card's address, as the node makes them. */
+let selfId: { address: string; id: number } | null = null;
+const cardIds = new Map<string, number>();
+
+/** The address of the contact whose routing id is `id`, if the page has worked it out. */
+function contactOfId(id: number): string | null {
+    if (id === 0) {
+        return null;
+    }
+    return [...ids].find(([address, known]) => known === id && client?.contacts.has(address))?.[0] ?? null;
+}
+
+/**
+ * What the page calls the node whose routing id is `id`, or null for none it knows: "your node"
+ * for its own, a contact's name, the name the user gave it in this browser, or the name a card
+ * from it claims, in quotes.
+ */
+function routingName(id: number): string | null {
+    if (id !== 0 && selfId?.id === id) {
+        return "your node";
+    }
+    const contact = contactOfId(id);
+    if (contact) {
+        return nameOf(contact);
+    }
+    const given = namesHeld()[routingIdText(id)];
+    if (given) {
+        return given;
+    }
+    const card = [...cardIds].find(([, known]) => known === id)?.[0];
+    const claim = card ? client?.cards.get(card)?.name : "";
+    return claim ? `“${claim}”` : null;
+}
+
+/** Whether the version both ends speak says how messages went, and traces. */
+function canTrace(): boolean {
+    return (client?.version ?? 0) >= ROUTE_SINCE;
+}
+
+/** Whether a trace to `id` will go unanswered: a leaf neighbour with no session with this node. */
+function leafNoSession(id: number): boolean {
+    const contact = contactOfId(id);
+    return leafWithoutSession(client?.neighbours ?? new Map(), id, contact ? client?.contacts.get(contact)?.session === true : false);
+}
+
+/** How a message went, in a dialog: every field of its ROUTE, in plain words. */
+function showRoute(went: Went, route: Route | undefined): void {
+    const dialog = $<HTMLDialogElement>("info");
+    const { facts, notes } = routeFacts(went, route, routingName);
+    $("info-title").textContent = "How it went";
+    $("info-body").replaceChildren(
+        ...(facts.length > 0 ? [el("dl", { class: "facts-list" }, ...facts.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))] : []),
+        ...notes.map((n) => el("p", { class: "muted small-print" }, n)),
+    );
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+}
+
+/** The routing id a trace is shown to, while its dialog is open. */
+let tracingTo: number | null = null;
+
+/** Opens the trace to `id`, and begins it unless one to it is already out. */
+function openTrace(id: number): void {
+    tracingTo = id;
+    const dialog = $<HTMLDialogElement>("trace");
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+    traceAgain();
+    drawTrace();
+}
+
+function traceAgain(): void {
+    const c = client;
+    const to = tracingTo;
+    if (!c || to === null || !c.ready || !canTrace() || tracing(c.traces.get(to))) {
+        return;
+    }
+    // What comes of it is drawn from the client's traces: a refusal included.
+    c.trace(to).then(draw, draw);
+}
+
+/** One node a trace passed: its name, how well it heard the one before, and a way to name one no contact names. */
+function hopRow(id: number | null, snr: number | null, tag: string | null): HTMLElement {
+    const known = id === null ? "You" : routingName(id);
+    const title = known ?? routingIdText(id!);
+    const nameable = id !== null && id !== selfId?.id && contactOfId(id) === null;
+    const main = el(
+        "span",
+        { class: "row-main" },
+        el("span", { class: "row-title" }, known ? title : el("code", {}, title), tag ? " " : "", tag ? el("span", { class: "tag good" }, tag) : null),
+        snr !== null && el("span", { class: "row-sub" }, `heard at ${snrText(snr)}`),
+    );
+    const contact = id === null ? null : contactOfId(id);
+    const mark = contact ? avatar(contact, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, known ? initials(title) : "?");
+    if (!nameable) {
+        return el("li", {}, mark, main, snr !== null ? signalBars(snr / 4) : null);
+    }
+    const b = el("button", { type: "button", class: "row-button", title: "Name it in this browser" }, mark, main, snr !== null ? signalBars(snr / 4) : null);
+    b.addEventListener("click", () => nameRoutingId(id));
+    return el("li", {}, b);
+}
+
+/** The trace dialog: where the trace is, how it ended, and each node out and back. */
+function drawTrace(): void {
+    const dialog = $<HTMLDialogElement>("trace");
+    const to = tracingTo;
+    if (!dialog.open || to === null) {
+        return;
+    }
+    const c = client;
+    const target = routingName(to) ?? routingIdText(to);
+    const run = c?.traces.get(to);
+    const ended = run?.ended ?? null;
+    const ready = !!c && c.ready && !c.closed && canTrace();
+    $("trace-title").textContent = `Trace to ${target}`;
+    const body: Child[] = [el("p", { class: "muted small-print" }, traceExplained(target))];
+    // A leaf with no session with this node drops the trace: said before it runs, not only after.
+    if (leafNoSession(to) && !ended) {
+        body.push(el("p", { class: "muted small-print" }, LEAF_HINT));
+    }
+    if (!canTrace()) {
+        body.push(el("p", { class: "note" }, TRACE_NEEDS_UPDATE));
+    } else if (run && tracing(run)) {
+        body.push(el("p", { class: "trace-step" }, el("span", { class: "spinner", "aria-hidden": "true" }), traceStepText(run)));
+    } else if (run?.failed) {
+        body.push(el("p", { class: "bad" }, `Not traced: ${explain(run.failed)}`));
+    } else if (ended) {
+        body.push(el("p", { class: "trace-result" }, traceResultText(ended, target, routingName, isLeaf(c?.neighbours ?? new Map(), to))));
+        if (answered(ended)) {
+            body.push(el("p", { class: "muted" }, traceSummary(ended)));
+        }
+    }
+    if (ended && answered(ended)) {
+        const out = ended.wayOut.map((h, i) => hopRow(h.routingId, h.snr, i === ended.wayOut.length - 1 ? "answered" : null));
+        const back = ended.wayBack.map((h) => hopRow(h.routingId, h.snr, null));
+        body.push(
+            el("h3", {}, "Way out"),
+            el("ul", { class: "rows" }, hopRow(null, null, null), ...out),
+            el("h3", {}, "Way back"),
+            el("ul", { class: "rows" }, ...back, hopRow(null, ended.snr, null)),
+        );
+        const self = selfId?.id;
+        if ([...ended.wayOut, ...ended.wayBack].some((h) => h.routingId !== self && contactOfId(h.routingId) === null)) {
+            body.push(el("p", { class: "muted small-print" }, "Choose a node with no name to give it one in this browser."));
+        }
+    }
+    body.push(el("p", { class: "muted small-print" }, TRACE_DISCLAIMER));
+    $("trace-body").replaceChildren(...body.filter((x): x is Node | string => !!x));
+    const again = $<HTMLButtonElement>("trace-again");
+    again.textContent = run ? "Trace again" : "Trace";
+    again.disabled = !ready || tracing(run);
+}
+
+// The range test: numbered messages to a contact every 30 to 60 s while the user moves, each logged
+// with where the browser was and what became of it, to download as CSV.
+let range: RangeTest | null = null;
+let rangeRunning = false;
+let rangeTimer: ReturnType<typeof setTimeout> | undefined;
+/** The greatest id the node gave a ping: a ping matched by its text is past it. */
+let rangeFloor = 0;
+let rangeWatch: number | null = null;
+let rangeFix: GeolocationPosition | null = null;
+/** Whether the browser said no to its position. */
+let rangeNoLocation = false;
+let wakeLock: { release(): Promise<void> } | null = null;
+/** The contact chosen for the next test, kept across drawing. */
+let rangeChosen = "";
+
+function fixNow(): PhoneFix | null {
+    const f = rangeFix;
+    if (!f) {
+        return null;
+    }
+    return {
+        lat: f.coords.latitude,
+        lon: f.coords.longitude,
+        accuracy: Number.isFinite(f.coords.accuracy) ? f.coords.accuracy : null,
+        age: Math.max(0, Math.round((Date.now() - f.timestamp) / 1000)),
+    };
+}
+
+/** Keeps the screen on while the test runs, where the browser can: asked again when the page is shown again. */
+async function holdScreen(): Promise<void> {
+    const wl = (navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } }).wakeLock;
+    if (!wl || !rangeRunning || wakeLock || document.visibilityState !== "visible") {
+        return;
+    }
+    try {
+        wakeLock = await wl.request("screen");
+        (wakeLock as unknown as EventTarget).addEventListener?.("release", () => {
+            wakeLock = null;
+        });
+    } catch {
+        // Refused, or not here: the screen may sleep, and the test goes on while the page is open.
+    }
+}
+
+function startRange(to: string, intervalMs: number): void {
+    clearTimeout(rangeTimer);
+    range = new RangeTest(to, intervalMs, Date.now());
+    rangeRunning = true;
+    rangeFloor = 0;
+    if ("geolocation" in navigator && rangeWatch === null) {
+        rangeWatch = navigator.geolocation.watchPosition(
+            (p) => {
+                rangeFix = p;
+                rangeNoLocation = false;
+                // The first ping waits for the first position, a little.
+                if (rangeRunning && range?.pings.length === 0) {
+                    clearTimeout(rangeTimer);
+                    rangePing();
+                }
+            },
+            (e) => {
+                rangeNoLocation = e.code === e.PERMISSION_DENIED;
+                if (rangeRunning && range?.pings.length === 0) {
+                    clearTimeout(rangeTimer);
+                    rangePing();
+                }
+                draw();
+            },
+            { enableHighAccuracy: true, maximumAge: 10_000 },
+        );
+    } else if (!("geolocation" in navigator)) {
+        rangeNoLocation = true;
+    }
+    void holdScreen();
+    // The first goes at once with a position the browser has, or once it has one: up to 5 s.
+    if (rangeFix || rangeWatch === null) {
+        rangePing();
+    } else {
+        rangeTimer = setTimeout(rangePing, 5_000);
+        draw();
+    }
+}
+
+function stopRange(): void {
+    clearTimeout(rangeTimer);
+    rangeRunning = false;
+    if (rangeWatch !== null) {
+        navigator.geolocation.clearWatch(rangeWatch);
+        rangeWatch = null;
+    }
+    // A position from this test is not the next one's.
+    rangeFix = null;
+    void wakeLock?.release().catch(() => {});
+    wakeLock = null;
+    draw();
+}
+
+function rangePing(): void {
+    const t = range;
+    if (!t || !rangeRunning) {
+        return;
+    }
+    const c = client;
+    const up = !!c && c.ready && !c.closed;
+    const after = Math.max(rangeFloor, ...[...(c?.messages.keys() ?? [])]);
+    const p = t.next(Date.now(), fixNow(), after, up ? null : "not_connected");
+    if (up && c) {
+        c.send(t.to, p.text).then(
+            (id) => {
+                rangeFloor = Math.max(rangeFloor, id);
+                if (range === t) {
+                    t.queued(p.n, id);
+                }
+                draw();
+            },
+            (e: unknown) => {
+                if (range === t) {
+                    t.unsent(p.n, e instanceof Refused && e.code !== 0 ? "refused" : "unanswered");
+                }
+                draw();
+            },
+        );
+    }
+    rangeTimer = setTimeout(rangePing, Math.max(0, Math.min(t.intervalMs, t.nextAt - Date.now())));
+    draw();
+}
+
+function downloadRange(): void {
+    const t = range;
+    const c = client;
+    if (!t || t.pings.length === 0) {
+        return;
+    }
+    const csv = rangeCsv(rangeRows(t.pings, c?.messages ?? new Map(), c?.routes ?? new Map()), t.to, routingName);
+    const d = new Date(t.pings[0]!.at);
+    const two = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
+    const a = el("a", { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `tern-range-${stamp}.csv` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+/** Opens the range test, to `to` if given. */
+function openRange(to: string | null): void {
+    if (to && !rangeRunning) {
+        rangeChosen = to;
+    }
+    show("node");
+    requestAnimationFrame(() => $("range").scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+function drawRange(): void {
+    const c = client!;
+    const card = $("range");
+    const contacts = [...c.contacts.keys()];
+    card.hidden = contacts.length === 0 && !range;
+    const pick = $<HTMLSelectElement>("range-to");
+    const t = range;
+    if (!rangeChosen || !c.contacts.has(rangeChosen)) {
+        rangeChosen = t?.to && c.contacts.has(t.to) ? t.to : (contacts[0] ?? "");
+    }
+    const options = contacts.map((a) => el("option", { value: a }, nameOf(a)));
+    const want = rangeRunning && t ? t.to : rangeChosen;
+    if (pick.options.length !== options.length || [...pick.options].some((o, i) => o.value !== contacts[i] || o.text !== nameOf(contacts[i]!))) {
+        pick.replaceChildren(...options);
+    }
+    pick.value = want;
+    pick.disabled = rangeRunning;
+    $<HTMLSelectElement>("range-every").disabled = rangeRunning;
+    $("range-start").hidden = rangeRunning;
+    $<HTMLButtonElement>("range-start").disabled = !want;
+    $("range-stop").hidden = !rangeRunning;
+    const logged = !!t && t.pings.length > 0;
+    $("range-csv").hidden = !logged;
+    if (t && t.resolve(c.messages.values())) {
+        // Found by its text: a sync showed the node held it.
+    }
+    const rows = t ? rangeRows(t.pings, c.messages, c.routes) : [];
+    const { delivered, sent } = rangeTally(rows);
+    const status = [
+        rangeRunning && t
+            ? t.pings.length === 0
+                ? "Running: waiting for a position…"
+                : `Running: next in ${Math.max(0, Math.round((t.nextAt - Date.now()) / 1000))} s`
+            : logged
+              ? "Stopped"
+              : "",
+        logged ? `Delivered: ${delivered} of ${sent}` : "",
+    ].filter(Boolean);
+    $("range-status").textContent = status.join(" · ");
+    $("range-no-location").hidden = !rangeNoLocation;
+    $("range-needs-update").hidden = canTrace();
+    $("range-log").replaceChildren(
+        ...rows
+            .slice()
+            .reverse()
+            .map((r) =>
+                el(
+                    "li",
+                    {},
+                    el(
+                        "span",
+                        { class: "row-main" },
+                        el("span", { class: "row-title" }, `#${r.ping.n} · ${new Date(r.ping.at).toLocaleTimeString()}`),
+                        el("span", {}, rangeRowText(r, routingName)),
+                        el("span", { class: "row-sub" }, fixText(r.ping.fix)),
+                    ),
+                ),
+            ),
     );
 }
 
@@ -2937,9 +3472,13 @@ async function connect(
     shownCode = null;
     rowMenu = null;
     $<HTMLDialogElement>("ask").close();
+    $<HTMLDialogElement>("trace").close();
+    $<HTMLDialogElement>("info").close();
     history = null;
     historyNode = "";
     ids.clear();
+    cardIds.clear();
+    selfId = null;
     settingsShown = "";
     cardShown = "";
     sleepShown = "";
@@ -3354,6 +3893,45 @@ function start(): void {
     });
 
     document.addEventListener("visibilitychange", draw);
+
+    // Traces, how a message went, and the range test (version 18).
+    $("trace-again").addEventListener("click", () => {
+        traceAgain();
+        drawTrace();
+    });
+    $("trace").addEventListener("close", () => {
+        tracingTo = null;
+    });
+    const every = $<HTMLSelectElement>("range-every");
+    every.value = String(RANGE_DEFAULT_MS / 1000);
+    $<HTMLSelectElement>("range-to").addEventListener("change", (e) => {
+        rangeChosen = (e.target as HTMLSelectElement).value;
+    });
+    $("range-start").addEventListener("click", () => {
+        const to = $<HTMLSelectElement>("range-to").value;
+        if (!to || !client) {
+            return;
+        }
+        if (range && range.pings.length > 0 && !window.confirm("Start again? The log so far goes: download it first to keep it.")) {
+            return;
+        }
+        startRange(to, Number(every.value) * 1000);
+    });
+    $("range-stop").addEventListener("click", stopRange);
+    $("range-csv").addEventListener("click", downloadRange);
+    // The countdown, while it runs.
+    setInterval(() => {
+        if (rangeRunning) {
+            draw();
+        }
+    }, 1000);
+    // A wake lock goes when the page is hidden: asked again when it is shown.
+    document.addEventListener("visibilitychange", () => void holdScreen());
+    window.addEventListener("beforeunload", (e) => {
+        if (rangeRunning) {
+            e.preventDefault();
+        }
+    });
     setInterval(() => {
         if (client?.ready) {
             drawNeighbours();

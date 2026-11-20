@@ -199,6 +199,9 @@ import Base from "../layouts/Base.astro";
                             <h3>Heard nearby</h3>
                             <p class="muted small-print">The nodes this one hears directly, strongest first.</p>
                             <ul id="neighbours" class="rows"></ul>
+                            <p id="neighbours-leaf" class="muted small-print" hidden>
+                                Handhelds (leaves) answer traces only from nodes they have a secure session with.
+                            </p>
                         </section>
 
                         <section class="card" id="places-card">
@@ -300,6 +303,47 @@ import Base from "../layouts/Base.astro";
                             </form>
                         </section>
 
+                        <section id="range" class="card wide" hidden>
+                            <h3>Range test</h3>
+                            <p class="muted small-print">
+                                Sends a contact a numbered message, “range #1”, “range #2” and on, every so often, and logs
+                                each: where this device was, whether it was delivered and how. Keep this page open while you
+                                move; the screen stays on where the browser allows it.
+                            </p>
+                            <div class="range-form">
+                                <div>
+                                    <label for="range-to">To</label>
+                                    <select id="range-to"></select>
+                                </div>
+                                <div>
+                                    <label for="range-every">Every</label>
+                                    <select id="range-every">
+                                        <option value="30">30 s</option>
+                                        <option value="35">35 s</option>
+                                        <option value="40">40 s</option>
+                                        <option value="45">45 s</option>
+                                        <option value="50">50 s</option>
+                                        <option value="55">55 s</option>
+                                        <option value="60">60 s</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <p class="buttons range-buttons">
+                                <button id="range-start" type="button" class="primary">Start</button>
+                                <button id="range-stop" type="button" class="primary" hidden>Stop</button>
+                                <button id="range-csv" type="button" hidden>Download CSV</button>
+                            </p>
+                            <p id="range-status" class="state-line"></p>
+                            <p id="range-no-location" class="muted small-print" hidden>
+                                No location: the log won't say where you were. Allow this site your location to have it.
+                            </p>
+                            <p id="range-needs-update" class="muted small-print" hidden>
+                                This node's firmware says only whether each was delivered. Update it for hops, signal and round
+                                trip.
+                            </p>
+                            <ul id="range-log" class="rows range-log"></ul>
+                        </section>
+
                         <section class="card">
                             <h3>Connection</h3>
                             <p id="link-facts" class="muted small-print"></p>
@@ -337,6 +381,29 @@ import Base from "../layouts/Base.astro";
                 <p class="actions">
                     <button type="submit" value="cancel" autofocus>Cancel</button>
                     <button id="ask-yes" type="submit" value="yes" class="danger"></button>
+                </p>
+            </form>
+        </dialog>
+
+        <!-- A trace to one node (version 18): drawn again as it goes. -->
+        <dialog id="trace" class="ask trace" aria-labelledby="trace-title">
+            <form method="dialog">
+                <h2 id="trace-title"></h2>
+                <div id="trace-body"></div>
+                <p class="actions">
+                    <button id="trace-again" type="button" class="primary">Trace</button>
+                    <button type="submit" value="close" autofocus>Close</button>
+                </p>
+            </form>
+        </dialog>
+
+        <!-- What there is to know of something, such as how a message went: the page fills it in. -->
+        <dialog id="info" class="ask" aria-labelledby="info-title">
+            <form method="dialog">
+                <h2 id="info-title"></h2>
+                <div id="info-body"></div>
+                <p class="actions">
+                    <button type="submit" value="close" autofocus>Close</button>
                 </p>
             </form>
         </dialog>
@@ -1176,6 +1243,36 @@ import Base from "../layouts/Base.astro";
     .app .messages li.in .meta {
         text-align: left;
     }
+    /* How it went (version 18): a line under the time, and the two a button that says all of it. */
+    .app .messages .route {
+        margin: 1px 0 0;
+        font-size: 0.72rem;
+        color: var(--muted);
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+    .app .messages li.in .route {
+        text-align: left;
+    }
+    .app .messages li.out:not(.failed) .route {
+        color: rgb(255 255 255 / 0.75);
+    }
+    .app .messages .meta-button {
+        display: block;
+        width: 100%;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+    }
+    .app .messages .meta-button:hover .route,
+    .app .messages .meta-button:hover .meta {
+        text-decoration: underline;
+    }
     .app .messages .empty {
         margin: auto;
         text-align: center;
@@ -1451,6 +1548,73 @@ import Base from "../layouts/Base.astro";
     .app .ask .actions {
         justify-content: flex-end;
         margin: 18px 0 0;
+    }
+    .app .ask h3 {
+        margin: 16px 0 2px;
+        font-size: 0.95rem;
+    }
+    .app .trace {
+        width: min(32rem, calc(100vw - 32px));
+    }
+    /* A long trace scrolls under its buttons, which stay in reach. */
+    .app .trace .actions {
+        position: sticky;
+        bottom: -20px;
+        padding: 12px 0 0;
+        background: var(--surface);
+    }
+    .app .trace-result {
+        font-weight: 600;
+    }
+    .app .trace-step {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .app .spinner {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .app .spinner {
+            animation: none;
+        }
+    }
+    .app .facts-list {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 6px 12px;
+        margin: 0 0 6px;
+        font-size: 0.92rem;
+    }
+    .app .facts-list dt {
+        color: var(--muted);
+    }
+    .app .facts-list dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+    .app .range-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+        gap: 0 12px;
+    }
+    .app .range-buttons {
+        margin-top: 14px;
+    }
+    .app .range-log {
+        max-height: 24rem;
+        overflow-y: auto;
     }
 
     /* ----- Status: a toast at the foot of the window ----- */
