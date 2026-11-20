@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import { ANDROID_APK, TESTFLIGHT } from "../lib/openapp.ts";
 ---
 
 <Base
@@ -23,6 +24,25 @@ import Base from "../layouts/Base.astro";
                     the group, before and after, and it cannot be taken back. Pass it on only to those the group is
                     for.
                 </p>
+            </div>
+
+            <div id="app-android" class="card" hidden>
+                <p class="actions">
+                    <a id="open-app" class="button" href="/apps">Open in the Tern app</a>
+                </p>
+                <p class="muted small">
+                    The app asks before its node joins. No app yet? <a href={ANDROID_APK}>Get the Android app</a>
+                    (an APK: <a href="/apps">how to install it</a>).
+                </p>
+            </div>
+
+            <div id="app-ios" class="card" hidden>
+                <p class="small">
+                    <strong>In the Tern app:</strong> Safari does not hand a link to the app from the app's own
+                    site. Go back to where the link was sent to you, press and hold it, and choose
+                    <strong>Open in Tern</strong>; or copy it below and paste it in the app.
+                </p>
+                <p class="muted small">No app yet? <a href={TESTFLIGHT}>Join the TestFlight beta</a>.</p>
             </div>
 
             <p class="actions">
@@ -99,6 +119,9 @@ import Base from "../layouts/Base.astro";
     }
     .card p {
         margin: 0;
+    }
+    .card p + p {
+        margin-top: 8px;
     }
     .actions {
         display: flex;

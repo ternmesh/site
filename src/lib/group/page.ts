@@ -11,7 +11,8 @@
 // the app the same way, never in a link. What the browser recorded before the page ran, this page
 // cannot undo: the spec says so, and so does the page.
 
-import { JOIN_LINK, readJoinCode } from "../companion/share.ts";
+import { JOIN_LINK, readJoinCode, tappable } from "../companion/share.ts";
+import { androidIntent, thisPhone } from "../openapp.ts";
 
 /** Where the code waits in the tab's storage: for this page, and for /app, which takes it. */
 export const JOIN_KEY = "tern.join";
@@ -82,12 +83,23 @@ async function show(): Promise<void> {
         }
     });
 
+    // Copied as text, the link's start is lower-case, so that a tap on a phone opens the app.
     $("copy").addEventListener("click", () => {
-        navigator.clipboard.writeText(link).then(
+        navigator.clipboard.writeText(tappable(link)).then(
             () => ($("copied").textContent = "Copied."),
             () => ($("copied").textContent = "Your browser would not copy it."),
         );
     });
+
+    // In a phone's browser, a way into the app: the link was opened here, not there. On Android
+    // the code goes to the app in the intent, after the path's #, and to no site.
+    const phone = thisPhone();
+    if (phone === "android") {
+        $<HTMLAnchorElement>("open-app").href = androidIntent(link);
+        $("app-android").hidden = false;
+    } else if (phone === "ios") {
+        $("app-ios").hidden = false;
+    }
 }
 
 void show();

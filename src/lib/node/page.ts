@@ -2,7 +2,8 @@
 // /A/ or /a/ and the address in base32, which the site serves with this one page (public/_redirects).
 // Everything is read here, in the browser; nothing is fetched.
 
-import { LINK, addressText, readAddress, shortCode } from "../companion/share.ts";
+import { LINK, addressTapLink, addressText, readAddress, shortCode } from "../companion/share.ts";
+import { androidIntent, thisPhone } from "../openapp.ts";
 
 function $<T extends HTMLElement>(id: string): T {
     const el = document.getElementById(id);
@@ -36,6 +37,23 @@ async function show(): Promise<void> {
             () => ($("copied").textContent = "Your browser would not copy it: select the address and copy it yourself."),
         );
     });
+
+    // In a phone's browser, a way into the app: the link was opened here, not there.
+    const link = addressTapLink(address);
+    const phone = thisPhone();
+    if (phone === "android") {
+        $<HTMLAnchorElement>("open-app").href = androidIntent(link);
+        $("app-android").hidden = false;
+    } else if (phone === "ios") {
+        $("app-link").textContent = link;
+        $("copy-link").addEventListener("click", () => {
+            navigator.clipboard.writeText(link).then(
+                () => ($("link-copied").textContent = "Copied. Paste it in the Tern app."),
+                () => ($("link-copied").textContent = "Your browser would not copy it: select the link and copy it yourself."),
+            );
+        });
+        $("app-ios").hidden = false;
+    }
 }
 
 void show();

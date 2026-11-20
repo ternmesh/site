@@ -4,8 +4,13 @@
 
 import { ADDRESS_LEN, unhex } from "./protocol.ts";
 
-/** The link's start: the address follows it in base32. */
+/** The link's start: the address follows it in base32. Upper-case, as a QR code holds it. */
 export const LINK = "HTTPS://TERNMESH.ORG/A/";
+
+/** The same start as a link shown, copied or sent as text: lower-case, so that a phone opens it in
+ * the Tern app. Android verifies an app's links for the lower-case host only, and Apple matches a
+ * link's path case-sensitively. The base32 after it stays upper-case; a reader takes either. */
+export const TAP_LINK = "https://ternmesh.org/a/";
 
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; // RFC 4648, section 6
 const BASE32_LEN = 52;
@@ -78,6 +83,28 @@ export function addressLink(address: string): string {
     return LINK + base32(a);
 }
 
+/** The link to show, copy or send as text: the QR code's link with a lower-case start. */
+export function addressTapLink(address: string): string {
+    return tappable(addressLink(address));
+}
+
+/**
+ * A node's link or a join code's link as it is shown, copied or sent as text: its scheme, host and
+ * path's letter lower-case, so that a tap on a phone opens the Tern app, and the base32 after them
+ * as it was. Anything else is returned as it is.
+ */
+export function tappable(link: string): string {
+    for (const [qr, tap] of [
+        [LINK, TAP_LINK],
+        [JOIN_LINK, TAP_JOIN_LINK],
+    ] as const) {
+        if (link.slice(0, qr.length).toUpperCase() === qr) {
+            return tap + link.slice(qr.length);
+        }
+    }
+    return link;
+}
+
 /**
  * An address as a person gives one, as 64 lower-case hex digits, or null: the link, its scheme,
  * host, path and base32 each in either case, or the text form, its digits in either case with
@@ -123,6 +150,8 @@ export function shortCodeText(value: bigint): string {
 
 /** A join code's link starts so: the code follows the `#`, which a browser never sends. */
 export const JOIN_LINK = "HTTPS://TERNMESH.ORG/G#";
+/** The same, lower-case, as a join code is shown, copied or sent as text: see TAP_LINK. */
+export const TAP_JOIN_LINK = "https://ternmesh.org/g#";
 const SECRET_LEN = 16;
 const CODE_MIN = SECRET_LEN + 2;
 const CODE_MAX = CODE_MIN + 31;
