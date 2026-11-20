@@ -87,9 +87,15 @@ test("kept per connected node, across pages, and forgotten with a wiped node", (
 });
 
 test("what a request is waiting for, in words", () => {
-    const p = (state: number | null, reason = 0, attempt = 1, wait = 0) => ({ attempt, state, reason, wait, since: 0 });
+    const p = (state: number | null, reason = 0, attempt = 1, wait = 0) => ({ attempt, state, reason, wait, since: 0, queued: true });
     const asleep = { wake: 900 };
-    assert.equal(stepText(p(null), "Mast", null), "Handing it to your node…");
+    assert.equal(stepText({ ...p(null), queued: false }, "Mast", { wake: 300 }, 3, MAYBE_ASLEEP_MS), "Handing it to your node…");
+    // Queued, and no STATE yet: a keeper holding it for a sleeping node says nothing until it wakes.
+    assert.equal(stepText(p(null), "Mast", null, 3, 0), "On its way…");
+    assert.equal(stepText(p(null), "Mast", { wake: 300 }, 3, 0), "Held until Mast wakes (every 5 min).");
+    assert.equal(stepText(p(null), "Mast", null, 3, MAYBE_ASLEEP_MS), "Waiting for Mast. It may be asleep.");
+    // An owner check has no sync before it: the contact's wake says it sleeps.
+    assert.equal(stepText(p(null), "Mast", sleepOf(undefined, 600), 1, 0), "Held until Mast wakes (every 10 min).");
     assert.equal(stepText(p(STATE.waiting, 2), "Mast", null), "Making first contact with Mast…");
     assert.equal(stepText(p(STATE.waiting, 1), "Mast", null), "Finding a route…");
     assert.equal(stepText(p(STATE.waiting, 3, 1, 40), "Mast", null), "Waiting for the region's limit, about 40 s…");
@@ -164,6 +170,11 @@ test("ERROR 15 over the mesh is a refusal at once, not tried again; one HELLO wi
     const g = decode(await wire.next())!;
     assert.equal(decode(unhex(String(g.fields.request))!)!.type, "HELLO");
     wire.say("QUEUED", g.seq, { id: 8 });
+    // Taken, with no STATE yet: queued, and nothing more is known.
+    for (let i = 0; i < 50 && !check.transport.progress?.queued; i++) {
+        await new Promise((r) => setTimeout(r, 1));
+    }
+    assert.deepEqual([check.transport.progress?.queued, check.transport.progress?.state], [true, null]);
     wire.say("STATE", 2, { id: 8, state: STATE.delivered, reason: 0, wait: 0 });
     let silent: unknown = null;
     await hello.catch((e: unknown) => (silent = e));

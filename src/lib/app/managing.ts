@@ -186,7 +186,8 @@ export function stepText(p: Progress, name: string, sleep: { wake: number } | nu
     let step: string;
     switch (p.state) {
         case null:
-            step = "Handing it to your node…";
+            // Taken, and no news since: held for a node that sleeps tells nothing until it wakes.
+            step = !p.queued ? "Handing it to your node…" : held || "On its way…";
             break;
         case STATE.waiting:
             if (p.reason === 2) {

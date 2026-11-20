@@ -43,6 +43,11 @@ export interface Progress {
     /** Its STATE (STATE.waiting to STATE.notDelivered), and why it waits; null until the node says. */
     state: number | null;
     reason: number;
+    /**
+     * Whether the connected node has taken it (QUEUED). A keeper holding it for a sleeping node sends
+     * no STATE until that node wakes, so a request may stay queued, with no state, for a whole wake.
+     */
+    queued: boolean;
     /** When this try was handed to the connected node, by this client's clock, in milliseconds. */
     since: number;
     /** How long it waits, in seconds, when the node says (the region's limit, the airtime budget); 0 otherwise. */
@@ -116,9 +121,11 @@ export class MeshTransport implements Transport {
         this.pending = true;
         try {
             for (let attempt = 1; ; attempt++) {
-                this.progress = { attempt, state: null, reason: 0, wait: 0, since: this.now() };
+                this.progress = { attempt, state: null, reason: 0, wait: 0, since: this.now(), queued: false };
                 this.onProgress();
                 const id = await this.local.manage(this.to, frame);
+                this.progress = { ...this.progress, queued: true };
+                this.onProgress();
                 if (await this.watch(id, seq)) {
                     return;
                 }
