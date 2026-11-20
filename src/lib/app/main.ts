@@ -28,7 +28,7 @@ import {
 } from "../companion/protocol.ts";
 import { SIGNED_SINCE, bytesSigned, fetchImage, imageSigned, offerFor, offerable, signatureOf } from "../companion/release.ts";
 import type { Signed } from "../companion/signing.ts";
-import { readJoinCode, shortCode } from "../companion/share.ts";
+import { readJoinCode, shortCode, tappable } from "../companion/share.ts";
 import { linkSegments, qrEncode, qrPath } from "../qr.ts";
 import { Updater, askBootloader, wayOf } from "../companion/updater.ts";
 import type { ManifestImage, UpdateWay } from "../flash/images.ts";
@@ -2075,9 +2075,12 @@ function joinCodePanel(link: string): HTMLElement {
     dark.setAttribute("fill", "#000");
     svg.append(ground, dark);
 
+    // As text, the link's start is lower-case, so that a tap on a phone opens the app; the QR code
+    // keeps it upper-case, which packs smaller.
+    const text = tappable(link);
     const copy = el("button", { type: "button", class: "small" }, "Copy the link");
     copy.addEventListener("click", () => {
-        navigator.clipboard.writeText(link).then(
+        navigator.clipboard.writeText(text).then(
             () => say("Copied. Send it only to those the group is for."),
             () => say("Your browser would not copy it: select the link and copy it yourself.", true),
         );
@@ -2091,7 +2094,7 @@ function joinCodePanel(link: string): HTMLElement {
         "div",
         { class: "card join-code" },
         svg,
-        el("p", {}, el("code", { class: "link" }, link)),
+        el("p", {}, el("code", { class: "link" }, text)),
         el(
             "p",
             { class: "muted small-print" },

@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import { ANDROID_APK, TESTFLIGHT } from "../lib/openapp.ts";
 ---
 
 <Base
@@ -11,6 +12,31 @@ import Base from "../layouts/Base.astro";
         <div id="found" hidden>
             <h1>A Tern node</h1>
             <p class="lede">Someone shared their node with you. This is its address.</p>
+
+            <div id="app-android" class="card" hidden>
+                <p class="actions">
+                    <a id="open-app" class="button" href="/apps">Open in the Tern app</a>
+                </p>
+                <p class="muted small">
+                    The app adds it as a contact. No app yet? <a href={ANDROID_APK}>Get the Android app</a>
+                    (an APK: <a href="/apps">how to install it</a>).
+                </p>
+            </div>
+
+            <div id="app-ios" class="card" hidden>
+                <p class="label">In the Tern app</p>
+                <p class="small">
+                    Safari does not hand a link to the app from the app's own site. Go back to where the link was sent
+                    to you, press and hold it, and choose <strong>Open in Tern</strong>; or copy it and paste it in
+                    the app.
+                </p>
+                <p class="link"><code id="app-link"></code></p>
+                <p class="actions">
+                    <button id="copy-link" type="button">Copy the link</button>
+                </p>
+                <p id="link-copied" class="muted small" role="status"></p>
+                <p class="muted small">No app yet? <a href={TESTFLIGHT}>Join the TestFlight beta</a>.</p>
+            </div>
 
             <div class="card">
                 <p class="label">Its code</p>
@@ -99,6 +125,10 @@ import Base from "../layouts/Base.astro";
         font: 600 clamp(1.6rem, 7vw, 2.2rem) / 1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         letter-spacing: 0.04em;
         font-variant-numeric: tabular-nums;
+    }
+    .link {
+        margin: 6px 0 12px;
+        overflow-wrap: anywhere;
     }
     .address {
         margin: 6px 0 12px;

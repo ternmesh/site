@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import { TESTFLIGHT } from "../lib/openapp.ts";
 
 const org = "https://github.com/ternmesh";
 ---
@@ -45,7 +46,7 @@ const org = "https://github.com/ternmesh";
                     and updates to its firmware over Bluetooth.
                 </p>
                 <p>
-                    <a class="button" href="https://testflight.apple.com/join/Et3BuD5c">Join the TestFlight beta</a>
+                    <a class="button" href={TESTFLIGHT}>Join the TestFlight beta</a>
                 </p>
                 <p class="muted small">
                     It is a beta, through Apple's TestFlight: install Apple's TestFlight app first, then open the link
