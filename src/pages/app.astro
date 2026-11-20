@@ -109,6 +109,7 @@ import Base from "../layouts/Base.astro";
                         <span id="pill-name"></span>
                         <span id="pill-battery" class="muted"></span>
                     </button>
+                    <button id="manage-pill" type="button" class="pill manage" title="Show what is under way" hidden></button>
                     <span id="demo-note" class="pill demo" hidden>
                         Demo: names and messages are made up
                     </span>
@@ -744,6 +745,17 @@ import Base from "../layouts/Base.astro";
         height: 8px;
         border-radius: 50%;
         background: var(--good);
+    }
+    .app .pill.manage {
+        background: var(--accent-soft);
+        border-color: transparent;
+        color: var(--accent);
+        font-size: 0.82rem;
+        cursor: pointer;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .app .pill.demo {
         background: var(--accent-soft);

@@ -10,7 +10,7 @@
 
 import { Client, Refused } from "./client.ts";
 import type { Transport } from "./client.ts";
-import { MESH_ANSWER_WAIT_MS, SETTING, STATE, TRIAL_MS, isAnswer, unhex, unpackAnswer } from "./protocol.ts";
+import { MESH_ANSWER_WAIT_MS, SETTING, STATE, TRIAL_MS, VERSION, isAnswer, unhex, unpackAnswer } from "./protocol.ts";
 import type { Frame } from "./protocol.ts";
 
 /**
@@ -43,6 +43,15 @@ export interface Progress {
     /** Its STATE (STATE.waiting to STATE.notDelivered), and why it waits; null until the node says. */
     state: number | null;
     reason: number;
+    /**
+     * Whether the connected node has taken it (QUEUED). A keeper holding it for a sleeping node sends
+     * no STATE until that node wakes, so a request may stay queued, with no state, for a whole wake.
+     */
+    queued: boolean;
+    /** When this try was handed to the connected node, by this client's clock, in milliseconds. */
+    since: number;
+    /** How long it waits, in seconds, when the node says (the region's limit, the airtime budget); 0 otherwise. */
+    wait: number;
 }
 
 export class MeshTransport implements Transport {
@@ -59,7 +68,8 @@ export class MeshTransport implements Transport {
     private readonly answerWaitMs: number;
     private readonly lateWaitMs: number;
     private readonly againMs: number;
-    private readonly tries: number;
+    /** How many times a request is tried before it is given up. */
+    readonly tries: number;
     private readonly now: () => number;
     private readonly tap: (f: Frame) => void;
     private events: Frame[] = [];
@@ -111,9 +121,11 @@ export class MeshTransport implements Transport {
         this.pending = true;
         try {
             for (let attempt = 1; ; attempt++) {
-                this.progress = { attempt, state: null, reason: 0 };
+                this.progress = { attempt, state: null, reason: 0, wait: 0, since: this.now(), queued: false };
                 this.onProgress();
                 const id = await this.local.manage(this.to, frame);
+                this.progress = { ...this.progress, queued: true };
+                this.onProgress();
                 if (await this.watch(id, seq)) {
                     return;
                 }
@@ -145,7 +157,7 @@ export class MeshTransport implements Transport {
                         continue;
                     }
                     const state = Number(f.fields.state);
-                    this.progress = { ...this.progress!, state, reason: Number(f.fields.reason) };
+                    this.progress = { ...this.progress!, state, reason: Number(f.fields.reason), wait: Number(f.fields.wait ?? 0) };
                     this.onProgress();
                     if (state === STATE.delivered && !delivered) {
                         delivered = true;
@@ -232,6 +244,16 @@ export class Managed {
         this.transport = new MeshTransport(local, address, options);
         // The transport says when to give up, so the client waits for it, and never pings unasked.
         this.client = new Client(this.transport, { answerWaitMs: 3_600_000, keepAlive: false, setsTime: false, now: this.now });
+    }
+
+    /**
+     * One HELLO, to learn whether the connected node is one of this node's owners: it answers only
+     * them, and since the specification's ERROR 15 refuses anyone else at once (Refused 15). Rejects
+     * with Refused 0 if no answer came: asleep, out of reach, or not an owner of a node that keeps
+     * silent.
+     */
+    async hello(): Promise<void> {
+        await this.client.request("HELLO", { version: VERSION });
     }
 
     /** HELLO and SYNC: the node's version, and its own state. */
