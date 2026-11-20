@@ -7,6 +7,7 @@
 import { Client, Refused } from "../companion/client.ts";
 import type { Fix, Message, OwnerChange, Position, Sharing, Sleep, Transport } from "../companion/client.ts";
 import { Managed, RESTARTS } from "../companion/remote.ts";
+import { Owned, answerWaitMs, deliverWaitMs, sleepOf, stepText } from "./managing.ts";
 import { openDemo } from "../companion/demo.ts";
 import { BLINDED_SINCE, parseAddress, routingIdFor, routingIdText } from "../companion/ids.ts";
 import {
@@ -2115,7 +2116,9 @@ function personHead(address: string): void {
                 el("p", { class: "muted" }, "An owner of this node: it can change its settings and who it takes, from anywhere on the mesh."),
             el("p", { class: "actions" }, rename, owner || null, remove ?? null, end || null, forget || null),
         ),
-        ...(contact && client?.can("MANAGE") ? [fold(address, "Manage this node", ...managePanel(address))] : []),
+        ...(contact && client?.can("MANAGE")
+            ? [owned?.owner(address) === true ? fold(address, "Manage this node", ...managePanel(address)) : fold(address, "Managing", ...checkPanel(address))]
+            : []),
         ...shareControls(address),
     );
 }
@@ -2150,6 +2153,8 @@ async function toggleOwner(address: string): Promise<void> {
 
 /** The node managed over the mesh, if any: one at a time, through the connected node. */
 let managed: Managed | null = null;
+/** Which nodes the connected node owns, and how long each sleeps, as far as this page knows. */
+let owned: Owned | null = null;
 /** What is under way for it, and the last thing that came of it, for the panel to say. */
 let manageBusy = "";
 let manageNote = "";
@@ -2165,45 +2170,65 @@ function stopManaging(): void {
     manageForm = null;
 }
 
-/** Where the request under way is, in a few words. */
-function manageProgress(m: Managed): string {
-    const p = m.transport.progress;
-    if (!p) {
-        return "";
-    }
-    const tries = p.attempt > 1 ? ` (try ${p.attempt} of 3)` : "";
-    switch (p.state) {
-        case null:
-            return `Handing it to your node${tries}.`;
-        case STATE.waiting:
-            return `${REASONS[p.reason] ?? "Waiting"}${tries}.`.replace(/^./, (x) => x.toUpperCase());
-        case STATE.sent:
-            return `On its way${tries}.`;
-        case STATE.delivered:
-            return `Delivered${tries}: waiting for its answer, up to 2 minutes.`;
-        default:
-            return `Not delivered${tries}: trying again shortly.`;
+/** How long a node sleeps, as far as the page knows: from its last sync here, or its session. */
+function knownSleep(address: string): { wake: number; listen: number } | null {
+    const r = managed?.address === address && managed.client.ready ? managed.client : null;
+    return sleepOf(owned?.get(address), client?.contacts.get(address)?.wake ?? 0, r?.self ? { role: r.self.role, sleep: r.sleep } : null);
+}
+
+/** A node to manage over the mesh, through the connected node, waiting as long as its sleep may take. */
+function startManaging(address: string, tries = 3): Managed {
+    stopManaging();
+    const sleep = knownSleep(address);
+    const next = new Managed(client!, address, { tries, answerWaitMs: answerWaitMs(sleep), deliverWaitMs: deliverWaitMs(sleep) });
+    managed = next;
+    next.client.onChange = draw;
+    next.transport.onProgress = draw;
+    return next;
+}
+
+/** Keeps what a sync of the managed node said of its sleep, to say next time how long a request may take. */
+function keepSleep(m: Managed): void {
+    const self = m.client.self;
+    if (self && m.client.sleep) {
+        const sleep = sleepOf(undefined, 0, { role: self.role, sleep: m.client.sleep });
+        owned?.setSleep(m.address, sleep?.wake ?? 0, sleep?.listen ?? 0);
     }
 }
 
+/** Where the request under way is, and what it waits for, in a sentence. */
+function manageProgress(m: Managed): string {
+    const p = m.transport.progress;
+    return p ? stepText(p, nameOf(m.address), knownSleep(m.address), m.transport.tries) : "";
+}
+
 /** What went wrong managing, in a sentence. */
-function manageError(e: unknown): string {
+function manageError(e: unknown, address: string): string {
     if (e instanceof Refused) {
+        if (e.code === 15) {
+            return `You're not an owner of ${nameOf(address)}. Its owner can add you.`;
+        }
         if (e.code === 13) {
             return "That can't be done over the mesh: only at the node, over USB or Bluetooth.";
         }
         if (e.code === 0 && /did not answer/.test(e.message)) {
-            return "Delivered, but no answer. A node answers only its owners: make your node one of them at that node, over USB or Bluetooth.";
+            return "Delivered, but no answer. The node may be busy or asleep again: try again in a while.";
         }
         if (e.code === 0 && /not delivered/.test(e.message)) {
-            return "Not delivered: the node may be out of reach, or restarting. Try again in a while.";
+            return "Not delivered: the node may be asleep, out of reach, or restarting. Try again in a while.";
+        }
+        if (e.code === 0 && /closed/.test(e.message)) {
+            return "Stopped.";
         }
     }
     return explain(e);
 }
 
-/** Runs something on the managed node, saying what is under way and what came of it. */
-async function manageDo(busy: string, what: (m: Managed) => Promise<string>): Promise<void> {
+/**
+ * Runs something on the managed node, saying what is under way and what came of it. An answer means
+ * the connected node is an owner; ERROR 15 that it is not, and nothing is tried again.
+ */
+async function manageDo(busy: string, what: (m: Managed) => Promise<string>, failed: (e: unknown, address: string) => string = manageError): Promise<void> {
     const m = managed;
     if (!m || manageBusy !== "") {
         return;
@@ -2218,8 +2243,9 @@ async function manageDo(busy: string, what: (m: Managed) => Promise<string>): Pr
             manageNoteBad = false;
         }
     } catch (e) {
+        owned?.learn(m.address, e);
         if (managed === m) {
-            manageNote = manageError(e);
+            manageNote = failed(e, m.address);
             manageNoteBad = true;
         }
     } finally {
@@ -2229,6 +2255,56 @@ async function manageDo(busy: string, what: (m: Managed) => Promise<string>): Pr
         }
         draw();
     }
+}
+
+/** What is under way, what it waits for, and a way to stop it. */
+function manageBusyLine(m: Managed | null): Child {
+    if (manageBusy === "") {
+        return null;
+    }
+    const stop = el("button", { type: "button", class: "small" }, "Stop");
+    stop.addEventListener("click", () => {
+        stopManaging();
+        draw();
+    });
+    return el("p", { class: "state-line" }, manageBusy, " ", el("span", { class: "muted" }, m ? manageProgress(m) : ""), " ", stop);
+}
+
+/**
+ * For a contact the connected node is not known to own: whether it is, asked with one HELLO over the
+ * mesh. An answer means it is; ERROR 15 that it is not; no answer records nothing.
+ */
+function checkPanel(address: string): Child[] {
+    const m = managed?.address === address ? managed : null;
+    const mine = owned?.owner(address);
+    const check = el("button", { type: "button", class: "small" }, "Check if I'm an owner");
+    check.addEventListener("click", () => {
+        startManaging(address, 1);
+        void manageDo(
+            "Checking…",
+            async (x) => {
+                await x.hello();
+                owned?.learn(address, null);
+                return `You're an owner of ${nameOf(address)}.`;
+            },
+            (e, a) =>
+                e instanceof Refused && e.code === 0 && !/closed/.test(e.message)
+                    ? "No answer. The node may be asleep or out of reach, or you're not an owner."
+                    : manageError(e, a),
+        );
+    });
+    const note = m && manageNote !== "" && el("p", { class: manageNoteBad ? "state-line bad" : "state-line" }, manageNote);
+    return [
+        !note &&
+            el(
+                "p",
+                { class: "muted" },
+                mine === false ? "Not yours: its owner can add you." : "Only a node's owners can manage it over the mesh. Check whether your node is one.",
+            ),
+        m && manageBusyLine(m),
+        note,
+        el("p", { class: "actions" }, (!m || manageBusy === "") && check),
+    ];
 }
 
 /** Changes settings on the managed node, one at a time, each on trial until a PING confirms it. */
@@ -2248,27 +2324,25 @@ async function manageSettings(m: Managed, changes: [setting: number, apply: (c: 
 /** The panel in a contact's head that manages its node over the mesh, as one of its owners. */
 function managePanel(address: string): Child[] {
     const m = managed?.address === address ? managed : null;
-    const start = el("button", { type: "button", class: "small primary" }, m ? "Connect again" : "Connect over the mesh");
+    const start = el("button", { type: "button", class: "small primary" }, m && manageNoteBad ? "Try again" : "Connect over the mesh");
     start.addEventListener("click", () => {
-        stopManaging();
-        const next = new Managed(client!, address);
-        managed = next;
-        next.client.onChange = draw;
-        next.transport.onProgress = draw;
+        startManaging(address);
         void manageDo("Connecting over the mesh…", async (x) => {
             await x.start();
+            owned?.learn(address, null);
+            keepSleep(x);
             return "";
         });
     });
-    const busy = manageBusy !== "" && el("p", { class: "state-line" }, manageBusy, " ", el("span", { class: "muted" }, m ? manageProgress(m) : ""));
-    const note = manageNote !== "" && el("p", { class: manageNoteBad ? "state-line bad" : "state-line" }, manageNote);
+    const busy = m && manageBusyLine(m);
+    const note = m && manageNote !== "" && el("p", { class: manageNoteBad ? "state-line bad" : "state-line" }, manageNote);
     if (!m || !m.client.ready || !m.client.self) {
         return [
             el(
                 "p",
                 { class: "muted" },
-                "See and change this node's settings, owners and Bluetooth lock, or restart it, from here over the mesh. " +
-                    "It answers only if your node is one of its owners, made so at that node. Each request takes seconds to minutes.",
+                "Your node is one of its owners. See and change its settings, owners and Bluetooth lock, or restart it, from here over the mesh. " +
+                    "Each request takes seconds to minutes, longer if it sleeps.",
             ),
             busy,
             note,
@@ -2306,6 +2380,7 @@ function managePanel(address: string): Child[] {
     refresh.addEventListener("click", () =>
         void manageDo("Asking for its state…", async (x) => {
             await x.run((c) => c.sync());
+            keepSleep(x);
             // Any request from an owner confirms a setting on trial.
             x.trialEnds = null;
             return "";
@@ -2388,6 +2463,12 @@ function managePanel(address: string): Child[] {
                 if (sure) {
                     void manageDo("Changing its owners…", async (x) => {
                         await x.run((c) => c.setOwner(k.address, !k.owner));
+                        if (k.address === mine && k.owner) {
+                            // The node tells no notice to the owner whose request made the change.
+                            owned?.setOwner(address, false);
+                            stopManaging();
+                            return "";
+                        }
                         return "Done.";
                     });
                 }
@@ -2660,6 +2741,13 @@ function draw(): void {
         if (client.self && (!history || !historyFor(client.self.address))) {
             history = new History(client.self.address, demo ? null : local());
             historyNode = client.self.address;
+        }
+        if (client.self && owned?.node !== client.self.address) {
+            owned = new Owned(client.self.address, demo ? null : local());
+        }
+        // Notices that the connected node became an owner of another node, or stopped being one.
+        if (client.self) {
+            owned?.take(client.ownerChanges, client.self.address);
         }
         history?.absorb(client.messages.values());
         // What the user forgot, here or on another client, goes from what this browser keeps too.
@@ -2939,6 +3027,7 @@ async function connect(
     $<HTMLDialogElement>("ask").close();
     history = null;
     historyNode = "";
+    owned = null;
     ids.clear();
     settingsShown = "";
     cardShown = "";
@@ -3095,9 +3184,11 @@ async function wipe(c: Client): Promise<void> {
     // The node it was is gone: forget what this page held for it.
     if (node) {
         History.forget(node, local());
+        Owned.forget(node, local());
     }
     history = null;
     historyNode = "";
+    owned = null;
     ids.clear();
     offer = null;
     offerAsked = "";
