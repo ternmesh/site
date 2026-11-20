@@ -1,10 +1,10 @@
-// The companion protocol's frames: version 16 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 17 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 16;
+export const VERSION = 17;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -21,6 +21,9 @@ export const NAME_MAX = 31;
 export const UPDATE_CHUNK = 172;
 /** The longest a join code's link is (draft/groups.md). */
 export const LINK_MAX = 102;
+/** The longest a MANAGE's `request` and a MANAGED's `answer` are (version 17, draft/managing.md). */
+export const REQUEST_MAX = 128;
+export const ANSWER_MAX = 128;
 
 type Kind = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "addr" | "gid" | "digest" | "str" | "bytes";
 /** How many bytes a field of fixed bytes is: an address, a group's id or a digest. */
@@ -44,7 +47,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 16, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 17, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -57,6 +60,8 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x10: ["SEND", [["ref", "u32"], ["to", "addr"], ["text", "str", TEXT_MAX]], 0],
     0x11: ["READ", [["through", "u32"]], 0],
     0x12: ["FORGET", [["contact", "addr"], ["through", "u32"]], 16],
+    0x13: ["MANAGE", [["ref", "u32"], ["to", "addr"], ["request", "bytes", REQUEST_MAX]], 17],
+    0x14: ["OWNER", [["address", "addr"], ["owner", "u8"]], 17],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]], 0],
     0x1a: ["END_SESSION", [["address", "addr"]], 1],
@@ -81,6 +86,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x35: ["SHARE_GROUP", [["group", "gid"], ...sharing], 5],
     0x36: ["UPDATE_BOOTLOADER", [], 12],
     0x37: ["WIPE", [], 13],
+    0x38: ["RESTART", [], 17],
     0x40: ["OK", [], 0],
     0x41: ["ERROR", [["code", "u8"]], 0],
     0x42: [
@@ -111,6 +117,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["card_name", "str", NAME_MAX, 6],
             ["most", "u8", undefined, 10],
             ["pairing", "u8", undefined, 11],
+            ["locked", "u8", undefined, 17],
         ],
         0,
     ],
@@ -121,6 +128,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["session", "u8"],
             ["name", "str", NAME_MAX],
             ["wake", "u16", undefined, 15],
+            ["owner", "u8", undefined, 17],
         ],
         0,
     ],
@@ -210,6 +218,8 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     ],
     0x96: ["FORGOTTEN", [["contact", "addr"], ["through", "u32"]], 16],
     0x97: ["GROUP_FORGOTTEN", [["group", "gid"], ["through", "u32"]], 16],
+    0x98: ["MANAGED", [["from", "addr"], ["answer", "bytes", ANSWER_MAX]], 17],
+    0x99: ["OWNER_CHANGED", [["from", "addr"], ["contact", "addr"], ["owner", "u8"], ["by", "u8"]], 17],
 };
 
 const TYPES: Readonly<Record<string, number>> = Object.fromEntries(
@@ -227,9 +237,10 @@ const SETTINGS: Readonly<Record<number, readonly [Field, number]>> = {
     7: [["value", "u8"], 8],
     8: [["value", "u16"], 15],
     9: [["value", "u8"], 15],
+    10: [["value", "u8"], 17],
 };
 
-export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6, receiver: 7, wake: 8, listen: 9 } as const;
+export const SETTING = { region: 1, role: 2, power: 3, passkey: 4, cards: 5, cardName: 6, receiver: 7, wake: 8, listen: 9, lock: 10 } as const;
 /** Why a node refused first contact: ASKED's `why`. */
 export const ASKED = { notContact: 1, noRoom: 2 } as const;
 
@@ -247,6 +258,39 @@ export const LISTEN_MIN = 2;
 
 /** The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
 export const FORGOTTEN_KEPT = 16;
+
+/**
+ * Managing a node over the mesh (version 17, draft/managing.md): the most owners a node holds; how
+ * long a client waits for an answer once its request is delivered; and how long a SET over the mesh
+ * is on trial before the node takes it back, unless it hears from an owner again.
+ */
+export const OWNERS = 4;
+export const MESH_ANSWER_WAIT_MS = 120_000;
+export const TRIAL_MS = 900_000;
+/** Who changed a node's owners, as OWNER_CHANGED's `by` says: someone at it, or an owner over the mesh. */
+export const OWNER_BY = { link: 0, mesh: 1 } as const;
+
+/**
+ * The companion frames in a MANAGED's `answer`, each after its u8 length (draft/managing.md, "The
+ * frames"), or null for an answer that holds none, has a frame of no bytes, or whose last length
+ * runs past its end: a receiver ignores such an answer whole.
+ */
+export function unpackAnswer(answer: Uint8Array): Uint8Array[] | null {
+    if (answer.length === 0 || answer.length > ANSWER_MAX) {
+        return null;
+    }
+    const frames: Uint8Array[] = [];
+    let at = 0;
+    while (at < answer.length) {
+        const n = answer[at]!;
+        if (n === 0 || at + 1 + n > answer.length) {
+            return null;
+        }
+        frames.push(answer.subarray(at + 1, at + 1 + n));
+        at += 1 + n;
+    }
+    return frames;
+}
 
 /** How a client gives the node new firmware: INFO's `update` (version 12). */
 export const UPDATE = { none: 0, link: 1, bootloader: 2 } as const;

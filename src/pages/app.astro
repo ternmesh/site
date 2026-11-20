@@ -305,6 +305,7 @@ import Base from "../layouts/Base.astro";
                             <p id="link-facts" class="muted small-print"></p>
                             <p class="buttons">
                                 <button id="disconnect" type="button">Disconnect</button>
+                                <button id="lock" type="button" hidden>Lock Bluetooth</button>
                                 <button id="turn-off" type="button" class="danger" hidden>Turn the node off</button>
                                 <button id="wipe" type="button" class="danger" hidden>Erase this node</button>
                             </p>
@@ -1248,6 +1249,30 @@ import Base from "../layouts/Base.astro";
     .app .join-code .link {
         overflow-wrap: anywhere;
         font-size: 0.8rem;
+    }
+    .app .talk-head h4 {
+        margin: 12px 0 4px;
+        font-size: 0.88rem;
+    }
+    .app .owners {
+        list-style: none;
+        margin: 0 0 8px;
+        padding: 0;
+    }
+    .app .owners li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+    }
+    .app .owners .row-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .app form.add-owner {
+        max-width: 28rem;
+        margin-bottom: 8px;
     }
     .app form.share {
         margin: 8px 0 4px;
