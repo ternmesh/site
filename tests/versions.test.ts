@@ -28,8 +28,8 @@ async function bringUp(wire: Wire, c: Client, version: number): Promise<void> {
     await up;
 }
 
-test("this client speaks version 17", () => {
-    assert.equal(VERSION, 17);
+test("this client speaks version 18", () => {
+    assert.equal(VERSION, 18);
 });
 
 test("UPDATE_BEGIN carries the signature to a node of version 13 or later, and not to one before", async () => {

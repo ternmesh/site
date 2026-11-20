@@ -54,7 +54,7 @@ Once a node is connected the page has the phone apps' layout: **Chats**, **Peopl
 tabs, down the side on a computer and along the foot on a phone, with the node's name and battery at
 the head of each. Before then, it is where a node is connected from: USB, Bluetooth or the demo.
 
-It speaks version 14 of the protocol, and any earlier version a node speaks:
+It speaks version 18 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
@@ -83,6 +83,24 @@ not define, saying on the node's card what an update would bring.
   routing ids from the key blinded from each address (draft/routing.md, "Routing ids"): the page
   works out `B = [h]A` with [@noble/curves](https://github.com/paulmillr/noble-curves) and keeps each
   id it works out (`src/lib/companion/ids.ts`); for an earlier node it uses the address's own.
+* **How each message went** (version 18's `ROUTE`): a line under each message. Received, "Direct ·
+  SNR 6.5 dB" or "2 hops · SNR 4.8 dB", and a group message "≤2 hops", since its writer hides how
+  far off it is. Sent, "Sent via Hilltop · try 2", then "Delivered via Hilltop · reply 2 hops ·
+  19.6 s" or "Delivered direct · 1.2 s": the hops and signal are the acknowledgement's, on its way
+  back. Choosing the line shows every field in words. The page keeps each message's last route with
+  what it keeps of the message, and lets it go when the conversation is deleted.
+* **Traces** (version 18's `TRACE` and `TRACED`): **Trace route** in a contact's details, and
+  **Trace** beside each node heard nearby. The trace says where it is, then who answered or how far
+  it got, and each node out and back with how well it heard the one before, and that a trace shows
+  how frames went just then and that relays can misreport it. A leaf answers traces only from a
+  node it has a session with, and the page says so. A routing id no contact has can be named, in
+  this browser alone (`localStorage`, never sent). A node of version 17 is not asked: the button is
+  disabled, with "Update the node's firmware to trace".
+* **Range test**, on the Node tab or from a contact's details: "range #1", "range #2" and on to a
+  contact every 30 to 60 s (30 by default), each logged with the browser's position (if allowed),
+  delivered or not, hops, SNR, RSSI, round trip and the first neighbour, and downloaded as CSV. It
+  holds a screen wake lock while it runs, where the browser has one. From a node of version 17 it
+  logs only delivery.
 * **Erasing it:** **Erase this node**, beside Turn off, for a node of version 13 (`WIPE`). It asks
   twice, saying that the node's address, contacts, groups and messages go for good and that it must
   be paired again. Once the node says OK the page forgets what it kept for the node and the

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Client, Refused } from "../src/lib/companion/client.ts";
-import { UPDATE, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
+import { UPDATE, VERSION, decode, hex, unhex } from "../src/lib/companion/protocol.ts";
 import { Updater, askBootloader, wayOf } from "../src/lib/companion/updater.ts";
 import { Wire } from "./wire.ts";
 
@@ -178,7 +178,7 @@ test("bootloader: a node of version 12 that its bootloader updates refuses the l
 test("bootloader: to a client of version 11 the same node names no board, and cannot be updated from it", () => {
     const [, older] = v.bootloader;
     const info = decode(unhex(older![1]!.frame)!, 11)!;
-    assert.deepEqual(info.fields, { version: 17, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
+    assert.deepEqual(info.fields, { version: VERSION, firmware: "tern 0.2.0 heltec-t114", board: "", release: "0.2.0" });
     assert.equal(wayOf({ version: 11, update: null, board: "" }), null);
     // That client's UPDATE_BEGIN is refused as this client's was.
     assert.deepEqual(decode(unhex(older![3]!.frame)!, 11)!.fields, { code: 5 });
