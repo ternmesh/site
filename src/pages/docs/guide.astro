@@ -146,11 +146,10 @@ const fw = "https://github.com/ternmesh/firmware";
         message waits for it.
     </p>
     <p>
-        A node holds a session with each person it writes to, and has room for a fixed number: 8 on the current
-        release. Once it is full, writing to someone new is <em>not delivered</em> until you end a session you no
+        A node holds a session with each person it writes to, and has room for a fixed number: 16 on ESP32-S3 and
+        nRF52840 boards, 8 on the classic ESP32 boards. Once it is full, writing to someone new is <em>not delivered</em> until you end a session you no
         longer need, from that conversation in the app (<strong>End session</strong>). Ending one costs nothing but a
-        new handshake the next time you write. The next release raises this to 16 sessions on ESP32-S3 and nRF52840
-        boards, with 32 contacts and 8 groups.
+        new handshake the next time you write.
     </p>
 
     <h2 id="groups">Groups</h2>
