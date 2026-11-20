@@ -148,7 +148,7 @@ const org = "https://github.com/ternmesh";
             and a relay uses more than a leaf. A leaf that sleeps turns its radio off between wakes: the simulator
             puts its radio at about 150 µA on average waking every 5 minutes, and about 51 µA every hour, against
             about 4.65 mA listening all the time. Those are estimates, not measured on a board, and so far only the
-            radio sleeps, not the processor. Sleeping is on the firmware's main branch, not yet in a release.
+            radio sleeps, not the processor. Sleeping is in the firmware since 0.7.0-alpha.2.
         </p>
     </details>
 
@@ -163,15 +163,15 @@ const org = "https://github.com/ternmesh";
     <details>
         <summary>How many contacts, groups and conversations can a node hold?</summary>
         <p>
-            On the current release, 16 contacts, 4 groups and secure sessions with 8 people at once, and its latest 32
-            messages; the apps keep the whole history. The next release raises that to 32 contacts, 8 groups and 16
-            sessions on ESP32-S3 and nRF52840 boards.
+            An ESP32-S3 or nRF52840 board holds 32 contacts, 8 groups and secure sessions with 16 people at once; a
+            classic ESP32 board 16 contacts, 4 groups and 8 sessions. Each keeps its latest 32 messages; the apps keep
+            the whole history.
         </p>
     </details>
     <details>
         <summary>Can I delete a chat?</summary>
         <p>
-            Yes, with firmware that knows how, which is not yet in a release. Deleting a chat in an app erases its
+            Yes, with firmware 0.7.0-alpha.2 or later. Deleting a chat in an app erases its
             messages from the node, and from every phone or computer connected to it, for good; messages not yet
             delivered are not sent. The contact or group is kept. Leaving a group or removing a contact keeps the chat
             unless you choose to delete it too.
@@ -180,8 +180,8 @@ const org = "https://github.com/ternmesh";
     <details>
         <summary>Can I change a relay without going to it?</summary>
         <p>
-            Yes, with firmware that knows how, which is not yet in a release. At the relay, over USB or Bluetooth, make
-            your own node one of its owners; from then on the web app can, from your node, see the relay's state, change
+            Yes, with firmware 0.7.0-alpha.2 or later. At the relay, over USB or Bluetooth, make
+            your own node one of its owners; from then on the apps can, from your node, see the relay's state, change
             its settings but its region, change its owners, lock its Bluetooth and restart it, over the mesh. Only
             owners are answered, each proved by its session: no password crosses the air. Every owner is told when the
             owners change.
@@ -206,8 +206,8 @@ const org = "https://github.com/ternmesh";
             <li>Holding messages for a node that is away, beyond what its own node keeps.</li>
             <li>Bridges to the internet or to other meshes.</li>
             <li>
-                Leaves that sleep on a schedule are on the firmware's main branch, not yet in a release, with only the
-                radio asleep so far. Links that each pick their own speed are not built. The airtime budget is in the
+                Leaves that sleep on a schedule are in the firmware since 0.7.0-alpha.2, with only the radio asleep so
+                far. Links that each pick their own speed are not built. The airtime budget is in the
                 firmware since 0.5, but has not yet been measured holding a frame back on a board.
             </li>
         </ul>

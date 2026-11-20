@@ -38,13 +38,13 @@ const ideas = [
         title: "Infrastructure and leaves",
         stage: "partly",
         body: "Fixed relays carry the routing. Handhelds and sensors are leaves that can sleep on a schedule and still receive their messages.",
-        built: "Relays and leaves are in the firmware. Leaves that sleep are on the firmware's main branch, not yet in a release: so far only the radio sleeps, not the processor.",
+        built: "Relays and leaves are in the firmware. Leaves that sleep are in the firmware since 0.7.0-alpha.2: so far only the radio sleeps, not the processor.",
     },
     {
         title: "Relays you can reach",
         stage: "built",
         body: "A node's owners manage it over the mesh: its settings, its owners, its Bluetooth lock, a restart. An owner is proved by its session, so there is no password to leak, and every owner is told when the owners change.",
-        built: "On the firmware's main branch, not yet in a release, and in the web app. A setting changed over the mesh goes back after 15 minutes unless confirmed, so a mistake cannot strand a relay. Tried between two boards.",
+        built: "In the firmware since 0.7.0-alpha.2, and in the web app and the phone apps. A setting changed over the mesh goes back after 15 minutes unless confirmed, so a mistake cannot strand a relay. Tried between two boards.",
     },
     {
         title: "Private by default",

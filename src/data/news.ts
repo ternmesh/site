@@ -19,6 +19,48 @@ const apple = "https://github.com/ternmesh/apple/releases/tag";
 
 export const news: Entry[] = [
     {
+        date: "2026-11-20",
+        what: "Firmware",
+        title: "0.7.0-alpha.2",
+        body: "Fixes a freeze that left an nRF52840 board such as the T1000-E advertising over Bluetooth but never answering, and adds a watchdog on every board. Leaves can sleep between polls of a relay that keeps their messages, a relay's owners can manage it over the mesh, and a chat deleted in an app is erased from the node and every client. Speaks companion version 17.",
+        link: `${fw}/v0.7.0-alpha.2`,
+    },
+    {
+        date: "2026-11-20",
+        what: "Android",
+        title: "0.5.0",
+        body: "Shows and sets a node's sleep, deletes a chat from the node and every client of it, and manages a relay you own over the mesh. Speaks companion version 17.",
+        link: `${android}/v0.5.0`,
+    },
+    {
+        date: "2026-11-20",
+        what: "Apple",
+        title: "0.6.0",
+        body: "Shows and sets a node's sleep, deletes a chat from the node and every client of it, and manages a relay you own over the mesh. Speaks companion version 17.",
+        link: `${apple}/v0.6.0`,
+    },
+    {
+        date: "2026-11-20",
+        what: "Site",
+        title: "The web app speaks companion version 17",
+        body: "/app shows and sets a node's sleep, deletes a chat from the node and every client, and manages a relay you own over the mesh: its settings, its owners, its Bluetooth lock and a restart.",
+        link: "/app",
+    },
+    {
+        date: "2026-11-18",
+        what: "Android",
+        title: "0.4.1",
+        body: "The list of nodes to connect to stays in the order they were found instead of jumping by signal strength, and a connection no longer drops for discovering its services twice.",
+        link: `${android}/v0.4.1`,
+    },
+    {
+        date: "2026-11-18",
+        what: "Apple",
+        title: "0.5.1",
+        body: "The list of nodes to connect to stays in the order they were found instead of jumping by signal strength.",
+        link: `${apple}/v0.5.1`,
+    },
+    {
         date: "2026-11-18",
         what: "Firmware",
         title: "0.7.0-alpha.1",
