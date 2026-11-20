@@ -43,6 +43,8 @@ export interface Progress {
     /** Its STATE (STATE.waiting to STATE.notDelivered), and why it waits; null until the node says. */
     state: number | null;
     reason: number;
+    /** When this try was handed to the connected node, by this client's clock, in milliseconds. */
+    since: number;
     /** How long it waits, in seconds, when the node says (the region's limit, the airtime budget); 0 otherwise. */
     wait: number;
 }
@@ -114,7 +116,7 @@ export class MeshTransport implements Transport {
         this.pending = true;
         try {
             for (let attempt = 1; ; attempt++) {
-                this.progress = { attempt, state: null, reason: 0, wait: 0 };
+                this.progress = { attempt, state: null, reason: 0, wait: 0, since: this.now() };
                 this.onProgress();
                 const id = await this.local.manage(this.to, frame);
                 if (await this.watch(id, seq)) {

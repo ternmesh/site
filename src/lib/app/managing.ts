@@ -167,12 +167,22 @@ export function wakeWords(seconds: number): string {
 
 const WAITING_FOR = ["", "Finding a route", "", "Waiting for the region's limit", "Waiting for its share of the air", "Waiting for the radio"];
 
+/** After this long with no answer, a node not known to sleep is said to perhaps be asleep. */
+export const MAYBE_ASLEEP_MS = 20_000;
+
 /**
  * What a request to `name` is waiting for, in a sentence, from its STATE news and what the page
- * knows of the node's sleep; with which try it is, after the first, of `tries`.
+ * knows of the node's sleep; with which try it is, after the first, of `tries`. `now` is this
+ * client's clock, to tell how long the try has gone unanswered.
  */
-export function stepText(p: Progress, name: string, sleep: { wake: number } | null, tries = 3): string {
+export function stepText(p: Progress, name: string, sleep: { wake: number } | null, tries = 3, now = Date.now()): string {
     const asleep = sleep ? `${name} is asleep: it wakes every ${wakeWords(sleep.wake)}, so this can take up to ${wakeWords(sleep.wake)}.` : "";
+    // A request to a sleeping node is held for it until it wakes and polls: say so, not "delivered".
+    const held = sleep
+        ? `Held until ${name} wakes (every ${wakeWords(sleep.wake)}).`
+        : now - p.since >= MAYBE_ASLEEP_MS
+          ? `Waiting for ${name}. It may be asleep.`
+          : "";
     let step: string;
     switch (p.state) {
         case null:
@@ -188,13 +198,40 @@ export function stepText(p: Progress, name: string, sleep: { wake: number } | nu
             }
             break;
         case STATE.sent:
-            step = asleep || "On its way…";
+            step = asleep || (held !== "" ? held : "On its way…");
             break;
         case STATE.delivered:
-            step = `Delivered — waiting for ${name}'s answer…`;
+            step = held || `Delivered — waiting for ${name}'s answer…`;
             break;
         default:
             step = "Not delivered: trying again shortly…";
     }
     return p.attempt > 1 ? `${step} Try ${p.attempt} of ${tries}.` : step;
+}
+
+/** What is under way over the mesh: a check whether the connected node is an owner, or a request as one. */
+export type Job = "check" | "manage";
+
+/** What the page shows while a job runs, wherever the user is: a check names what it checks. */
+export function jobText(job: Job, busy: string, name: string): string {
+    return job === "check" ? `Checking whether you own ${name}…` : `${name}: ${busy}`;
+}
+
+/**
+ * What came of a job, for a notice when it ends while the user is elsewhere: null `error` for an
+ * answer. `manage` says the notice offers to manage the node. Null for what only the panel says.
+ */
+export function outcome(job: Job, name: string, error: unknown): { text: string; bad: boolean; manage: boolean } | null {
+    if (error === null) {
+        return job === "check"
+            ? { text: `You're an owner of ${name}.`, bad: false, manage: true }
+            : { text: `${name} answered.`, bad: false, manage: true };
+    }
+    if (error instanceof Refused && error.code === 15) {
+        return { text: `You're not an owner of ${name}.`, bad: true, manage: false };
+    }
+    if (error instanceof Refused && error.code === 0 && !/closed/.test(error.message)) {
+        return { text: `No answer from ${name}.`, bad: true, manage: false };
+    }
+    return null;
 }

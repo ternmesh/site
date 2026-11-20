@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Owned, answerWaitMs, deliverWaitMs, sleepOf, stepText } from "../src/lib/app/managing.ts";
+import { MAYBE_ASLEEP_MS, Owned, answerWaitMs, deliverWaitMs, jobText, outcome, sleepOf, stepText } from "../src/lib/app/managing.ts";
 import { Client, Refused } from "../src/lib/companion/client.ts";
 import type { OwnerChange } from "../src/lib/companion/client.ts";
 import { Managed } from "../src/lib/companion/remote.ts";
@@ -87,7 +87,7 @@ test("kept per connected node, across pages, and forgotten with a wiped node", (
 });
 
 test("what a request is waiting for, in words", () => {
-    const p = (state: number | null, reason = 0, attempt = 1, wait = 0) => ({ attempt, state, reason, wait });
+    const p = (state: number | null, reason = 0, attempt = 1, wait = 0) => ({ attempt, state, reason, wait, since: 0 });
     const asleep = { wake: 900 };
     assert.equal(stepText(p(null), "Mast", null), "Handing it to your node…");
     assert.equal(stepText(p(STATE.waiting, 2), "Mast", null), "Making first contact with Mast…");
@@ -95,12 +95,17 @@ test("what a request is waiting for, in words", () => {
     assert.equal(stepText(p(STATE.waiting, 3, 1, 40), "Mast", null), "Waiting for the region's limit, about 40 s…");
     assert.equal(stepText(p(STATE.waiting, 4), "Mast", null), "Waiting for its share of the air…");
     assert.equal(stepText(p(STATE.waiting, 5), "Mast", null), "Waiting for the radio…");
-    assert.equal(stepText(p(STATE.sent), "Mast", null), "On its way…");
+    assert.equal(stepText(p(STATE.sent), "Mast", null, 3, 0), "On its way…");
     assert.equal(stepText(p(STATE.sent), "Mast", asleep), "Mast is asleep: it wakes every 15 min, so this can take up to 15 min.");
     assert.equal(stepText(p(STATE.waiting, 0), "Mast", asleep), "Mast is asleep: it wakes every 15 min, so this can take up to 15 min.");
     assert.equal(stepText(p(STATE.waiting, 0), "Mast", null), "Waiting…");
-    assert.equal(stepText(p(STATE.delivered), "Mast", null), "Delivered — waiting for Mast's answer…");
-    assert.equal(stepText(p(STATE.delivered, 0, 2), "Mast", null), "Delivered — waiting for Mast's answer… Try 2 of 3.");
+    assert.equal(stepText(p(STATE.delivered), "Mast", null, 3, 0), "Delivered — waiting for Mast's answer…");
+    assert.equal(stepText(p(STATE.delivered, 0, 2), "Mast", null, 3, 0), "Delivered — waiting for Mast's answer… Try 2 of 3.");
+    // Held for a node known to sleep; after about 20 s unanswered, perhaps asleep.
+    assert.equal(stepText(p(STATE.delivered), "Mast", { wake: 300 }, 3, 0), "Held until Mast wakes (every 5 min).");
+    assert.equal(stepText(p(STATE.delivered), "Mast", null, 3, MAYBE_ASLEEP_MS - 1), "Delivered — waiting for Mast's answer…");
+    assert.equal(stepText(p(STATE.delivered), "Mast", null, 3, MAYBE_ASLEEP_MS), "Waiting for Mast. It may be asleep.");
+    assert.equal(stepText(p(STATE.sent), "Mast", null, 3, MAYBE_ASLEEP_MS), "Waiting for Mast. It may be asleep.");
     assert.equal(stepText(p(STATE.notDelivered, 0, 3), "Mast", null), "Not delivered: trying again shortly… Try 3 of 3.");
 });
 
@@ -168,4 +173,15 @@ test("ERROR 15 over the mesh is a refusal at once, not tried again; one HELLO wi
     assert.equal(wire.wrote.length, 0, "one HELLO only");
     await check.close();
     await c.close();
+});
+
+test("a job's indicator, and the notice when it ends elsewhere", () => {
+    assert.equal(jobText("check", "Checking…", "Mast"), "Checking whether you own Mast…");
+    assert.equal(jobText("manage", "Asking for its state…", "Mast"), "Mast: Asking for its state…");
+    assert.deepEqual(outcome("check", "Mast", null), { text: "You're an owner of Mast.", bad: false, manage: true });
+    assert.deepEqual(outcome("check", "Mast", new Refused(15, "not an owner")), { text: "You're not an owner of Mast.", bad: true, manage: false });
+    assert.deepEqual(outcome("check", "Mast", new Refused(0, "the managed node did not answer")), { text: "No answer from Mast.", bad: true, manage: false });
+    assert.deepEqual(outcome("manage", "Mast", new Refused(0, "the request was not delivered")), { text: "No answer from Mast.", bad: true, manage: false });
+    assert.equal(outcome("check", "Mast", new Refused(0, "the connection has closed")), null, "stopped: nothing to tell");
+    assert.equal(outcome("manage", "Mast", new Refused(13, "not over the mesh")), null);
 });
