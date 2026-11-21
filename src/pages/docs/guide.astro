@@ -172,11 +172,16 @@ const fw = "https://github.com/ternmesh/firmware";
     <p>
         A node can send a <strong>presence card</strong> now and then: its address and a name, so that people near it
         can find it and add it. The app lists the cards your node has heard, each name shown as its sender's claim
-        beside the address's short code.
+        beside the address's short code. Rather than wait for cards, <strong>Ask who's about</strong> has your node
+        ask the nodes in earshot for theirs: those with their card on answer within half a minute. A node asks at
+        most once in ten minutes.
     </p>
     <p>
         Your own card is off until you turn it on. On, it puts your node's address and the name you give it on the
-        air in clear, every couple of hours, for anyone listening. Turn it off again from the same switch.
+        air in clear, every couple of hours, for anyone listening. Turn it off again from the same switch. On or
+        off, your node also gives that name, sealed, to each node it makes first contact with, so that whoever you
+        reach sees who you say you are. The app shows such a name as the other's claim, and never puts it in
+        place of a name you gave a contact.
     </p>
 
     <h2 id="positions">Sharing your position</h2>

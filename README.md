@@ -54,7 +54,7 @@ Once a node is connected the page has the phone apps' layout: **Chats**, **Peopl
 tabs, down the side on a computer and along the foot on a phone, with the node's name and battery at
 the head of each. Before then, it is where a node is connected from: USB, Bluetooth or the demo.
 
-It speaks version 18 of the protocol, and any earlier version a node speaks:
+It speaks version 20 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
 not define, saying on the node's card what an update would bring.
 
@@ -65,7 +65,16 @@ not define, saying on the node's card what an update would bring.
 * **Who is about:** the presence cards the node holds, each name in quotes as its sender's claim,
   beside the address's short code; Add puts the address and the name in the add form, for the user
   to keep or change. The node's own card is turned on and named only under **Your presence card**,
-  which asks first and says what that puts on the air.
+  which asks first and says what that puts on the air. **Ask who's about** (version 20's `LOOK`)
+  has the node ask the nodes in earshot for their cards, which come within half a minute as any
+  card does; it is sent only when chosen, and `ERROR` 16, asked again within ten minutes, is said
+  as such. A node of version 19 is not asked: the button is not shown.
+* **Names in first contact** (version 19's `ASKED` `name` and `CONTACT` `says`): the name a node
+  gave itself in its handshake, shown as its claim. Someone refused first contact is shown by the
+  address's short code and the name it gave; **Let it in** offers that name for the user to keep or
+  change. A contact the user gave no name is shown by its address with "says “…”" beside it, and
+  Rename offers that name; the name the user gave is never replaced by it. Your presence card's name
+  is the one the node gives, and the card's form says so for a node of version 19 or later.
 * **Positions:** the positions the node holds, each with a link that opens it on OpenStreetMap
   (followed only if clicked), and sharing the user's own with a contact or group from its
   conversation, at the precisions the specification lists. While the node shares with anyone, the

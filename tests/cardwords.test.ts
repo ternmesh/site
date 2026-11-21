@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cardButtonText, cardChanges, heardOnlyText } from "../src/lib/app/cards.ts";
+import { LOOK_TOO_SOON, cardButtonText, cardChanges, heardOnlyText } from "../src/lib/app/cards.ts";
 
 test("a name saved while the card is off goes before turning it on, and the button says so", () => {
     // What was reported: a name set, the card still off. The switch on, the name goes first.
@@ -33,4 +33,14 @@ test("a node heard with no card says why nothing can be done, and how to reach i
     // A node too old for cards: waiting for one is no way to meet anyone.
     assert.doesNotMatch(heardOnlyText(false, false), /card/);
     assert.doesNotMatch(heardOnlyText(false, true), /card/);
+});
+
+test("a node that can ask who's about says so, and why it was refused", () => {
+    for (const one of [true, false]) {
+        assert.doesNotMatch(heardOnlyText(true, one), /ask who's about/);
+        assert.match(heardOnlyText(true, one, true), /about every two hours, or within half a minute if you ask who's about\.$/);
+        // Asking brings only cards: a node too old for them is told nothing of it.
+        assert.doesNotMatch(heardOnlyText(false, one, true), /card|ask who's about/);
+    }
+    assert.match(LOOK_TOO_SOON, /less than ten minutes ago/);
 });

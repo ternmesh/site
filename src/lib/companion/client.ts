@@ -1,5 +1,5 @@
 // A companion client: one connection to a node, and what the node holds as far as this client
-// has been told. Version 18 of draft/companion.md in ternmesh/spec, and any earlier version a node
+// has been told. Version 20 of draft/companion.md in ternmesh/spec, and any earlier version a node
 // speaks: it asks a node for nothing that node's version does not define.
 //
 // It asks one request at a time, counts the node's news and syncs again when some is missed,
@@ -67,6 +67,20 @@ export interface Contact {
     wake: number;
     /** Whether it is one of the node's owners, who may manage it over the mesh (version 17). */
     owner: boolean;
+    /**
+     * The name it gave itself in the last first contact the node made with it (version 19), empty
+     * if none: its claim, not the user's name for it, which it never takes the place of.
+     */
+    says: string;
+}
+/**
+ * Why the node refused first contact from an address (ASKED's `why`, one of ASKED), and the name
+ * the asker gave itself in its handshake (version 19), empty if none: its claim, shown with the
+ * address's short code, that the user may take as its name.
+ */
+export interface Asked {
+    why: number;
+    name: string;
 }
 /**
  * A node told this one that its owners changed (OWNER_CHANGED, version 17): `contact` became one
@@ -278,6 +292,7 @@ const ERRORS: Readonly<Record<number, string>> = {
     13: "a node does not do that when managed over the mesh",
     14: "the node's Bluetooth is locked: only USB, or one of its owners over the mesh, can change it",
     15: "not an owner: a node managed over the mesh answers only its owners",
+    16: "too soon: the node asked who is about less than ten minutes ago",
 };
 
 export interface Options {
@@ -352,10 +367,10 @@ export class Client {
     readonly cards = new Map<string, Card>();
     /**
      * Addresses the node refused first contact from since this client connected, each with the
-     * latest reason (ASKED). The node does not keep them, so neither does a sync: they go when
-     * the page lets go of them, or the node gains a session with the address.
+     * latest reason and name (ASKED). The node does not keep them, so neither does a sync: they go
+     * when the page lets go of them, or the node gains a session with the address.
      */
-    readonly asked = new Map<string, number>();
+    readonly asked = new Map<string, Asked>();
     /** Owner changes nodes told this one of since this client connected, oldest first, until the page lets go. */
     readonly ownerChanges: OwnerChange[] = [];
     airtime: Airtime | null = null;
@@ -670,6 +685,14 @@ export class Client {
      */
     async setOwner(address: string, owner: boolean): Promise<void> {
         await this.request("OWNER", { address, owner: owner ? 1 : 0 });
+    }
+    /**
+     * Has the node ask the nodes in earshot for their cards (LOOK, version 20): those with cards on
+     * answer within half a minute, and their cards come as any card does. Only ever because the
+     * user asked. Rejects with Refused 16 if the node asked less than ASK_GAP, ten minutes, before.
+     */
+    async look(): Promise<void> {
+        await this.request("LOOK");
     }
     /** Restarts the node (RESTART, version 17): it answers, and then restarts, and every connection drops. */
     async restart(): Promise<void> {
@@ -1034,6 +1057,7 @@ export class Client {
                     session: x.session === 1,
                     wake: x.wake === undefined ? 0 : Number(x.wake),
                     owner: x.owner === 1,
+                    says: x.says === undefined ? "" : String(x.says),
                 });
                 this.syncSeen?.contacts.add(String(x.address));
                 if (x.session === 1) {
@@ -1139,7 +1163,7 @@ export class Client {
                 };
                 break;
             case "ASKED":
-                this.asked.set(String(x.address), Number(x.why));
+                this.asked.set(String(x.address), { why: Number(x.why), name: x.name === undefined ? "" : String(x.name) });
                 break;
             case "POSITION":
             case "GROUP_POSITION": {

@@ -109,7 +109,7 @@ for (const framed of [false, true]) {
         assert.equal(c.messages.get(18)?.state, STATE.delivered);
 
         // Carol asked, and was refused: saving her lets her in the next time.
-        assert.equal(c.asked.get(CAROL), 1);
+        assert.deepEqual(c.asked.get(CAROL), { why: 1, name: "" });
         const saved = c.saveContact(CAROL, "Carol");
         await expect();
         await saved;
@@ -395,8 +395,8 @@ test("who asked is kept until let go of, or let in", async () => {
     wire.say("ASKED", 2, { address: BOB, why: 2 });
     wire.say("ASKED", 3, { address: CAROL, why: 2 });
     assert.deepEqual([...c.asked], [
-        [CAROL, 2],
-        [BOB, 2],
+        [CAROL, { why: 2, name: "" }],
+        [BOB, { why: 2, name: "" }],
     ]);
     let changes = 0;
     c.onChange = () => changes++;

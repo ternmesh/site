@@ -43,21 +43,31 @@ export function cardButtonText(f: CardForm): string {
 /**
  * Why a node heard with no card can be neither messaged nor added: all this node knows of it is a
  * routing id, not its address. `one` for the node chosen, rather than those listed; `cards` whether
- * the node speaks cards, without which waiting for one is no way to meet it.
+ * the node speaks cards, without which waiting for one is no way to meet it; `look` whether it can
+ * ask for them (LOOK, version 20), which brings them sooner.
  */
-export function heardOnlyText(cards: boolean, one: boolean): string {
+export function heardOnlyText(cards: boolean, one: boolean, look = false): string {
+    const when = look
+        ? "nodes showing a card send one about every two hours, or within half a minute if you ask who's about."
+        : "nodes showing a card send one about every two hours.";
     if (one) {
         return cards
             ? "This node hears it, but it hasn't shared a card, so all this node knows is its short id, not whose it is. " +
                   "You can't message or add it from here. To talk to it, ask its owner for their link or QR code, or wait " +
-                  "for its card: nodes showing a card send one about every two hours."
+                  `for its card: ${when}`
             : "This node hears it, but all it knows is its short id, not whose it is. You can't message or add it from " +
                   "here. To talk to it, ask its owner for their link or QR code.";
     }
     return cards
         ? "Those shown only by a short id haven't shared a card, so this node doesn't know who they are, and you " +
               "can't message or add them. To talk to one, ask its owner for their link or QR code, or wait for their " +
-              "card: nodes showing a card send one about every two hours."
+              `card: ${when}`
         : "Those shown only by a short id are all this node knows of them, not who they are, and you can't message or " +
               "add them. To talk to one, ask its owner for their link or QR code.";
 }
+
+/** Said once the node has asked the nodes in earshot for their cards (LOOK, version 20). */
+export const LOOKED = "Asked the nodes in earshot for their cards. Those showing one answer within half a minute.";
+
+/** ERROR 16 to LOOK, in the user's words: a node asks at most once in ASK_GAP, ten minutes. */
+export const LOOK_TOO_SOON = "This node asked who's about less than ten minutes ago. Their cards are on their way, or try again in a few minutes.";

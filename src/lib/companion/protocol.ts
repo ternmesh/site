@@ -1,10 +1,12 @@
-// The companion protocol's frames: version 18 of draft/companion.md in ternmesh/spec.
+// The companion protocol's frames: version 20 of draft/companion.md in ternmesh/spec.
 //
 // Nothing here touches a port or the page. It builds frames, reads them, wraps them for a byte
 // stream and finds them in one, and tests/protocol.test.ts holds it to the specification's
 // vectors.
 
-export const VERSION = 18;
+export const VERSION = 20;
+/** The version in which first contact carries names: ASKED's `name` and CONTACT's `says` (draft/first-contact.md "Names"). */
+export const NAMES_SINCE = 19;
 /** SET 3's power that asks the node to use the most it may transmit at (version 10). */
 export const POWER_MOST = -128;
 export const MAX_FRAME = 180;
@@ -51,7 +53,7 @@ const position: readonly Field[] = [
     ["age", "u32"],
 ];
 
-// Every frame of version 18, by type: its name, its fields in order, and the version that added it.
+// Every frame of version 20, by type: its name, its fields in order, and the version that added it.
 // A field added at the end of a frame by a later version says so; a receiver reads a frame by the
 // version both ends speak, so a node of version 2's SYNCED is the two bytes it is.
 const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly Field[], since: number]>> = {
@@ -67,6 +69,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x13: ["MANAGE", [["ref", "u32"], ["to", "addr"], ["request", "bytes", REQUEST_MAX]], 17],
     0x14: ["OWNER", [["address", "addr"], ["owner", "u8"]], 17],
     0x15: ["TRACE", [["ref", "u32"], ["to", "u32"]], 18],
+    0x16: ["LOOK", [], 20],
     0x18: ["SAVE_CONTACT", [["address", "addr"], ["name", "str", NAME_MAX]], 0],
     0x19: ["REMOVE_CONTACT", [["address", "addr"]], 0],
     0x1a: ["END_SESSION", [["address", "addr"]], 1],
@@ -134,6 +137,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
             ["name", "str", NAME_MAX],
             ["wake", "u16", undefined, 15],
             ["owner", "u8", undefined, 17],
+            ["says", "str", NAME_MAX, 19],
         ],
         0,
     ],
@@ -157,7 +161,7 @@ const FRAMES: Readonly<Record<number, readonly [name: string, fields: readonly F
     0x86: ["NEIGHBOUR_GONE", [["routing_id", "u32"]], 0],
     0x87: ["AIRTIME", [["period", "u32"], ["allowed", "u32"], ["used", "u32"], ["wait", "u32"]], 0],
     0x88: ["POWER", [["millivolts", "u16"], ["percent", "u8"], ["flags", "u8"]], 0],
-    0x89: ["ASKED", [["address", "addr"], ["why", "u8"]], 1],
+    0x89: ["ASKED", [["address", "addr"], ["why", "u8"], ["name", "str", NAME_MAX, 19]], 1],
     0x8a: ["GROUP", [["group", "gid"], ["name", "str", NAME_MAX]], 2],
     0x8b: ["GROUP_GONE", [["group", "gid"]], 2],
     0x8c: [
