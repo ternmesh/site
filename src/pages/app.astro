@@ -194,6 +194,10 @@ import Base from "../layouts/Base.astro";
                                 its sender says it is.
                             </p>
                             <ul id="about" class="rows"></ul>
+                            <!-- Asking those in earshot for their cards (LOOK, version 20): only when the user asks. -->
+                            <p id="about-look-row" class="actions" hidden>
+                                <button id="about-look" type="button" class="small">Ask who's about</button>
+                            </p>
                         </section>
 
                         <section class="card">
@@ -273,6 +277,10 @@ import Base from "../layouts/Base.astro";
                                     hops round, about every two hours, so anyone nearby can recognise it each
                                     time, and add it. Off, it puts neither on the air. It is off until you turn
                                     it on.
+                                </p>
+                                <p id="card-name-contact" class="muted small-print" hidden>
+                                    On or off, the name is also given, sealed, to each node this one makes first
+                                    contact with, as the name you go by. Leave it empty to give none.
                                 </p>
                                 <button id="card-apply" type="submit" class="primary">Save</button>
                             </form>

@@ -15,6 +15,7 @@ import {
     ASKED,
     FIX_SOURCE,
     LISTEN_MIN,
+    NAMES_SINCE,
     NAME_MAX,
     OWNER_BY,
     PAIRING,
@@ -37,7 +38,7 @@ import type { BluetoothTransport, Device } from "../companion/bluetooth.ts";
 import { readPackage, sendPackage } from "../companion/dfu.ts";
 import type { DfuStage, Package } from "../companion/dfu.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
-import { cardButtonText, cardChanges, heardOnlyText } from "./cards.ts";
+import { LOOKED, LOOK_TOO_SOON, cardButtonText, cardChanges, heardOnlyText } from "./cards.ts";
 import type { CardForm } from "./cards.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
@@ -271,6 +272,17 @@ function nameOf(key: string): string {
     }
     const c = client?.contacts.get(key);
     return c && c.name !== "" ? c.name : short(key);
+}
+
+/**
+ * Beside a contact the user gave no name: the name it gave itself in first contact (version 19),
+ * shown as its claim, never as the user's name for it. Nothing for a group, or a named contact.
+ */
+function claimOf(key: string): Child {
+    const c = isGroup(key) ? undefined : client?.contacts.get(key);
+    return c && c.name === "" && c.says !== ""
+        ? el("span", { class: "muted", title: "The name it gives itself, not one you gave it" }, ` says “${c.says}”`)
+        : "";
 }
 
 /** Who a routing id is, as far as the page can tell: a name it knows by that id, or the id. */
@@ -588,24 +600,34 @@ function drawAsked(): void {
             ),
         );
     }
-    for (const [address, why] of client?.asked ?? []) {
+    for (const [address, { why, name }] of client?.asked ?? []) {
         const known = client?.contacts.has(address) ?? false;
         const dismiss = el("button", { type: "button", class: "small" }, "Dismiss");
         dismiss.addEventListener("click", () => client?.forgetAsked(address));
         const card = client?.cards.get(address);
-        // The address in an ASKED is proved, and a card from it is signed by it: its name can be
-        // shown, as what it says of itself.
+        // The address in an ASKED is proved, and so is the name in it (version 19), as the one the
+        // asker chose, as a card from it is signed by it: either can be shown, as what it says of
+        // itself, with the short code that tells whose it is.
+        const claim = name !== "" ? ` (it says it is “${name}”)` : card && card.name !== "" ? ` (its card says “${card.name}”)` : "";
         const who = el(
             "span",
             {},
-            el("code", {}, known ? nameOf(address) : address),
-            !known && card && card.name !== "" ? ` (its card says “${card.name}”)` : "",
+            el("code", {}, known ? nameOf(address) : codeOf(address) || short(address)),
+            known ? "" : claim,
         );
         if (why === ASKED.notContact && !known) {
             const letIn = el("button", { type: "button", class: "small" }, "Let it in");
             letIn.addEventListener("click", () => {
                 const c = client;
-                c?.saveContact(address, "").then(
+                // Its own name is offered, never saved unless the user keeps it: it is a claim.
+                const named = window.prompt(
+                    "Save it as a contact, with a name kept on this node. The name it gave is only what it says of itself:",
+                    clip(name !== "" ? name : (card?.name ?? ""), NAME_MAX),
+                );
+                if (named === null) {
+                    return;
+                }
+                c?.saveContact(address, clip(named.trim(), NAME_MAX)).then(
                     () => {
                         c.forgetAsked(address);
                         say("Saved as a contact. It is let in the next time it tries: have it send again.");
@@ -683,7 +705,7 @@ function rowButton(key: string, sub: string, mark: Child): HTMLButtonElement {
         "button",
         { type: "button", class: "row-button" },
         avatar(key, true),
-        el("span", { class: "row-main" }, el("span", { class: "row-title" }, nameOf(key)), el("span", { class: "row-sub" }, sub)),
+        el("span", { class: "row-main" }, el("span", { class: "row-title" }, nameOf(key), claimOf(key)), el("span", { class: "row-sub" }, sub)),
         mark,
     );
     button.addEventListener("click", () => select(key));
@@ -732,7 +754,7 @@ function drawTalks(): void {
                 el(
                     "span",
                     { class: "top" },
-                    el("span", { class: "row-title" }, nameOf(key)),
+                    el("span", { class: "row-title" }, nameOf(key), claimOf(key)),
                     last && last.time > 0 && el("time", {}, when(last.time)),
                 ),
                 el(
@@ -818,6 +840,29 @@ function speaksCards(): boolean {
     return client?.can("SET", 5) ?? false;
 }
 
+/** Whether the connected node can ask those in earshot for their cards: version 20 or later. */
+function canLook(): boolean {
+    return client?.can("LOOK") ?? false;
+}
+
+/** Whether a LOOK is under way: its button is off until the node answers. */
+let looking = false;
+
+/** Asks the nodes in earshot for their cards, because the user asked: they come as any card does. */
+async function look(c: Client): Promise<void> {
+    looking = true;
+    draw();
+    try {
+        await c.look();
+        say(LOOKED);
+    } catch (e) {
+        say(e instanceof Refused && e.code === 16 ? LOOK_TOO_SOON : explain(e), true);
+    } finally {
+        looking = false;
+        draw();
+    }
+}
+
 /** Whether the node holds a card whose address has the routing id `id`. */
 function hasCard(id: number): boolean {
     return [...cardIds].some(([, known]) => known === id);
@@ -848,7 +893,7 @@ function drawNeighbours(): void {
         if (!who) {
             // One no contact names is named in this browser on choosing it, told first why that is all there is to do.
             const b = el("button", { type: "button", class: "row-button", title: "Name it in this browser" }, mark, main);
-            b.addEventListener("click", () => nameRoutingId(n.routingId, bare ? heardOnlyText(speaksCards(), true) : undefined));
+            b.addEventListener("click", () => nameRoutingId(n.routingId, bare ? heardOnlyText(speaksCards(), true, canLook()) : undefined));
             named = b;
         }
         const trace = canTrace() && el("button", { type: "button", class: "small" }, "Trace");
@@ -861,7 +906,7 @@ function drawNeighbours(): void {
     // Why the ones shown by a short id can't be messaged or added, and how to reach them.
     const anyBare = all.some((n) => ![...ids].some(([, id]) => id === n.routingId) && !hasCard(n.routingId));
     $("neighbours-bare").hidden = !anyBare;
-    $("neighbours-bare").textContent = anyBare ? heardOnlyText(speaksCards(), false) : "";
+    $("neighbours-bare").textContent = anyBare ? heardOnlyText(speaksCards(), false, canLook()) : "";
     // A leaf answers traces only from a node it shares a session with: said before Trace is chosen.
     $("neighbours-leaf").hidden = !(canTrace() && all.some((n) => leafNoSession(n.routingId)));
 }
@@ -1008,6 +1053,8 @@ function drawAbout(): void {
     const c = client!;
     const able = c.can("SET", 5);
     $("about-card").hidden = !able;
+    $("about-look-row").hidden = !canLook();
+    $<HTMLButtonElement>("about-look").disabled = looking || !c.ready;
     const list = $("about");
     list.replaceChildren();
     if (!able) {
@@ -1015,7 +1062,15 @@ function drawAbout(): void {
     }
     const all = [...c.cards.values()].sort((a, b) => b.heardAt - a.heardAt);
     if (all.length === 0) {
-        list.append(el("li", { class: "empty" }, "No cards heard. Nearby nodes send one only if their user turns it on."));
+        list.append(
+            el(
+                "li",
+                { class: "empty" },
+                canLook()
+                    ? "No cards heard. Nearby nodes send one only if their user turns it on: ask who's about to hear from those that have."
+                    : "No cards heard. Nearby nodes send one only if their user turns it on.",
+            ),
+        );
     }
     for (const card of all) {
         const contact = c.contacts.get(card.address);
@@ -1060,6 +1115,8 @@ function drawCard(): void {
     const c = client!;
     const able = c.can("SET", 5) && c.self?.cards !== null;
     $("card-settings").hidden = !able;
+    // From version 19 the card's name is also the one the node gives in first contact.
+    $("card-name-contact").hidden = c.version < NAMES_SINCE;
     if (!able || !c.self) {
         return;
     }
@@ -2007,7 +2064,7 @@ function talkTitle(key: string, sub: string): HTMLElement {
         { class: "talk-title" },
         back,
         avatar(key),
-        el("div", { class: "row-main" }, el("h2", {}, nameOf(key)), el("span", { class: "row-sub" }, sub)),
+        el("div", { class: "row-main" }, el("h2", {}, nameOf(key), claimOf(key)), el("span", { class: "row-sub" }, sub)),
     );
 }
 
@@ -2167,7 +2224,8 @@ function personHead(address: string): void {
     const contact = client?.contacts.get(address);
     const rename = el("button", { type: "button", class: "small" }, contact ? "Rename" : "Save as a contact");
     rename.addEventListener("click", () => {
-        const name = window.prompt("A name for this address, kept on the node:", contact?.name ?? "");
+        // With no name of the user's, the one it gave itself is offered: kept only if the user keeps it.
+        const name = window.prompt("A name for this address, kept on the node:", contact?.name || contact?.says || "");
         if (name !== null) {
             act(() => client!.saveContact(address, clip(name.trim(), NAME_MAX)));
         }
@@ -2249,6 +2307,12 @@ function personHead(address: string): void {
             address,
             "Contact details",
             el("p", { class: "muted address" }, el("code", {}, address)),
+            contact?.says &&
+                el(
+                    "p",
+                    { class: "muted" },
+                    `It calls itself “${contact.says}”: what it says of itself, not a name you gave it.`,
+                ),
             el(
                 "p",
                 { class: "muted" },
@@ -4108,6 +4172,12 @@ function start(): void {
             void applySettings(client);
         }
     });
+    $("about-look").addEventListener("click", () => {
+        if (client) {
+            void look(client);
+        }
+    });
+
     $("set-power-most").addEventListener("click", () => {
         if (client) {
             void applySettings(client, true);
