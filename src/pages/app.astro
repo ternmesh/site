@@ -200,6 +200,7 @@ import Base from "../layouts/Base.astro";
                             <h3>Heard nearby</h3>
                             <p class="muted small-print">The nodes this one hears directly, strongest first.</p>
                             <ul id="neighbours" class="rows"></ul>
+                            <p id="neighbours-bare" class="muted small-print" hidden></p>
                             <p id="neighbours-leaf" class="muted small-print" hidden>
                                 Handhelds (leaves) answer traces only from nodes they have a secure session with.
                             </p>
@@ -264,15 +265,16 @@ import Base from "../layouts/Base.astro";
                             <h3>Presence card</h3>
                             <form id="card-form">
                                 <p id="card-state" class="state-line"></p>
-                                <label class="check"><input id="card-on" type="checkbox" /> Send it</label>
-                                <label for="card-name">The name it carries</label>
+                                <label class="check"><input id="card-on" type="checkbox" /> Show this node's card to nodes nearby</label>
+                                <label for="card-name">The name on the card</label>
                                 <input id="card-name" type="text" autocomplete="off" maxlength="31" placeholder="empty for none; sent in clear" />
                                 <p class="muted small-print">
-                                    A card tells the nodes near this one, two hops round and every couple of
-                                    hours, its address and this name, so that people about can find and add
-                                    it. It is off until you turn it on.
+                                    On, this node sends its address and this name to every node in range, two
+                                    hops round, about every two hours, so anyone nearby can recognise it each
+                                    time, and add it. Off, it puts neither on the air. It is off until you turn
+                                    it on.
                                 </p>
-                                <button type="submit" class="primary">Apply</button>
+                                <button id="card-apply" type="submit" class="primary">Save</button>
                             </form>
                         </section>
 

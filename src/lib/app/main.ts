@@ -37,6 +37,8 @@ import type { BluetoothTransport, Device } from "../companion/bluetooth.ts";
 import { readPackage, sendPackage } from "../companion/dfu.ts";
 import type { DfuStage, Package } from "../companion/dfu.ts";
 import { openSerial, serialSupported } from "../companion/serial.ts";
+import { cardButtonText, cardChanges, heardOnlyText } from "./cards.ts";
+import type { CardForm } from "./cards.ts";
 import { History } from "./history.ts";
 import type { Kept } from "./history.ts";
 import {
@@ -811,6 +813,16 @@ function drawGroups(): void {
     }
 }
 
+/** Whether the connected node speaks cards: version 6 or later. */
+function speaksCards(): boolean {
+    return client?.can("SET", 5) ?? false;
+}
+
+/** Whether the node holds a card whose address has the routing id `id`. */
+function hasCard(id: number): boolean {
+    return [...cardIds].some(([, known]) => known === id);
+}
+
 function drawNeighbours(): void {
     const list = $("neighbours");
     list.replaceChildren();
@@ -830,11 +842,13 @@ function drawNeighbours(): void {
             el("span", { class: "row-sub" }, `${n.snrDb.toFixed(1)} dB · ${ago(n.heardAt)}`),
         );
         const mark = who ? avatar(who, true) : el("span", { class: "avatar sm unknown", "aria-hidden": "true" }, "?");
+        // No contact's, and no card from it: all this node knows is the id, which can't be messaged or added.
+        const bare = !who && !hasCard(n.routingId);
         let named: Child = main;
         if (!who) {
-            // One no contact names is named in this browser on choosing it.
+            // One no contact names is named in this browser on choosing it, told first why that is all there is to do.
             const b = el("button", { type: "button", class: "row-button", title: "Name it in this browser" }, mark, main);
-            b.addEventListener("click", () => nameRoutingId(n.routingId));
+            b.addEventListener("click", () => nameRoutingId(n.routingId, bare ? heardOnlyText(speaksCards(), true) : undefined));
             named = b;
         }
         const trace = canTrace() && el("button", { type: "button", class: "small" }, "Trace");
@@ -844,6 +858,10 @@ function drawNeighbours(): void {
         }
         list.append(el("li", {}, who ? mark : null, named, signalBars(n.snrDb), trace || null));
     }
+    // Why the ones shown by a short id can't be messaged or added, and how to reach them.
+    const anyBare = all.some((n) => ![...ids].some(([, id]) => id === n.routingId) && !hasCard(n.routingId));
+    $("neighbours-bare").hidden = !anyBare;
+    $("neighbours-bare").textContent = anyBare ? heardOnlyText(speaksCards(), false) : "";
     // A leaf answers traces only from a node it shares a session with: said before Trace is chosen.
     $("neighbours-leaf").hidden = !(canTrace() && all.some((n) => leafNoSession(n.routingId)));
 }
@@ -1050,13 +1068,52 @@ function drawCard(): void {
         return;
     }
     cardShown = key;
+    cardSwitchTouched = false;
     $<HTMLInputElement>("card-on").checked = c.self.cards === true;
     $<HTMLInputElement>("card-name").value = c.self.cardName ?? "";
+    drawCardButton();
     $("card-state").textContent = c.self.cards
         ? c.self.cardName
             ? `On: nodes near this one are told its address and “${c.self.cardName}”.`
             : "On: nodes near this one are told its address, with no name."
         : "Off: this node tells nobody who it is.";
+}
+
+/** Whether the user has changed the card's switch since the form was filled. */
+let cardSwitchTouched = false;
+
+/** What the card form asks for, against what the node holds. */
+function cardForm(): CardForm | null {
+    const self = client?.self;
+    if (!self) {
+        return null;
+    }
+    return {
+        on: self.cards === true,
+        saved: self.cardName ?? "",
+        wantOn: $<HTMLInputElement>("card-on").checked,
+        typed: clip($<HTMLInputElement>("card-name").value.trim(), NAME_MAX),
+    };
+}
+
+/** The card form's button, named for what it will do, and off while there is nothing to do. */
+function drawCardButton(): void {
+    const f = cardForm();
+    const button = $<HTMLButtonElement>("card-apply");
+    button.textContent = f ? cardButtonText(f) : "Save";
+    button.disabled = !f || cardChanges(f).length === 0;
+}
+
+/**
+ * A name typed while the card is off ticks the switch, unless the user has set it themselves: a
+ * name saved to a card left off was what confused people. Turning it on is still asked first.
+ */
+function editedCardName(): void {
+    const f = cardForm();
+    if (f && !cardSwitchTouched && !f.on && f.typed !== f.saved) {
+        $<HTMLInputElement>("card-on").checked = true;
+    }
+    drawCardButton();
 }
 
 async function applyCard(c: Client): Promise<void> {
@@ -1067,8 +1124,8 @@ async function applyCard(c: Client): Promise<void> {
     }
     if (on && !c.self.cards) {
         const sure = window.confirm(
-            "Turn on this node's presence card? Every two hours or so it sends, in clear, two hops round: " +
-                `its address${name ? ` and the name “${name}”` : ""}. Anyone near can then see this node is about, and ask to reach it.`,
+            "Show this node's card to nodes nearby? About every two hours it sends, in clear, to every node in range, two hops round: " +
+                `its address${name ? ` and the name “${name}”` : ""}. Anyone nearby can then recognise this node each time, and ask to reach it.`,
         );
         if (!sure) {
             return;
@@ -2743,7 +2800,7 @@ function manageSettingsForm(m: Managed): HTMLFormElement {
         power,
         el("label", { for: "manage-role" }, "Role"),
         role,
-        cards && el("label", { class: "check" }, cards, " Send its presence card"),
+        cards && el("label", { class: "check" }, cards, " Show its card to nodes nearby"),
         cardName && el("label", { for: "manage-card-name" }, "The name its card carries"),
         cardName,
         gps && el("label", { class: "check" }, gps, " Run its GPS"),
@@ -2764,13 +2821,14 @@ function manageSettingsForm(m: Managed): HTMLFormElement {
             return;
         }
         const changes: [number, (c: Client) => Promise<void>][] = [];
-        if (cards && cards.checked !== s.cards) {
-            const on = cards.checked;
-            changes.push([SETTING.cards, (c) => c.setCards(on)]);
-        }
+        // The name before cards on, so that a card turned on never goes out with the old one.
         if (cardName && cardName.value.trim() !== s.cardName) {
             const name = clip(cardName.value.trim(), NAME_MAX);
             changes.push([SETTING.cardName, (c) => c.setCardName(name)]);
+        }
+        if (cards && cards.checked !== s.cards) {
+            const on = cards.checked;
+            changes.push([SETTING.cards, (c) => c.setCards(on)]);
         }
         if (gps && gps.checked !== (r.fix!.receiver !== RECEIVER.off)) {
             const on = gps.checked;
@@ -3103,11 +3161,11 @@ function namesHeld(): Record<string, string> {
 }
 
 /** Names the routing id `id` in this browser alone, or with an empty name takes it away. Nothing is sent. */
-function nameRoutingId(id: number): void {
+function nameRoutingId(id: number, why?: string): void {
     const key = routingIdText(id);
     const now = namesHeld()[key] ?? "";
     const name = window.prompt(
-        `A name for ${key}, shown only in this browser. Nothing is sent, and a contact's name comes first.`,
+        `${why ? `${why}\n\n` : ""}A name for ${key}, shown only in this browser. Nothing is sent, and a contact's name comes first.`,
         now,
     );
     if (name === null) {
@@ -4056,6 +4114,11 @@ function start(): void {
         }
     });
 
+    $("card-on").addEventListener("change", () => {
+        cardSwitchTouched = true;
+        drawCardButton();
+    });
+    $("card-name").addEventListener("input", editedCardName);
     $<HTMLFormElement>("card-form").addEventListener("submit", (e) => {
         e.preventDefault();
         if (client) {
