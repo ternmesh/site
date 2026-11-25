@@ -41,6 +41,8 @@ import { openSerial, serialSupported } from "../companion/serial.ts";
 import { LOOKED, LOOK_TOO_SOON, cardButtonText, cardChanges, heardOnlyText } from "./cards.ts";
 import type { CardForm } from "./cards.ts";
 import { History } from "./history.ts";
+import { Readings, airtimeFraction, inSpan, runs } from "./readings.ts";
+import type { ChartPoint } from "./readings.ts";
 import type { Kept } from "./history.ts";
 import {
     LEAF_HINT,
@@ -105,6 +107,12 @@ const REASONS = [
 
 let client: Client | null = null;
 let history: History | null = null;
+/** The node's battery and airtime as this browser heard them, for the meters' charts. */
+let readings: Readings | null = null;
+/** Which meter's chart the info dialog shows, while it does. */
+let readingsShown: "battery" | "airtime" | null = null;
+/** How far back the charts look. */
+let readingSpan: number = 24 * 3_600_000;
 let selected: string | null = null;
 let demo = false;
 /** Whether the link carries the board's console: only USB does. */
@@ -387,6 +395,7 @@ function drawNode(): void {
                 p / 100,
                 p <= 20,
                 c.power.charging ? "charging" : c.power.external ? "on power" : `${(c.power.millivolts / 1000).toFixed(2)} V`,
+                () => showReadings("battery"),
             ),
         );
     }
@@ -399,6 +408,7 @@ function drawNode(): void {
                 used,
                 used >= 0.8,
                 `of ${Math.round(c.airtime.allowed / 1000)} s allowed`,
+                () => showReadings("airtime"),
             ),
         );
     }
@@ -477,17 +487,212 @@ function drawNode(): void {
     }
 }
 
-/** A meter on the node's card: what it measures, how much, and a bar of how full. */
-function meter(label: string, value: string, fraction: number, warn: boolean, note: string): HTMLElement {
+/** A meter on the node's card: what it measures, how much, and a bar of how full. It opens its chart. */
+function meter(label: string, value: string, fraction: number, warn: boolean, note: string, open: () => void): HTMLElement {
     const fill = el("div", { class: warn ? "fill warn" : "fill" });
     fill.style.width = `${Math.max(2, Math.min(100, Math.round(fraction * 100)))}%`;
-    return el(
-        "div",
-        { class: "meter" },
-        el("div", { class: "label" }, el("span", {}, label), el("span", {}, note)),
+    const b = el(
+        "button",
+        { type: "button", class: "meter", "aria-label": `${label} ${value}, ${note}: show over time` },
+        el("div", { class: "label" }, el("span", {}, label, el("span", { class: "more", "aria-hidden": "true" }, " ›")), el("span", {}, note)),
         el("div", { class: "value" }, value),
         el("div", { class: "track" }, fill),
     );
+    b.addEventListener("click", open);
+    return b;
+}
+
+const SPANS: [number, string, string][] = [
+    [3_600_000, "1 h", "hour"],
+    [6 * 3_600_000, "6 h", "6 hours"],
+    [24 * 3_600_000, "24 h", "24 hours"],
+    [7 * 24 * 3_600_000, "7 d", "7 days"],
+];
+
+/** Opens a meter's chart in the info dialog. */
+function showReadings(which: "battery" | "airtime"): void {
+    readingsShown = which;
+    const dialog = $<HTMLDialogElement>("info");
+    dialog.addEventListener("close", () => (readingsShown = null), { once: true });
+    drawReadings();
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+}
+
+/** The meter's chart and what it says, while the info dialog shows one: drawn again with each change. */
+function drawReadings(): void {
+    const c = client;
+    const r = readings;
+    if (!readingsShown || !c || !r) {
+        return;
+    }
+    const now = Date.now();
+    const from = now - readingSpan;
+    const spanName = SPANS.find(([ms]) => ms === readingSpan)?.[2] ?? "";
+    const spans = el(
+        "div",
+        { class: "spans", role: "group", "aria-label": "How far back" },
+        ...SPANS.map(([ms, short]) => {
+            const b = el("button", { type: "button", class: "small", "aria-pressed": String(ms === readingSpan) }, short);
+            b.addEventListener("click", () => {
+                readingSpan = ms;
+                drawReadings();
+            });
+            return b;
+        }),
+    );
+    const none = el("p", { class: "muted small-print" }, "Nothing heard from your node in this time. The page keeps what your node tells it while they're connected.");
+    const facts = (rows: [string, string][]) => el("dl", { class: "facts-list" }, ...rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]));
+    const heard = (at: number | undefined) => (at === undefined ? "unknown" : c.ready && !c.closed ? "up to date" : ago(at));
+    const body: Child[] = [];
+
+    if (readingsShown === "battery") {
+        $("info-title").textContent = "Battery";
+        const p = c.power;
+        const usePercent = r.power.some((x) => x.percent <= 100);
+        const points = inSpan(
+            r.power.flatMap((x) =>
+                usePercent ? (x.percent <= 100 ? [{ at: x.at, value: x.percent, end: x.end === true }] : []) : x.millivolts > 0 ? [{ at: x.at, value: x.millivolts / 1000, end: x.end === true }] : [],
+            ),
+            from,
+        );
+        const shown = (v: number) => (usePercent ? `${Math.round(v)}%` : `${v.toFixed(2)} V`);
+        body.push(spans);
+        if (points.length === 0) {
+            body.push(none);
+        } else {
+            const vs = points.map((x) => x.value);
+            const pad = Math.max(0.05, (Math.max(...vs) - Math.min(...vs)) * 0.15);
+            const [lo, hi] = usePercent ? [0, 100] : [Math.min(...vs) - pad, Math.max(...vs) + pad];
+            body.push(
+                chart(points, from, now, lo, hi, usePercent && vs.at(-1)! < 20 ? "var(--warn)" : "var(--good)", shown, null, `Your node's battery over the last ${spanName}`),
+                el("h3", {}, `Over the last ${spanName}`),
+                facts([
+                    ["Lowest", shown(Math.min(...vs))],
+                    ["Highest", shown(Math.max(...vs))],
+                    ["Change", (vs.at(-1)! > vs[0] ? "+" : vs.at(-1)! < vs[0] ? "−" : "") + shown(Math.abs(vs.at(-1)! - vs[0]))],
+                ]),
+            );
+        }
+        body.push(
+            el("h3", {}, "Now"),
+            facts([
+                ["Charge", p && p.percent <= 100 ? `${p.percent}%` : "unknown"],
+                ["Voltage", p && p.millivolts > 0 ? `${(p.millivolts / 1000).toFixed(2)} V` : "unknown"],
+                ["Power", !p ? "unknown" : p.charging ? "charging" : p.external ? "on external power" : "on battery"],
+                ["Last heard", heard(r.power.at(-1)?.at)],
+            ]),
+            el(
+                "p",
+                { class: "muted small-print" },
+                "Your node tells the page its battery when it changes. This browser keeps what it hears while connected, for a week: a gap in the line is a time it wasn't connected.",
+            ),
+        );
+    } else {
+        $("info-title").textContent = "Airtime";
+        const a = c.airtime;
+        const points = inSpan(
+            r.airtime.flatMap((x) => {
+                const f = airtimeFraction(x);
+                return f === null ? [] : [{ at: x.at, value: f * 100, end: x.end === true }];
+            }),
+            from,
+        );
+        if (a && a.period === 0) {
+            body.push(el("p", {}, "Your node's region has no limit on airtime."));
+        } else {
+            body.push(spans);
+            if (points.length === 0) {
+                body.push(none);
+            } else {
+                const peak = Math.max(...points.map((x) => x.value));
+                const waits = r.waits(from);
+                body.push(
+                    chart(points, from, now, 0, 100, peak >= 90 ? "var(--warn)" : "var(--accent)", (v) => `${Math.round(v)}%`, 100, `How much of its airtime limit your node used over the last ${spanName}`),
+                    el("h3", {}, `Over the last ${spanName}`),
+                    facts([
+                        ["Highest", `${Math.round(peak)}%`],
+                        ["Times it had to wait", waits === 0 ? "none" : String(waits)],
+                    ]),
+                );
+            }
+        }
+        body.push(
+            el("h3", {}, "Now"),
+            facts([
+                ...(a && a.period > 0
+                    ? ([
+                          ["Used", `${(a.used / 1000).toFixed(1)} s of ${(a.allowed / 1000).toFixed(1)} s`],
+                          ["Every", wakeText(a.period)],
+                          ["Next send", a.wait > 0 ? `in about ${(a.wait / 1000).toFixed(1)} s` : "now"],
+                      ] as [string, string][])
+                    : []),
+                ["Last heard", heard(r.airtime.at(-1)?.at)],
+            ]),
+            el(
+                "p",
+                { class: "muted small-print" },
+                "The radio rules in your node's region limit how long it may spend sending in each period. Airtime is how much of that it has used in the period just gone: " +
+                    "when it runs out, messages wait until some frees up. This browser keeps what your node tells it while connected, for a week: a gap in the line is a time it wasn't connected.",
+            ),
+        );
+    }
+    $("info-body").replaceChildren(...body.filter((x): x is Node | string => !!x));
+}
+
+/**
+ * A line through `points` from `from` to `to`, each value held until the next, broken after an
+ * end, with the area under it shaded; `lo` to `hi` its height, and `limit` a dashed line across it.
+ */
+function chart(points: ChartPoint[], from: number, to: number, lo: number, hi: number, color: string, label: (v: number) => string, limit: number | null, described: string): HTMLElement {
+    // In the SVG's own units: drawn about 330 to 560 pixels wide, its text stays readable.
+    const W = 600;
+    const H = 260;
+    const left = 74;
+    const top = 12;
+    const bottom = 36;
+    const x = (t: number) => left + ((t - from) / Math.max(1, to - from)) * (W - left - 4);
+    const y = (v: number) => top + (1 - Math.min(1, Math.max(0, (v - lo) / Math.max(1e-6, hi - lo)))) * (H - top - bottom);
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("class", "chart");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", described);
+    const add = (tag: string, attrs: Record<string, string>, text?: string) => {
+        const e = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) {
+            e.setAttribute(k, v);
+        }
+        if (text !== undefined) {
+            e.textContent = text;
+        }
+        svg.append(e);
+    };
+    for (const g of [hi, (hi + lo) / 2, lo]) {
+        add("line", { x1: String(left), x2: String(W - 4), y1: String(y(g)), y2: String(y(g)), class: "grid" });
+        add("text", { x: String(left - 10), y: String(y(g) + 7), "text-anchor": "end", class: "axis" }, label(g));
+    }
+    if (limit !== null) {
+        add("line", { x1: String(left), x2: String(W - 4), y1: String(y(limit)), y2: String(y(limit)), class: "limit" });
+    }
+    const long = to - from > 24 * 3_600_000;
+    const when = (t: number) => new Date(t).toLocaleString([], long ? { month: "short", day: "numeric" } : { hour: "numeric", minute: "2-digit" });
+    add("text", { x: String(left), y: String(H - 8), class: "axis" }, when(from));
+    add("text", { x: String(W - 4), y: String(H - 8), "text-anchor": "end", class: "axis" }, "now");
+    for (const run of runs(points, to)) {
+        let d = `M${x(run[0].at)},${y(run[0].value)}`;
+        for (let i = 1; i < run.length; i++) {
+            d += ` L${x(run[i].at)},${y(run[i - 1].value)} L${x(run[i].at)},${y(run[i].value)}`;
+        }
+        const floor = y(lo);
+        add("path", { d: `${d} L${x(run.at(-1)!.at)},${floor} L${x(run[0].at)},${floor} Z`, fill: color, class: "area" });
+        add("path", { d, stroke: color, class: "line" });
+    }
+    const wrap = el("div", { class: "chart-wrap" });
+    wrap.append(svg);
+    return wrap;
 }
 
 /** What a node's GPS receiver is doing, in a few words; null for a node with none. */
@@ -3041,6 +3246,10 @@ function draw(): void {
             history = new History(client.self.address, demo ? null : local());
             historyNode = client.self.address;
         }
+        if (client.self && readings?.node !== client.self.address) {
+            readings = new Readings(client.self.address, demo ? null : local());
+        }
+        readings?.take(client.power, client.airtime, Date.now());
         if (client.self && owned?.node !== client.self.address) {
             owned = new Owned(client.self.address, demo ? null : local());
         }
@@ -3056,6 +3265,7 @@ function draw(): void {
         learnIds();
         askOffer(client);
         drawNode();
+        drawReadings();
         // Not while an update is under way: the node would be left between two images.
         $("turn-off").hidden = !client.can("OFF") || (updating !== null && updating.node === client.self?.address);
         const lock = $<HTMLButtonElement>("lock");
@@ -3299,6 +3509,7 @@ function leafNoSession(id: number): boolean {
 function showRoute(went: Went, route: Route | undefined): void {
     const dialog = $<HTMLDialogElement>("info");
     const { facts, notes } = routeFacts(went, route, routingName);
+    readingsShown = null;
     $("info-title").textContent = "How it went";
     $("info-body").replaceChildren(
         ...(facts.length > 0 ? [el("dl", { class: "facts-list" }, ...facts.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))] : []),
@@ -3779,6 +3990,8 @@ async function connect(
     $<HTMLDialogElement>("info").close();
     history = null;
     historyNode = "";
+    readings?.ended(Date.now());
+    readings = null;
     owned = null;
     ids.clear();
     cardIds.clear();
@@ -3801,6 +4014,9 @@ async function connect(
         pre.scrollTop = pre.scrollHeight;
     };
     c.onClosed = (why) => {
+        if (client === c) {
+            readings?.ended(Date.now());
+        }
         say(`Disconnected: ${why}.`, true);
         draw();
     };
@@ -3940,9 +4156,11 @@ async function wipe(c: Client): Promise<void> {
     if (node) {
         History.forget(node, local());
         Owned.forget(node, local());
+        Readings.forget(node, local());
     }
     history = null;
     historyNode = "";
+    readings = null;
     owned = null;
     ids.clear();
     offer = null;
