@@ -12,44 +12,49 @@ import Base from "../layouts/Base.astro";
         <div id="gate" class="gate">
             <p class="eyebrow">Web app</p>
             <h1>Connect to your node</h1>
-            <p class="lede">
-                Write to other nodes through a Tern node of your own. The page talks to the node and to
-                nothing else: no account, no server, and what you write leaves this device only by the
-                node's radio.
-            </p>
+            <!-- What to do, and the way to connect this browser has first: the page moves it in. -->
+            <div id="connect-hero" class="hero">
+                <p class="lede">
+                    Write to other nodes through a Tern node of your own. The page talks to the node and to
+                    nothing else: no account, no server, and what you write leaves this device only by the
+                    node's radio.
+                </p>
+                <div id="connect-first" class="hero-actions"></div>
+            </div>
             <!-- A node's bootloader taking an update: the node has restarted into it, and is not connected. -->
             <div id="bootloader" class="card update" hidden></div>
-            <div class="choices">
+            <p id="unsupported" class="note bad-note" hidden></p>
+            <p id="turned-off" class="note" hidden>
+                Turned off. The node stays off until it is turned on at the node itself, by its button,
+                its reset or its power; then connect to it again.
+            </p>
+            <h2 class="group-head">Other ways</h2>
+            <div class="choices group">
                 <button id="connect-serial" type="button" class="choice">
-                    <span class="choice-icon" aria-hidden="true">
+                    <span class="choice-icon tile" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="M12 2v14M8 6l4-4 4 4M7 11v3h10v-3M12 16v6" /><circle cx="12" cy="20" r="0.5" /></svg>
                     </span>
                     <span class="choice-title">USB cable</span>
                     <span class="choice-text">A board plugged into this computer</span>
                 </button>
                 <button id="connect-bluetooth" type="button" class="choice">
-                    <span class="choice-icon" aria-hidden="true">
+                    <span class="choice-icon tile" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17" /></svg>
                     </span>
                     <span class="choice-title">Bluetooth</span>
                     <span class="choice-text">A node in reach of this computer or Android phone</span>
                 </button>
                 <button id="connect-demo" type="button" class="choice">
-                    <span class="choice-icon" aria-hidden="true">
+                    <span class="choice-icon tile" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                     </span>
                     <span class="choice-title">Try the demo</span>
                     <span class="choice-text">A made-up node, with no board needed</span>
                 </button>
             </div>
-            <p id="turned-off" class="note" hidden>
-                Turned off. The node stays off until it is turned on at the node itself, by its button,
-                its reset or its power; then connect to it again.
-            </p>
-            <p id="unsupported" class="note" hidden></p>
             <div class="tips">
-                <h2>Good to know</h2>
-                <ul>
+                <h2 class="group-head">Good to know</h2>
+                <ul class="rows group">
                     <li>
                         <strong>No Tern on the board yet?</strong>{" "}
                         <a href="/flash">Flash it</a> from this browser first.
@@ -314,20 +319,44 @@ import Base from "../layouts/Base.astro";
                             </form>
                         </section>
 
-                        <section id="range" class="card wide" hidden>
-                            <h3>Range test</h3>
+                        <section id="range" class="wide" hidden>
+                            <div class="hero">
+                                <p class="eyebrow">Range test</p>
+                                <h2 id="range-head">Ready</h2>
+                                <p class="status"><span id="range-dot" class="dot"></span><span id="range-status"></span></p>
+                                <div id="range-bar" class="tally" hidden><i></i></div>
+                                <div class="hero-actions">
+                                    <button id="range-start" type="button">Start</button>
+                                    <button id="range-stop" type="button" hidden>Stop</button>
+                                    <button id="range-csv" type="button" hidden>Download CSV</button>
+                                </div>
+                            </div>
                             <p class="muted small-print">
                                 Sends a contact a numbered message, “range #1”, “range #2” and on, every so often, and logs
                                 each: where this device was, whether it was delivered and how. Keep this page open while you
                                 move; the screen stays on where the browser allows it.
                             </p>
-                            <div class="range-form">
-                                <div>
-                                    <label for="range-to">To</label>
+                            <p id="range-needs-update" class="muted small-print" hidden>
+                                This node's firmware says only whether each was delivered. Update it for hops, signal and round
+                                trip.
+                            </p>
+                            <h4 class="group-head">Test</h4>
+                            <ul class="rows group">
+                                <li>
+                                    <span class="tile blue" aria-hidden="true"
+                                        ><svg viewBox="0 0 24 24"
+                                            ><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" /><path
+                                                d="M16 4.8a3.5 3.5 0 010 6.4M18.5 14.8c1.7.8 2.8 2.5 3 5.2"></path></svg
+                                        ></span
+                                    >
+                                    <label for="range-to" class="row-title row-main">To</label>
                                     <select id="range-to"></select>
-                                </div>
-                                <div>
-                                    <label for="range-every">Every</label>
+                                </li>
+                                <li>
+                                    <span class="tile teal" aria-hidden="true"
+                                        ><svg viewBox="0 0 24 24"><path d="M2 12h4l3-7 6 14 3-7h4" /></svg></span
+                                    >
+                                    <label for="range-every" class="row-title row-main">Every</label>
                                     <select id="range-every">
                                         <option value="30">30 s</option>
                                         <option value="35">35 s</option>
@@ -337,22 +366,25 @@ import Base from "../layouts/Base.astro";
                                         <option value="55">55 s</option>
                                         <option value="60">60 s</option>
                                     </select>
-                                </div>
-                            </div>
-                            <p class="buttons range-buttons">
-                                <button id="range-start" type="button" class="primary">Start</button>
-                                <button id="range-stop" type="button" class="primary" hidden>Stop</button>
-                                <button id="range-csv" type="button" hidden>Download CSV</button>
-                            </p>
-                            <p id="range-status" class="state-line"></p>
-                            <p id="range-no-location" class="muted small-print" hidden>
-                                No location: the log won't say where you were. Allow this site your location to have it.
-                            </p>
-                            <p id="range-needs-update" class="muted small-print" hidden>
-                                This node's firmware says only whether each was delivered. Update it for hops, signal and round
-                                trip.
-                            </p>
-                            <ul id="range-log" class="rows range-log"></ul>
+                                </li>
+                            </ul>
+                            <ul id="range-no-location" class="rows group" hidden>
+                                <li>
+                                    <span class="tile warn" aria-hidden="true"
+                                        ><svg viewBox="0 0 24 24"
+                                            ><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg
+                                        ></span
+                                    >
+                                    <span class="row-main">
+                                        <span class="row-title">Allow location</span>
+                                        <span class="row-sub full">
+                                            No location: the log won't say where you were. Allow this site your location to have it.
+                                        </span>
+                                    </span>
+                                </li>
+                            </ul>
+                            <h4 id="range-log-head" class="group-head" hidden>Log</h4>
+                            <ul id="range-log" class="rows group range-log" hidden></ul>
                         </section>
 
                         <section class="card">
@@ -399,10 +431,15 @@ import Base from "../layouts/Base.astro";
         <!-- A trace to one node (version 18): drawn again as it goes. -->
         <dialog id="trace" class="ask trace" aria-labelledby="trace-title">
             <form method="dialog">
-                <h2 id="trace-title"></h2>
+                <div class="hero">
+                    <h2 id="trace-title"></h2>
+                    <div id="trace-state"></div>
+                    <div class="hero-actions">
+                        <button id="trace-again" type="button">Trace</button>
+                    </div>
+                </div>
                 <div id="trace-body"></div>
                 <p class="actions">
-                    <button id="trace-again" type="button" class="primary">Trace</button>
                     <button type="submit" value="close" autofocus>Close</button>
                 </p>
             </form>
@@ -633,83 +670,76 @@ import Base from "../layouts/Base.astro";
         max-width: 40rem;
         margin: 0 0 28px;
     }
-    .app .choices {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-        gap: 12px;
-        margin-bottom: 16px;
+    /* The ways to connect: the browser's first on the head card, the others as grouped rows. */
+    .app .gate .hero {
+        margin-top: 4px;
+    }
+    .app .gate .hero .lede {
+        margin: 0;
+        max-width: none;
+        color: rgb(255 255 255 / 0.85);
+        font-size: 1.05rem;
+    }
+    .app .choices.group {
+        display: block;
     }
     .app .choice {
         display: grid;
         grid-template-columns: auto 1fr;
         grid-template-rows: auto auto;
         column-gap: 14px;
-        row-gap: 2px;
+        row-gap: 1px;
         align-items: center;
+        width: 100%;
         text-align: left;
-        padding: 18px;
+        padding: 12px 14px;
         min-height: 0;
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-sm);
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+    }
+    .app .choice + .choice {
+        border-top: 1px solid var(--border);
     }
     .app .choice:hover:not(:disabled) {
-        box-shadow: var(--shadow);
-        transform: translateY(-1px);
+        background: var(--surface-2);
     }
     .app .choice-icon {
         grid-row: span 2;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-        background: var(--accent-soft);
-        color: var(--accent);
-    }
-    .app .choice-icon svg {
-        width: 22px;
-        height: 22px;
     }
     .app .choice-title {
         font-weight: 600;
-        font-size: 1.05rem;
+        font-size: 1rem;
     }
     .app .choice-text {
         color: var(--muted);
-        font-size: 0.88rem;
+        font-size: 0.86rem;
         line-height: 1.35;
     }
-    .app .choice.primary .choice-title,
-    .app .choice.primary .choice-text {
-        color: var(--on-accent);
+    .app .hero .choice {
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: rgb(255 255 255 / 0.18);
+        color: #fff;
     }
-    .app .choice.primary .choice-icon {
-        background: rgb(255 255 255 / 0.16);
-        color: var(--on-accent);
+    .app .hero .choice:hover:not(:disabled) {
+        background: rgb(255 255 255 / 0.26);
     }
-    .app .choice.primary:hover:not(:disabled) {
-        background: var(--accent-hover);
+    .app .hero .choice-text {
+        color: rgb(255 255 255 / 0.85);
+    }
+    .app .hero .choice-icon {
+        --tint: rgb(255 255 255 / 0.18);
     }
     .app .tips {
-        margin-top: 36px;
-        padding: 20px 24px;
-        border-radius: var(--radius-lg);
-        background: var(--surface);
-        border: 1px solid var(--border);
-    }
-    .app .tips h2 {
-        margin: 0 0 8px;
-        font-size: 1rem;
+        margin-top: 8px;
     }
     .app .tips ul {
-        margin: 0;
-        padding-left: 1.1em;
         color: var(--muted);
         font-size: 0.93rem;
     }
-    .app .tips li {
-        padding: 4px 0;
+    .app .tips .rows.group > li {
+        display: block;
     }
     .app .tips strong {
         color: var(--text);
@@ -1463,6 +1493,176 @@ import Base from "../layouts/Base.astro";
         background: rgb(255 255 255 / 0.14);
         font-size: 0.82rem;
     }
+    /* The dashboard's look, shared by every head card: a status line with a dot, a bar, and the
+       card's own buttons, side by side and filling it. */
+    .app .hero .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0 0;
+        font-size: 0.9rem;
+        color: rgb(255 255 255 / 0.85);
+    }
+    .app .hero .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #9ff0c6;
+    }
+    .app .hero .dot.warn {
+        background: #ffd08a;
+    }
+    .app .hero .spinner {
+        border-color: rgb(255 255 255 / 0.25);
+        border-top-color: #fff;
+    }
+    .app .hero .summary {
+        margin: 10px 0 0;
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .app .hero .tally {
+        height: 6px;
+        margin: 14px 0 0;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.25);
+        overflow: hidden;
+    }
+    .app .hero .tally i {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: #fff;
+    }
+    .app .hero-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+    }
+    .app .hero-actions > button {
+        flex: 1;
+        min-height: 44px;
+        border: 0;
+        border-radius: 14px;
+        background: rgb(255 255 255 / 0.18);
+        font-weight: 600;
+    }
+    .app .hero-actions > button:hover:not(:disabled) {
+        background: rgb(255 255 255 / 0.26);
+    }
+
+    /* Grouped rows, as the phone apps' settings: under a small spaced heading, a rounded card of
+       rows split by hairlines, each led by a tinted icon or a badge. */
+    .app .group-head {
+        margin: 22px 4px 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+    .app .group {
+        margin: 0 0 12px;
+        padding: 0;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+    }
+    .app .ask .group {
+        background: var(--bg);
+    }
+    .app .rows.group > li {
+        padding: 10px 14px;
+        border-radius: 0;
+    }
+    .app .rows.group > li + li {
+        border-top: 1px solid var(--border);
+    }
+    .app .rows.group > li:has(.row-button) {
+        padding: 0;
+    }
+    .app .rows.group .row-button {
+        margin: 0;
+        padding: 10px 14px;
+        border-radius: 0;
+    }
+    .app .rows.group select {
+        width: auto;
+        max-width: 60%;
+    }
+    .app .rows.group label.row-main {
+        margin: 0;
+        font-size: 1rem;
+    }
+    .app .rows.group .row-sub.full {
+        white-space: normal;
+    }
+    .app .tile {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: var(--tint, var(--accent));
+        color: #fff;
+    }
+    .app .tile svg {
+        width: 20px;
+        height: 20px;
+    }
+    .app .tile.blue {
+        --tint: #1d4ed8;
+    }
+    .app .tile.teal {
+        --tint: #0f766e;
+    }
+    .app .tile.warn {
+        --tint: var(--warn);
+    }
+    .app .num {
+        --hue: var(--muted);
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--hue) 14%, transparent);
+        color: var(--hue);
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    .app .num.good {
+        --hue: var(--good);
+    }
+    .app .num.bad {
+        --hue: var(--bad);
+    }
+    .app .row-line {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .app .row-line .row-what {
+        flex: 1;
+        min-width: 0;
+        font-weight: 500;
+    }
+    .app .row-line time {
+        color: var(--muted);
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+    .app .note.bad-note {
+        color: var(--bad);
+        background: color-mix(in srgb, var(--bad) 10%, transparent);
+        border-color: color-mix(in srgb, var(--bad) 35%, var(--border));
+    }
     .app .meters {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -1649,14 +1849,6 @@ import Base from "../layouts/Base.astro";
         padding: 12px 0 0;
         background: var(--surface);
     }
-    .app .trace-result {
-        font-weight: 600;
-    }
-    .app .trace-step {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
     .app .spinner {
         flex: none;
         width: 16px;
@@ -1689,14 +1881,6 @@ import Base from "../layouts/Base.astro";
     .app .facts-list dd {
         margin: 0;
         overflow-wrap: anywhere;
-    }
-    .app .range-form {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-        gap: 0 12px;
-    }
-    .app .range-buttons {
-        margin-top: 14px;
     }
     .app .range-log {
         max-height: 24rem;
