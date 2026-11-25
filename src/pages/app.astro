@@ -1470,9 +1470,73 @@ import Base from "../layouts/Base.astro";
         margin-top: 18px;
     }
     .app .meter {
+        display: block;
+        width: 100%;
+        min-height: 0;
+        text-align: left;
         padding: 12px 14px;
+        border: 1px solid transparent;
         border-radius: 14px;
         background: rgb(0 0 0 / 0.18);
+        color: inherit;
+    }
+    .app .meter:hover:not(:disabled) {
+        border-color: rgb(255 255 255 / 0.35);
+        background: rgb(0 0 0 / 0.24);
+    }
+    .app .meter .more {
+        opacity: 0.8;
+    }
+    .app .spans {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 10px;
+    }
+    .app .spans button[aria-pressed="true"] {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        font-weight: 600;
+    }
+    .app .chart-wrap {
+        margin: 0 0 8px;
+    }
+    .app .chart {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+    .app .chart .grid {
+        stroke: var(--border);
+        stroke-width: 1;
+    }
+    .app .chart .limit {
+        stroke: var(--bad);
+        stroke-width: 1.5;
+        stroke-dasharray: 6 4;
+        opacity: 0.7;
+    }
+    .app .chart .axis {
+        fill: var(--muted);
+        font-size: 21px;
+        font-weight: 400;
+        stroke: none;
+    }
+    .app .chart .area {
+        opacity: 0.16;
+        stroke: none;
+    }
+    .app .chart .line {
+        fill: none;
+        stroke-width: 3.5;
+        stroke-linejoin: round;
+    }
+    .app #info-body h3 {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 14px 0 6px;
     }
     .app .meter .label {
         display: flex;

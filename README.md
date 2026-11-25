@@ -52,7 +52,8 @@ a server.
 
 Once a node is connected the page has the phone apps' layout: **Chats**, **People** and **Node**
 tabs, down the side on a computer and along the foot on a phone, with the node's name and battery at
-the head of each. Before then, it is where a node is connected from: USB, Bluetooth or the demo.
+the head of each. The node card's battery and airtime meters open a chart of each over the past
+week, as this browser heard them (`src/lib/app/readings.ts`). Before then, it is where a node is connected from: USB, Bluetooth or the demo.
 
 It speaks version 20 of the protocol, and any earlier version a node speaks:
 it reads each frame by the version both ends speak, and asks a node for nothing its version does
