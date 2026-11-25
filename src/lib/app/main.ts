@@ -3565,6 +3565,11 @@ function hopRow(id: number | null, snr: number | null, tag: string | null): HTML
     return el("li", {}, b);
 }
 
+/** A status line on a head card: a dot, green for good or amber, and what it says. */
+function heroStatus(text: string, good: boolean): HTMLElement {
+    return el("p", { class: "status" }, el("span", { class: good ? "dot" : "dot warn", "aria-hidden": "true" }), text);
+}
+
 /** The trace dialog: where the trace is, how it ended, and each node out and back. */
 function drawTrace(): void {
     const dialog = $<HTMLDialogElement>("trace");
@@ -3578,31 +3583,34 @@ function drawTrace(): void {
     const ended = run?.ended ?? null;
     const ready = !!c && c.ready && !c.closed && canTrace();
     $("trace-title").textContent = `Trace to ${target}`;
+    // The head card: where the trace is, or how it ended and, answered, its hops and round trip.
+    const state: Child[] = [];
+    if (!canTrace()) {
+        state.push(heroStatus(TRACE_NEEDS_UPDATE, false));
+    } else if (run && tracing(run)) {
+        state.push(el("p", { class: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), traceStepText(run)));
+    } else if (run?.failed) {
+        state.push(heroStatus(`Not traced: ${explain(run.failed)}`, false));
+    } else if (ended) {
+        state.push(heroStatus(traceResultText(ended, target, routingName, isLeaf(c?.neighbours ?? new Map(), to)), answered(ended)));
+        if (answered(ended)) {
+            state.push(el("p", { class: "summary" }, traceSummary(ended)));
+        }
+    }
+    $("trace-state").replaceChildren(...state.filter((x): x is Node | string => !!x));
     const body: Child[] = [el("p", { class: "muted small-print" }, traceExplained(target))];
     // A leaf with no session with this node drops the trace: said before it runs, not only after.
     if (leafNoSession(to) && !ended) {
         body.push(el("p", { class: "muted small-print" }, LEAF_HINT));
     }
-    if (!canTrace()) {
-        body.push(el("p", { class: "note" }, TRACE_NEEDS_UPDATE));
-    } else if (run && tracing(run)) {
-        body.push(el("p", { class: "trace-step" }, el("span", { class: "spinner", "aria-hidden": "true" }), traceStepText(run)));
-    } else if (run?.failed) {
-        body.push(el("p", { class: "bad" }, `Not traced: ${explain(run.failed)}`));
-    } else if (ended) {
-        body.push(el("p", { class: "trace-result" }, traceResultText(ended, target, routingName, isLeaf(c?.neighbours ?? new Map(), to))));
-        if (answered(ended)) {
-            body.push(el("p", { class: "muted" }, traceSummary(ended)));
-        }
-    }
     if (ended && answered(ended)) {
         const out = ended.wayOut.map((h, i) => hopRow(h.routingId, h.snr, i === ended.wayOut.length - 1 ? "answered" : null));
         const back = ended.wayBack.map((h) => hopRow(h.routingId, h.snr, null));
         body.push(
-            el("h3", {}, "Way out"),
-            el("ul", { class: "rows" }, hopRow(null, null, null), ...out),
-            el("h3", {}, "Way back"),
-            el("ul", { class: "rows" }, ...back, hopRow(null, ended.snr, null)),
+            el("h3", { class: "group-head" }, "Way out"),
+            el("ul", { class: "rows group" }, hopRow(null, null, null), ...out),
+            el("h3", { class: "group-head" }, "Way back"),
+            el("ul", { class: "rows group" }, ...back, hopRow(null, ended.snr, null)),
         );
         const self = selfId?.id;
         if ([...ended.wayOut, ...ended.wayBack].some((h) => h.routingId !== self && contactOfId(h.routingId) === null)) {
@@ -3797,36 +3805,51 @@ function drawRange(): void {
     }
     const rows = t ? rangeRows(t.pings, c.messages, c.routes) : [];
     const { delivered, sent } = rangeTally(rows);
-    const status = [
+    // The head card: the tally once there is a log, and how the test stands, as the dashboard's status line.
+    $("range-head").textContent = logged ? `Delivered: ${delivered} of ${sent}` : "Ready";
+    $("range-status").textContent =
         rangeRunning && t
             ? t.pings.length === 0
                 ? "Running: waiting for a position…"
                 : `Running: next in ${Math.max(0, Math.round((t.nextAt - Date.now()) / 1000))} s`
             : logged
               ? "Stopped"
-              : "",
-        logged ? `Delivered: ${delivered} of ${sent}` : "",
-    ].filter(Boolean);
-    $("range-status").textContent = status.join(" · ");
+              : want
+                ? `To ${nameOf(want)}, when you start`
+                : "Choose a contact";
+    $("range-dot").classList.toggle("warn", !(rangeRunning || (!!want && !logged)));
+    const bar = $("range-bar");
+    bar.hidden = !logged || sent === 0;
+    bar.querySelector("i")!.style.width = `${sent > 0 ? (100 * delivered) / sent : 0}%`;
     $("range-no-location").hidden = !rangeNoLocation;
     $("range-needs-update").hidden = canTrace();
+    $("range-log-head").hidden = rows.length === 0;
+    $("range-log").hidden = rows.length === 0;
     $("range-log").replaceChildren(
         ...rows
             .slice()
             .reverse()
-            .map((r) =>
-                el(
+            .map((r) => {
+                // Its number on a badge, coloured for what became of it.
+                const failed = r.ping.unsent !== null || r.state === STATE.notDelivered;
+                const hue = r.state === STATE.delivered ? "good" : failed ? "bad" : "";
+                return el(
                     "li",
                     {},
+                    el("span", { class: `num ${hue}`.trim(), "aria-label": `#${r.ping.n}` }, String(r.ping.n)),
                     el(
                         "span",
                         { class: "row-main" },
-                        el("span", { class: "row-title" }, `#${r.ping.n} · ${new Date(r.ping.at).toLocaleTimeString()}`),
-                        el("span", {}, rangeRowText(r, routingName)),
+                        el(
+                            "span",
+                            { class: "row-line" },
+                            el("span", { class: "row-what" }, rangeRowText(r, routingName)),
+                            el("time", {}, new Date(r.ping.at).toLocaleTimeString()),
+                        ),
                         el("span", { class: "row-sub" }, fixText(r.ping.fix)),
                     ),
-                ),
-            ),
+                );
+            }),
     );
 }
 
@@ -4255,8 +4278,10 @@ function start(): void {
     const bluetoothButton = $<HTMLButtonElement>("connect-bluetooth");
     serialButton.disabled = !serialSupported();
     bluetoothButton.disabled = !bluetoothSupported();
-    // A phone has Bluetooth and no serial port: what the browser has comes first.
-    (serialButton.disabled && !bluetoothButton.disabled ? bluetoothButton : serialButton).classList.add("primary");
+    // A phone has Bluetooth and no serial port: what the browser has comes first, on the head card.
+    const first = serialButton.disabled && !bluetoothButton.disabled ? bluetoothButton : serialButton;
+    first.classList.add("primary");
+    $("connect-first").append(first);
     $("unsupported").hidden = !serialButton.disabled && !bluetoothButton.disabled;
     $("unsupported").textContent =
         serialButton.disabled && bluetoothButton.disabled
